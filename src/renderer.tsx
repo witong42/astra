@@ -218,103 +218,99 @@ function App() {
               />
             </footer>
           </section>
-          {
-            <aside
-              className={`canvas ${canvasVisible ? "" : "hidden"}`}
-              aria-label="Live canvas"
-            >
-              <div className="canvas-heading">
-                <span className="eyebrow">
-                  <span className={`live-indicator ${busy ? "busy" : ""}`} />
-                  LIVE WORKSPACE
-                </span>
-                {workspace.canvas && workspace.canvas.history.length > 0 && (
-                  <select
-                    className="version-picker"
-                    aria-label="Restore canvas version"
-                    value=""
-                    disabled={busy || workspace.canvas.pending.length > 0}
-                    onChange={(event) => {
-                      const index = Number(event.currentTarget.value);
-                      void afterCapture(() =>
-                        window.codexos.restoreCanvas(index),
-                      ).catch(onError);
-                    }}
-                  >
-                    <option value="">
-                      Version {workspace.canvas.generation} · Restore…
-                    </option>
-                    {workspace.canvas.history.map((entry, index) => (
-                      <option key={entry.generation} value={index}>
-                        Restore version {entry.generation}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {snapshot.metrics && snapshot.metrics.patches > 0 && (
-                  <span className="generation-stats">
-                    {snapshot.metrics.firstUI !== null &&
-                      `${(snapshot.metrics.firstUI / 1000).toFixed(1)}s to first view`}
-                    <span> · </span>
-                    {snapshot.metrics.patches} updates
-                    {snapshot.metrics.total !== null
-                      ? " · Saved locally"
-                      : " · Streaming"}
-                  </span>
-                )}
-              </div>
-              <div
-                className={`generated-surface ${hasSurface ? "" : "hidden"}`}
-              >
-                <Surface
-                  key={workspace.id}
-                  workspace={workspace}
-                  patches={snapshot.metrics?.patches ?? 0}
-                  busy={busy}
-                  onAsk={(text) => {
-                    void onSend(text).catch(onError);
+          <aside
+            className={`canvas ${canvasVisible ? "" : "hidden"}`}
+            aria-label="Live canvas"
+          >
+            <div className="canvas-heading">
+              <span className="eyebrow">
+                <span className={`live-indicator ${busy ? "busy" : ""}`} />
+                LIVE WORKSPACE
+              </span>
+              {workspace.canvas && workspace.canvas.history.length > 0 && (
+                <select
+                  className="version-picker"
+                  aria-label="Restore canvas version"
+                  value=""
+                  disabled={busy || workspace.canvas.pending.length > 0}
+                  onChange={(event) => {
+                    const index = Number(event.currentTarget.value);
+                    void afterCapture(() =>
+                      window.codexos.restoreCanvas(index),
+                    ).catch(onError);
                   }}
-                  onError={onError}
-                  handle={surfaceHandle}
-                />
-              </div>
-              {!hasSurface && (
-                <div className="empty-workspace">
-                  <div className="workspace-emblem" aria-hidden="true">
-                    <span>↗</span>
-                  </div>
-                  <p className="eyebrow">SHAPED BY CONVERSATION</p>
-                  <h2>Your live canvas</h2>
-                  <p className="empty-description">
-                    A conversation can become a plan, a table, a dashboard.
-                    <br />
-                    Describe what you need. Your workspace takes shape here.
-                  </p>
-                  <div className="starters">
-                    {STARTERS.map((starter) => (
-                      <button
-                        type="button"
-                        key={starter.title}
-                        disabled={snapshot.status !== "ready"}
-                        onClick={() => onSend(starter.prompt).catch(onError)}
-                      >
-                        <span>
-                          <strong>{starter.title}</strong>
-                          <small>{starter.detail}</small>
-                        </span>
-                        <span className="starter-arrow" aria-hidden="true">
-                          ↗
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="empty-footnote">
-                    Built around your work. Changed by conversation.
-                  </p>
-                </div>
+                >
+                  <option value="">
+                    Version {workspace.canvas.generation} · Restore…
+                  </option>
+                  {workspace.canvas.history.map((entry, index) => (
+                    <option key={entry.generation} value={index}>
+                      Restore version {entry.generation}
+                    </option>
+                  ))}
+                </select>
               )}
-            </aside>
-          }
+              {snapshot.metrics && snapshot.metrics.patches > 0 && (
+                <span className="generation-stats">
+                  {snapshot.metrics.firstUI !== null &&
+                    `${(snapshot.metrics.firstUI / 1000).toFixed(1)}s to first view`}
+                  <span> · </span>
+                  {snapshot.metrics.patches} updates
+                  {snapshot.metrics.total !== null
+                    ? " · Saved locally"
+                    : " · Streaming"}
+                </span>
+              )}
+            </div>
+            <div className={`generated-surface ${hasSurface ? "" : "hidden"}`}>
+              <Surface
+                key={workspace.id}
+                workspace={workspace}
+                patches={snapshot.metrics?.patches ?? 0}
+                busy={busy}
+                onAsk={(text) => {
+                  void onSend(text).catch(onError);
+                }}
+                onError={onError}
+                handle={surfaceHandle}
+              />
+            </div>
+            {!hasSurface && (
+              <div className="empty-workspace">
+                <div className="workspace-emblem" aria-hidden="true">
+                  <span>↗</span>
+                </div>
+                <p className="eyebrow">SHAPED BY CONVERSATION</p>
+                <h2>Your live canvas</h2>
+                <p className="empty-description">
+                  A conversation can become a plan, a table, a dashboard.
+                  <br />
+                  Describe what you need. Your workspace takes shape here.
+                </p>
+                <div className="starters">
+                  {STARTERS.map((starter) => (
+                    <button
+                      type="button"
+                      key={starter.title}
+                      disabled={snapshot.status !== "ready"}
+                      onClick={() => onSend(starter.prompt).catch(onError)}
+                    >
+                      <span>
+                        <strong>{starter.title}</strong>
+                        <small>{starter.detail}</small>
+                      </span>
+                      <span className="starter-arrow" aria-hidden="true">
+                        ↗
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="empty-footnote">
+                  Built around your work. Changed by conversation.
+                </p>
+              </div>
+            )}
+          </aside>
         </div>
       </div>
     </div>

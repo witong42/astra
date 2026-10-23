@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { CanvasAck, CanvasState } from "./canvas";
 
 export type CanvasHandle = { flush: () => Promise<void> };
@@ -19,7 +19,6 @@ export function CanvasSurface({
   state.current = canvas;
   const sent = useRef(-1);
   const ready = useRef(false);
-  const [loaded, setLoaded] = useState(false);
   const captures = useRef(
     new Map<
       string,
@@ -56,7 +55,6 @@ export function CanvasSurface({
       const message = event.data;
       if (message?.type === "canvas:ready") {
         ready.current = true;
-        setLoaded(true);
         sendInitial();
       } else if (message?.type === "canvas:snapshot") {
         const ack: CanvasAck = {
@@ -156,7 +154,7 @@ export function CanvasSurface({
       src="./canvas.html"
       sandbox="allow-scripts"
       title="Live generated canvas"
-      className={`canvas-frame ${loaded ? "loaded" : ""}`}
+      className="canvas-frame"
     />
   );
 }

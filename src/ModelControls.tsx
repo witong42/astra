@@ -110,20 +110,25 @@ function ChoiceMenu({
           const current = options.indexOf(
             document.activeElement as HTMLButtonElement,
           );
-          const next =
-            event.key === "ArrowDown"
-              ? (current + 1) % options.length
-              : event.key === "ArrowUp"
-                ? (current - 1 + options.length) % options.length
-                : event.key === "Home"
-                  ? 0
-                  : event.key === "End"
-                    ? options.length - 1
-                    : null;
-          if (next !== null) {
-            event.preventDefault();
-            options[next]?.focus();
+          let next: number;
+          switch (event.key) {
+            case "ArrowDown":
+              next = (current + 1) % options.length;
+              break;
+            case "ArrowUp":
+              next = (current - 1 + options.length) % options.length;
+              break;
+            case "Home":
+              next = 0;
+              break;
+            case "End":
+              next = options.length - 1;
+              break;
+            default:
+              return;
           }
+          event.preventDefault();
+          options[next]?.focus();
         }}
       >
         <div className="choice-menu-heading">{label}</div>

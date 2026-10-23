@@ -1,9 +1,4 @@
-import {
-  applySpecPatch,
-  createMixedStreamParser,
-  type JsonPatch,
-  type Spec,
-} from "@json-render/core";
+import { applySpecPatch, type JsonPatch, type Spec } from "@json-render/core";
 import { z } from "zod";
 import { catalog } from "./catalog";
 
@@ -159,23 +154,4 @@ export function applySurfacePatch(current: Spec, input: unknown): Spec {
   const candidate = structuredClone(current);
   applySpecPatch(candidate, patch as JsonPatch);
   return validateSurface(candidate);
-}
-
-export class SurfaceStream {
-  private parser;
-  constructor(
-    onPatch: (patch: JsonPatch) => void,
-    onText: (text: string) => void,
-  ) {
-    this.parser = createMixedStreamParser({
-      onPatch,
-      onText: (line) => onText(`${line}\n`),
-    });
-  }
-  push(chunk: string) {
-    this.parser.push(chunk);
-  }
-  flush() {
-    this.parser.flush();
-  }
 }

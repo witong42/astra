@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applySurfacePatch, emptySurface, SurfaceStream } from "../src/surface";
+import { applySurfacePatch, emptySurface } from "../src/surface";
 
 describe("live generated surfaces", () => {
   test("rejects renderer features outside the registered UI contract", () => {
@@ -57,31 +57,6 @@ describe("live generated surfaces", () => {
       }),
     ).toThrow();
   });
-  test("renders complete patches before the model finishes", () => {
-    let spec = emptySurface();
-    let prose = "";
-    const stream = new SurfaceStream(
-      (patch) => {
-        spec = applySurfacePatch(spec, patch);
-      },
-      (text) => {
-        prose += text;
-      },
-    );
-    stream.push(
-      'Here is your view.\n```spec\n{"op":"add","path":"/root","value":"hello"}\n',
-    );
-    stream.push(
-      '{"op":"add","path":"/elements/hello","value":{"type":"Heading","props":{"text":"Hello"}}}',
-    );
-    expect(spec.elements.hello).toBeUndefined();
-    stream.push("\n");
-    expect(spec.elements.hello.props.text).toBe("Hello");
-    stream.push("```\n");
-    stream.flush();
-    expect(prose.trim()).toBe("Here is your view.");
-  });
-
   test("patching layout preserves locally edited data", () => {
     const spec = emptySurface();
     spec.state = {
