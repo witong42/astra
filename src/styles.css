@@ -1252,7 +1252,6 @@ td {
   background: var(--paper);
 }
 .desktop-navigation,
-.desktop-brand,
 .home-button,
 .new-app-button,
 .chat-toggle {
@@ -1263,11 +1262,6 @@ td {
 }
 .desktop-navigation {
   flex: 1;
-}
-.desktop-brand {
-  font-weight: 600;
-  font-size: 15px;
-  letter-spacing: -0.03em;
 }
 .desktop-toolbar .toolbar-actions {
   gap: var(--space-2);

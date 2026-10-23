@@ -210,9 +210,7 @@ function App() {
     <div className={`desktop-app ${home ? "on-home" : "in-app"}`}>
       <header className="toolbar desktop-toolbar">
         <div className="desktop-navigation">
-          {home ? (
-            <div className="desktop-brand">CodexOS</div>
-          ) : (
+          {!home && (
             <>
               <button
                 type="button"
