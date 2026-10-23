@@ -37,6 +37,36 @@ try {
       await client.evaluate('document.activeElement.getAttribute("role")'),
       "option",
     );
+    for (const [key, code] of [
+      ["Home", 36],
+      ["End", 35],
+      ["ArrowUp", 38],
+    ]) {
+      await client.call("Input.dispatchKeyEvent", {
+        type: "keyDown",
+        key,
+        code: key,
+        windowsVirtualKeyCode: code,
+      });
+      const focus = await client.evaluate<{
+        index: number;
+        length: number;
+      }>(`(() => {
+        const options = [...document.querySelector('.choice-menu:popover-open').querySelectorAll('[role=option]')];
+        return {index:options.indexOf(document.activeElement),length:options.length};
+      })()`);
+      const expected =
+        key === "Home"
+          ? 0
+          : key === "End"
+            ? focus.length - 1
+            : (focus.length - 2 + focus.length) % focus.length;
+      assert.equal(
+        focus.index,
+        expected,
+        `${key} must focus the appropriate option`,
+      );
+    }
     await client.call("Input.dispatchKeyEvent", {
       type: "keyDown",
       key: "Escape",

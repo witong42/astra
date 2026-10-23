@@ -11,10 +11,14 @@ try {
     history.append(probe);
     probe.scrollIntoView({block:'end'});
   }`);
-  for (const width of [1440, 960]) {
+  for (const [width, height] of [
+    [1440, 920],
+    [960, 920],
+    [960, 650],
+  ]) {
     await client.call("Emulation.setDeviceMetricsOverride", {
       width,
-      height: 920,
+      height,
       deviceScaleFactor: 1,
       mobile: false,
     });
@@ -53,8 +57,33 @@ try {
       "The canvas must be larger than chat",
     );
     assert.ok(layout.centerError < 2, "The input must be centered within chat");
-    console.log("LAYOUT_VERIFIED", width, JSON.stringify(layout));
+    console.log("LAYOUT_VERIFIED", width, height, JSON.stringify(layout));
   }
+  const canvasFrame = await client.evaluate(`(() => {
+    const frame = document.querySelector('.canvas-frame');
+    window.__layoutFrame = frame;
+    document.querySelector('.canvas-toggle').click();
+    return Boolean(frame);
+  })()`);
+  await Bun.sleep(50);
+  assert.equal(
+    await client.evaluate(
+      "getComputedStyle(document.querySelector('.canvas')).display",
+    ),
+    "none",
+  );
+  await client.evaluate("document.querySelector('.canvas-toggle').click()");
+  await Bun.sleep(50);
+  assert.equal(
+    await client.evaluate(
+      "document.querySelector('.canvas-frame') === window.__layoutFrame",
+    ),
+    true,
+    "Toggling canvas must preserve its iframe and running UI",
+  );
+  assert.equal(canvasFrame, true);
+  await client.evaluate("delete window.__layoutFrame");
+  assert.equal(client.errors.length, 0);
 } finally {
   await client.evaluate(
     "document.getElementById('layout-regression-probe')?.remove()",

@@ -1,3 +1,4 @@
+import { ArrowUpIcon, ArrowUpRightIcon, StopIcon } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { ModelControls } from "./ModelControls";
 import type { Approval, Snapshot, Workspace } from "./types";
@@ -88,9 +89,6 @@ export function Chat({
     <main className="chat-panel" aria-label="Conversation">
       <div className="chat-header">
         <h2>Conversation</h2>
-        <span className="small muted">
-          {busy ? "In progress" : "Make it yours"}
-        </span>
       </div>
       <div
         className="messages"
@@ -101,12 +99,11 @@ export function Chat({
         {workspace.messages.length === 0 && (
           <div className="chat-intro">
             <div className="small-mark" aria-hidden="true">
-              ↗
+              <ArrowUpRightIcon size={24} />
             </div>
-            <h1>What are we working on?</h1>
+            <h1>What are we making?</h1>
             <p>
-              Ask Codex to build a view, work on your project, or change this
-              workspace as you go.
+              Ask a question, work on your code, or bring an idea to the canvas.
             </p>
           </div>
         )}
@@ -180,7 +177,8 @@ export function Composer({
         />
         <div className="composer-bottom">
           <span>
-            ↵ send <span className="muted">· Shift ↵ new line</span>
+            <kbd>↵</kbd> Send{" "}
+            <span className="composer-hint">· Shift ↵ new line</span>
           </span>
           {busy ? (
             <button
@@ -189,7 +187,7 @@ export function Composer({
               aria-label="Stop Codex"
               onClick={() => window.codexos.interrupt().catch(onError)}
             >
-              ■
+              <StopIcon size={12} weight="fill" />
             </button>
           ) : (
             <button
@@ -199,7 +197,7 @@ export function Composer({
               disabled={!draft.trim() || snapshot.status !== "ready"}
               onClick={send}
             >
-              ↑
+              <ArrowUpIcon size={18} />
             </button>
           )}
         </div>

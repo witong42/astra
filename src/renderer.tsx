@@ -1,3 +1,14 @@
+import {
+  ArrowUpRightIcon,
+  CaretDownIcon,
+  FolderSimpleIcon,
+  IconContext,
+  PlusIcon,
+  SidebarSimpleIcon,
+  SquaresFourIcon,
+  TerminalWindowIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { CanvasHandle } from "./CanvasSurface";
@@ -101,15 +112,17 @@ function App() {
             afterCapture(() => window.codexos.newWorkspace()).catch(onError)
           }
         >
-          <span>＋</span> New workspace
+          <PlusIcon /> New workspace
         </button>
-        <div className="sidebar-section-label">YOUR WORKSPACES</div>
+        <div className="sidebar-section-label">Workspaces</div>
         <div className="workspace-list">
           {snapshot.workspaces.map((entry) => (
             <button
               type="button"
               className={`workspace-link ${entry.id === workspace.id ? "active" : ""}`}
               key={entry.id}
+              title={entry.name}
+              aria-current={entry.id === workspace.id ? "page" : undefined}
               disabled={busy && entry.id !== workspace.id}
               onClick={() =>
                 afterCapture(() =>
@@ -118,23 +131,18 @@ function App() {
               }
             >
               <span className="workspace-symbol" aria-hidden="true">
-                {entry.spec.root ? "▦" : "◇"}
+                <SquaresFourIcon />
               </span>
               <span>{entry.name}</span>
             </button>
           ))}
         </div>
         <div className="sidebar-bottom">
-          <div className="account-avatar">W</div>
+          <TerminalWindowIcon />
           <div>
-            <strong>Your workspace</strong>
-            <span>Local · Personal</span>
+            <strong>Codex</strong>
+            <span>Local workspace</span>
           </div>
-          <span
-            className={`status-dot ${snapshot.status}`}
-            role="img"
-            aria-label={snapshot.status}
-          />
         </div>
       </nav>
       <div className="main-area">
@@ -149,13 +157,9 @@ function App() {
                 afterCapture(() => window.codexos.chooseFolder()).catch(onError)
               }
             >
-              <span aria-hidden="true">⌑</span> {folder}{" "}
-              <span aria-hidden="true">⌄</span>
+              <FolderSimpleIcon /> <span>{folder}</span>
+              <CaretDownIcon size={12} />
             </button>
-            <span className="breadcrumb-divider">/</span>
-            <span className="current-title">
-              {workspace.messages.length ? "Workspace" : "New workspace"}
-            </span>
           </div>
           <div className="toolbar-actions">
             <span className="connection-label">
@@ -183,7 +187,7 @@ function App() {
               aria-pressed={canvasVisible}
               onClick={() => setCanvasVisible(!canvasVisible)}
             >
-              Canvas <span aria-hidden="true">◧</span>
+              <SidebarSimpleIcon /> Canvas
             </button>
           </div>
         </header>
@@ -196,7 +200,7 @@ function App() {
                 aria-label="Dismiss error"
                 onClick={() => setError(null)}
               >
-                ×
+                <XIcon />
               </button>
             )}
           </div>
@@ -223,9 +227,9 @@ function App() {
             aria-label="Live canvas"
           >
             <div className="canvas-heading">
-              <span className="eyebrow">
+              <span className="canvas-label">
                 <span className={`live-indicator ${busy ? "busy" : ""}`} />
-                LIVE WORKSPACE
+                Canvas
               </span>
               {workspace.canvas && workspace.canvas.history.length > 0 && (
                 <select
@@ -251,14 +255,13 @@ function App() {
                 </select>
               )}
               {snapshot.metrics && snapshot.metrics.patches > 0 && (
-                <span className="generation-stats">
-                  {snapshot.metrics.firstUI !== null &&
-                    `${(snapshot.metrics.firstUI / 1000).toFixed(1)}s to first view`}
-                  <span> · </span>
-                  {snapshot.metrics.patches} updates
-                  {snapshot.metrics.total !== null
-                    ? " · Saved locally"
-                    : " · Streaming"}
+                <span
+                  className="generation-stats"
+                  title={`${snapshot.metrics.patches} updates${snapshot.metrics.firstUI === null ? "" : ` · ${(snapshot.metrics.firstUI / 1000).toFixed(1)}s to first view`}`}
+                >
+                  {snapshot.metrics.total === null
+                    ? "Updating canvas…"
+                    : "Saved locally"}
                 </span>
               )}
             </div>
@@ -278,14 +281,12 @@ function App() {
             {!hasSurface && (
               <div className="empty-workspace">
                 <div className="workspace-emblem" aria-hidden="true">
-                  <span>↗</span>
+                  <SquaresFourIcon size={28} weight="light" />
                 </div>
-                <p className="eyebrow">SHAPED BY CONVERSATION</p>
                 <h2>Your live canvas</h2>
                 <p className="empty-description">
-                  A conversation can become a plan, a table, a dashboard.
-                  <br />
-                  Describe what you need. Your workspace takes shape here.
+                  Build a dashboard, explore an idea, or make something
+                  interactive.
                 </p>
                 <div className="starters">
                   {STARTERS.map((starter) => (
@@ -300,14 +301,11 @@ function App() {
                         <small>{starter.detail}</small>
                       </span>
                       <span className="starter-arrow" aria-hidden="true">
-                        ↗
+                        <ArrowUpRightIcon />
                       </span>
                     </button>
                   ))}
                 </div>
-                <p className="empty-footnote">
-                  Built around your work. Changed by conversation.
-                </p>
               </div>
             )}
           </aside>
@@ -318,4 +316,11 @@ function App() {
 }
 
 const container = document.getElementById("root");
-if (container) createRoot(container).render(<App />);
+if (container)
+  createRoot(container).render(
+    <IconContext.Provider
+      value={{ size: 16, weight: "regular", "aria-hidden": true }}
+    >
+      <App />
+    </IconContext.Provider>,
+  );

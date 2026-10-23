@@ -1,3 +1,9 @@
+import {
+  CaretDownIcon,
+  CheckIcon,
+  LightningIcon,
+  SlidersHorizontalIcon,
+} from "@phosphor-icons/react";
 import { useId, useRef, useState } from "react";
 import type { Snapshot } from "./types";
 
@@ -47,40 +53,10 @@ function ChoiceMenu({
             });
         }}
       >
-        {icon && (
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path
-              d={
-                icon === "reasoning"
-                  ? "M4 17h4M4 12h9M4 7h16M12 17h8M17 12h3"
-                  : "m13 2-9 12h7l-1 8 10-13h-7l1-7Z"
-              }
-            />
-          </svg>
-        )}
+        {icon === "reasoning" && <SlidersHorizontalIcon size={14} />}
+        {icon === "speed" && <LightningIcon size={14} />}
         <span>{selected?.label ?? "Default"}</span>
-        <svg
-          className="choice-chevron"
-          width="10"
-          height="10"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          aria-hidden="true"
-        >
-          <path d="m4 6 4 4 4-4" />
-        </svg>
+        <CaretDownIcon className="choice-chevron" size={10} />
       </button>
       <div
         ref={menu}
@@ -152,7 +128,7 @@ function ChoiceMenu({
               {choice.description && <small>{choice.description}</small>}
             </span>
             <span className="choice-check" aria-hidden="true">
-              {choice.value === value ? "✓" : ""}
+              {choice.value === value && <CheckIcon size={14} />}
             </span>
           </button>
         ))}
