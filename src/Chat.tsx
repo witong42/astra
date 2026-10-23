@@ -1,13 +1,21 @@
 import { ArrowUpIcon, ArrowUpRightIcon, StopIcon } from "@phosphor-icons/react";
-import { useEffect, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { ModelControls } from "./ModelControls";
 import type { Approval, Snapshot, Workspace } from "./types";
 
 function ApprovalPanel({
   approval,
+  workspaceId,
   onError,
 }: {
   approval: Approval;
+  workspaceId: string;
   onError: (error: unknown) => void;
 }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -52,7 +60,11 @@ function ApprovalPanel({
         {approval.kind !== "question" && (
           <button
             type="button"
-            onClick={() => window.codexos.answer(false).catch(onError)}
+            onClick={() =>
+              window.codexos
+                .answer(false, undefined, workspaceId, approval.id)
+                .catch(onError)
+            }
           >
             Decline
           </button>
@@ -60,7 +72,11 @@ function ApprovalPanel({
         <button
           type="button"
           className="primary"
-          onClick={() => window.codexos.answer(true, answers).catch(onError)}
+          onClick={() =>
+            window.codexos
+              .answer(true, answers, workspaceId, approval.id)
+              .catch(onError)
+          }
         >
           {approval.kind === "question" ? "Send answer" : "Allow once"}
         </button>
@@ -129,6 +145,7 @@ export function Chat({
           <ApprovalPanel
             key={snapshot.approval.id}
             approval={snapshot.approval}
+            workspaceId={workspace.id}
             onError={onError}
           />
         )}
@@ -139,31 +156,52 @@ export function Chat({
 
 export function Composer({
   snapshot,
+  workspaceId,
+  draft,
+  onDraftChange,
   onSend,
   onError,
 }: {
   snapshot: Snapshot;
+  workspaceId: string;
+  draft: string;
+  onDraftChange: Dispatch<SetStateAction<string>>;
   onSend: (text: string) => Promise<void>;
   onError: (error: unknown) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const sending = useRef(false);
+  const [pending, setPending] = useState(false);
   const busy = snapshot.status === "working";
+  const connected = snapshot.status === "ready" || busy;
   const send = () => {
-    if (!draft.trim() || snapshot.status !== "ready") return;
-    onSend(draft.trim())
-      .then(() => setDraft(""))
-      .catch(onError);
+    if (!draft.trim() || !connected || sending.current) return;
+    const submitted = draft;
+    sending.current = true;
+    setPending(true);
+    onSend(submitted.trim())
+      .then(() =>
+        onDraftChange((current) => (current === submitted ? "" : current)),
+      )
+      .catch(onError)
+      .finally(() => {
+        sending.current = false;
+        setPending(false);
+      });
   };
   return (
     <div className="composer-area">
       <div className="composer">
         <textarea
           aria-label="Message Codex"
-          placeholder="Ask Codex, or describe a view…"
+          placeholder={
+            busy
+              ? "Guide Codex while it works…"
+              : "Ask Codex, or describe a view…"
+          }
           value={draft}
           maxLength={24_000}
           rows={3}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => onDraftChange(event.target.value)}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" &&
@@ -177,29 +215,34 @@ export function Composer({
         />
         <div className="composer-bottom">
           <span>
-            <kbd>↵</kbd> Send{" "}
+            <kbd>↵</kbd> {busy ? "Steer" : "Send"}{" "}
             <span className="composer-hint">· Shift ↵ new line</span>
           </span>
-          {busy ? (
-            <button
-              type="button"
-              className="send-button stop"
-              aria-label="Stop Codex"
-              onClick={() => window.codexos.interrupt().catch(onError)}
-            >
-              <StopIcon size={12} weight="fill" />
-            </button>
-          ) : (
+          <div className="composer-actions">
+            {busy && (
+              <button
+                type="button"
+                className="stop-button"
+                aria-label="Stop Codex"
+                title="Stop this session"
+                onClick={() =>
+                  window.codexos.interrupt(workspaceId).catch(onError)
+                }
+              >
+                <StopIcon size={12} weight="fill" />
+              </button>
+            )}
             <button
               type="button"
               className="send-button"
-              aria-label="Send message"
-              disabled={!draft.trim() || snapshot.status !== "ready"}
+              aria-label={busy ? "Send guidance" : "Send message"}
+              title={busy ? "Steer the current turn" : "Send message"}
+              disabled={!draft.trim() || !connected || pending}
               onClick={send}
             >
               <ArrowUpIcon size={18} />
             </button>
-          )}
+          </div>
         </div>
       </div>
       <ModelControls snapshot={snapshot} onError={onError} />

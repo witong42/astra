@@ -144,13 +144,18 @@ export function ModelControls({
   snapshot: Snapshot;
   onError: (error: unknown) => void;
 }) {
-  const model = snapshot.models.find((entry) => entry.model === snapshot.model);
   const busy = snapshot.status === "working";
+  const selection = busy
+    ? (snapshot.sessions[snapshot.activeId]?.settings ?? snapshot)
+    : snapshot;
+  const model = snapshot.models.find(
+    (entry) => entry.model === selection.model,
+  );
   return (
     <div className="model-controls">
       <ChoiceMenu
         label="Model"
-        value={snapshot.model}
+        value={selection.model}
         choices={snapshot.models.map((entry) => ({
           value: entry.model,
           label: entry.displayName || entry.model,
@@ -161,7 +166,7 @@ export function ModelControls({
       />
       <ChoiceMenu
         label="Reasoning effort"
-        value={snapshot.reasoningEffort}
+        value={selection.reasoningEffort}
         icon="reasoning"
         choices={
           model?.supportedReasoningEfforts?.map((entry) => ({
@@ -180,7 +185,7 @@ export function ModelControls({
       />
       <ChoiceMenu
         label="Model speed"
-        value={snapshot.serviceTier}
+        value={selection.serviceTier}
         icon="speed"
         choices={[
           {

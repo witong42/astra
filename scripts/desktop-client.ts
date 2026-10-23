@@ -1,4 +1,4 @@
-type Target = { url: string; webSocketDebuggerUrl: string };
+type Target = { id: string; url: string; webSocketDebuggerUrl: string };
 type Response = {
   id?: number;
   result?: Record<string, unknown>;
@@ -7,11 +7,14 @@ type Response = {
   params?: Record<string, unknown>;
 };
 
-export async function desktopClient(surface: "app" | "canvas" = "app") {
+export async function desktopClient(
+  surface: "app" | "canvas" = "app",
+  workspaceId?: string,
+) {
   const targets = (await (
     await fetch("http://127.0.0.1:9337/json/list")
   ).json()) as Target[];
-  const target = targets.find(
+  const candidates = targets.filter(
     (entry) =>
       entry.url.endsWith(
         surface === "app" ? "/dist/index.html" : "/dist/canvas.html",
@@ -19,10 +22,34 @@ export async function desktopClient(surface: "app" | "canvas" = "app") {
       (entry.url.includes("/Projects/CodexOS/") ||
         entry.url.startsWith("file:///Applications/CodexOS.app/")),
   );
-  if (!target)
+  if (surface === "canvas") {
+    const app = await desktopClient("app");
+    let selected = workspaceId;
+    try {
+      selected ??= await app.evaluate<string>(
+        "document.querySelector('.generated-surface:not(.background-surface) .canvas-frame')?.name ?? document.querySelector('.canvas-frame')?.name",
+      );
+    } finally {
+      app.close();
+    }
+    for (const target of candidates) {
+      const client = await connectTarget(target);
+      if ((await client.evaluate<string>("window.name")) === selected)
+        return client;
+      client.close();
+    }
+    throw new Error(
+      `No live canvas exists for workspace ${selected}. Select it or wait for its frame to load.`,
+    );
+  }
+  if (!candidates[0])
     throw new Error(
       "Open the CodexOS test build with --remote-debugging-port=9337 first.",
     );
+  return connectTarget(candidates[0]);
+}
+
+async function connectTarget(target: Target) {
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise<void>((resolve, reject) => {
     ws.onopen = () => resolve();

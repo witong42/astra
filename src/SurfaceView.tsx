@@ -1,5 +1,12 @@
 import { createStateStore, JSONUIProvider, Renderer } from "@json-render/react";
-import { Component, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  Component,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { type CanvasHandle, CanvasSurface } from "./CanvasSurface";
 import { AgentActionContext, registry } from "./registry";
 import type { Workspace } from "./types";
@@ -95,19 +102,29 @@ function LegacySurface({
 }
 
 export function Surface(
-  props: Parameters<typeof LegacySurface>[0] & {
+  props: Omit<Parameters<typeof LegacySurface>[0], "onAsk" | "onError"> & {
     handle: React.RefObject<CanvasHandle | null>;
+    onAsk: (text: string, workspaceId: string) => void;
+    onError: (workspaceId: string, error: unknown) => void;
   },
 ) {
+  const id = props.workspace.id;
+  const onError = useCallback(
+    (error: unknown) => props.onError(id, error),
+    [id, props.onError],
+  );
+  const onAsk = useCallback(
+    (text: string) => props.onAsk(text, id),
+    [id, props.onAsk],
+  );
   return props.workspace.canvas ? (
     <CanvasSurface
-      key={props.workspace.id}
-      id={props.workspace.id}
+      id={id}
       canvas={props.workspace.canvas}
-      onError={props.onError}
+      onError={onError}
       handle={props.handle}
     />
   ) : (
-    <LegacySurface {...props} />
+    <LegacySurface {...props} onAsk={onAsk} onError={onError} />
   );
 }

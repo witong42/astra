@@ -153,6 +153,7 @@ export function CanvasSurface({
   return (
     <iframe
       ref={frame}
+      name={id}
       src="./canvas.html"
       sandbox="allow-scripts"
       title="Live generated canvas"

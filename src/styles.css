@@ -192,7 +192,9 @@ h3 {
   color: #b8bdb0;
   font-size: 12px;
 }
-.workspace-link > span:last-child {
+.workspace-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -208,6 +210,7 @@ h3 {
   background: #3d4336;
 }
 .workspace-symbol {
+  flex-shrink: 0;
   display: flex;
   color: #919b83;
 }
@@ -1179,4 +1182,45 @@ td {
   display: flex;
   min-width: 14px;
   color: #536c46;
+}
+
+.workspace-activity {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #a4b98d;
+}
+.workspace-activity.waiting {
+  background: #e0ad64;
+}
+.canvas-content {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.generated-surface.background-surface {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.stop-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+}
+.stop-button:hover {
+  background: var(--hover);
+  color: var(--ink);
 }
