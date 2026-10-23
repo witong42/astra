@@ -58,6 +58,7 @@ const commandsPath = ${JSON.stringify(commandsPath)};
 const wirePath = ${JSON.stringify(wirePath)};
 const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
 const record = value => appendFileSync(wirePath, JSON.stringify(value) + '\\n');
+record({argv:process.argv.slice(2)});
 const turns = new Map();
 const pendingStarts = [];
 let holdStarts = false;
@@ -194,6 +195,44 @@ setInterval(() => {
     },
   };
 }
+
+test("CodexOS grants full access to new and saved sessions without changing model settings", () =>
+  withBackend(async ({ backend, a, b, workspace, requests, readWire }) => {
+    const startup = readWire().find((message) => "argv" in message) as
+      | { argv: string[] }
+      | undefined;
+    expect(startup?.argv).toEqual([
+      "app-server",
+      "--listen",
+      "stdio://",
+      "-c",
+      'approval_policy="never"',
+      "-c",
+      'sandbox_mode="danger-full-access"',
+    ]);
+    workspace(b).threadId = "saved-thread";
+    await backend.send("Create A", a);
+    await backend.send("Continue B", b);
+    for (const method of ["thread/start", "thread/resume"]) {
+      const params = requests(method)[0]?.params;
+      expect(params).toMatchObject({
+        approvalPolicy: "never",
+        sandbox: "danger-full-access",
+      });
+      expect(params?.developerInstructions).toContain(
+        "waived routine specification, plan, mockup, and per-step approval gates",
+      );
+    }
+    expect(requests("thread/resume")[0]?.params?.threadId).toBe("saved-thread");
+    for (const request of requests("turn/start"))
+      expect(request.params).toMatchObject({
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "dangerFullAccess" },
+        model: backend.state.model,
+        effort: backend.state.reasoningEffort,
+        serviceTierForTurn: backend.state.serviceTier,
+      });
+  }));
 
 test("creating and switching workspaces stays available while another session runs", () =>
   withBackend(async ({ backend, a, b, session }) => {

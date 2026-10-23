@@ -36,6 +36,9 @@ const MAX_MESSAGES = 80;
 const MAX_WORKSPACES = 20;
 const PROMPT_LIMIT = 24_000;
 const UI_CONTEXT_LIMIT = 600_000;
+const APPROVAL_POLICY = "never";
+const SANDBOX_MODE = "danger-full-access";
+const SANDBOX_POLICY = { type: "dangerFullAccess" } as const;
 const questionsSchema = z.array(
   z.object({
     id: z.string(),
@@ -232,15 +235,27 @@ export class CodexBackend {
       encoding: "utf8",
       timeout: 10_000,
     }).trim();
-    const child = spawn(executable, ["app-server", "--listen", "stdio://"], {
-      cwd: this.workspace.cwd,
-      env: {
-        ...process.env,
-        CODEX_HOME: join(homedir(), ".codex"),
-        PATH: `${join(homedir(), ".local/bin")}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+    const child = spawn(
+      executable,
+      [
+        "app-server",
+        "--listen",
+        "stdio://",
+        "-c",
+        `approval_policy="${APPROVAL_POLICY}"`,
+        "-c",
+        `sandbox_mode="${SANDBOX_MODE}"`,
+      ],
+      {
+        cwd: this.workspace.cwd,
+        env: {
+          ...process.env,
+          CODEX_HOME: join(homedir(), ".codex"),
+          PATH: `${join(homedir(), ".local/bin")}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
       },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    );
     this.child = child;
     const rpc = new RpcPeer(
       child.stdout,
@@ -445,6 +460,8 @@ export class CodexBackend {
             {
               cwd: workspace.cwd,
               model: settings.model,
+              approvalPolicy: APPROVAL_POLICY,
+              sandbox: SANDBOX_MODE,
               developerInstructions: CANVAS_INSTRUCTIONS,
             },
           );
@@ -454,6 +471,8 @@ export class CodexBackend {
           await rpc.request("thread/resume", {
             threadId: workspace.threadId,
             excludeTurns: true,
+            approvalPolicy: APPROVAL_POLICY,
+            sandbox: SANDBOX_MODE,
             developerInstructions: CANVAS_INSTRUCTIONS,
           });
           this.loaded.add(workspace.threadId);
@@ -467,6 +486,8 @@ export class CodexBackend {
           {
             threadId: workspace.threadId,
             ...settings,
+            approvalPolicy: APPROVAL_POLICY,
+            sandboxPolicy: SANDBOX_POLICY,
             input: turnInput,
           },
         );
