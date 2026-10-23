@@ -11,8 +11,8 @@ const bridge: Bridge = {
     ipcRenderer.on("codexos:snapshot", listener);
     return () => ipcRenderer.removeListener("codexos:snapshot", listener);
   },
-  send: (text) => invoke("send", text),
-  interrupt: () => invoke("interrupt"),
+  send: (text, workspaceId) => invoke("send", text, workspaceId),
+  interrupt: (workspaceId) => invoke("interrupt", workspaceId),
   newWorkspace: () => invoke("newWorkspace"),
   selectWorkspace: (id) => invoke("selectWorkspace", id),
   chooseFolder: () => invoke("chooseFolder"),
@@ -22,8 +22,10 @@ const bridge: Bridge = {
   setReasoningEffort: (effort) => invoke("setReasoningEffort", effort),
   setServiceTier: (tier) => invoke("setServiceTier", tier),
   updateCanvas: (id, ack) => invoke("updateCanvas", id, ack),
-  restoreCanvas: (index) => invoke("restoreCanvas", index),
-  answer: (allow, answers) => invoke("answer", allow, answers),
+  restoreCanvas: (index, workspaceId) =>
+    invoke("restoreCanvas", index, workspaceId),
+  answer: (allow, answers, workspaceId, approvalId) =>
+    invoke("answer", allow, answers, workspaceId, approvalId),
   reconnect: () => invoke("reconnect"),
   openExternal: (url) => invoke("openExternal", url),
 };

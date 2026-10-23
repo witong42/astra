@@ -50,7 +50,20 @@ export type Metrics = {
   total: number | null;
   patches: number;
 };
+export type SessionStatus = {
+  busy: boolean;
+  activity: string;
+  approval: Approval | null;
+  error: string | null;
+  metrics: Metrics | null;
+  settings: {
+    model: string;
+    reasoningEffort: string;
+    serviceTier: string;
+  } | null;
+};
 export type Snapshot = SavedState & {
+  sessions: Record<string, SessionStatus>;
   status: "connecting" | "ready" | "working" | "offline";
   activity: string;
   account: string;
@@ -63,8 +76,8 @@ export type Snapshot = SavedState & {
 export type Bridge = {
   snapshot: () => Promise<Snapshot>;
   subscribe: (listener: (snapshot: Snapshot) => void) => () => void;
-  send: (text: string) => Promise<void>;
-  interrupt: () => Promise<void>;
+  send: (text: string, workspaceId?: string) => Promise<void>;
+  interrupt: (workspaceId?: string) => Promise<void>;
   newWorkspace: () => Promise<void>;
   selectWorkspace: (id: string) => Promise<void>;
   chooseFolder: () => Promise<void>;
@@ -77,8 +90,13 @@ export type Bridge = {
     value: unknown,
   ) => Promise<void>;
   updateCanvas: (workspaceId: string, ack: CanvasAck) => Promise<void>;
-  restoreCanvas: (index: number) => Promise<void>;
-  answer: (allow: boolean, answers?: Record<string, string>) => Promise<void>;
+  restoreCanvas: (index: number, workspaceId?: string) => Promise<void>;
+  answer: (
+    allow: boolean,
+    answers?: Record<string, string>,
+    workspaceId?: string,
+    approvalId?: string | number,
+  ) => Promise<void>;
   reconnect: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
 };

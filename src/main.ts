@@ -25,6 +25,9 @@ const DATA_DIRECTORY =
 const SNAPSHOT_INTERVAL_MS = 40;
 const SAVE_INTERVAL_MS = 300;
 const FLUSH_TIMEOUT_MS = 5000;
+const HIDDEN_TEST_WINDOW =
+  process.env.CODEXOS_TEST_HIDDEN === "1" &&
+  Boolean(process.env.CODEXOS_DATA_DIR);
 let window: BrowserWindow | null = null;
 let backend: CodexBackend;
 let latest: Snapshot | null = null;
@@ -81,8 +84,15 @@ function installHandlers() {
     });
   };
   handle("snapshot", () => backend.snapshot());
-  handle("send", (text) => backend.send(z.string().max(24_000).parse(text)));
-  handle("interrupt", () => backend.interrupt());
+  handle("send", (text, workspaceId) =>
+    backend.send(
+      z.string().max(24_000).parse(text),
+      z.string().uuid().optional().parse(workspaceId),
+    ),
+  );
+  handle("interrupt", (workspaceId) =>
+    backend.interrupt(z.string().uuid().optional().parse(workspaceId)),
+  );
   handle("newWorkspace", () => backend.createWorkspace());
   handle("selectWorkspace", (id) =>
     backend.selectWorkspace(z.string().uuid().parse(id)),
@@ -109,15 +119,23 @@ function installHandlers() {
       canvasAckSchema.parse(ack),
     ),
   );
-  handle("restoreCanvas", (index) =>
-    backend.restoreCanvas(z.number().int().nonnegative().parse(index)),
+  handle("restoreCanvas", (index, workspaceId) =>
+    backend.restoreCanvas(
+      z.number().int().nonnegative().parse(index),
+      z.string().uuid().optional().parse(workspaceId),
+    ),
   );
-  handle("answer", (allow, answers) =>
+  handle("answer", (allow, answers, workspaceId, approvalId) =>
     backend.answer(
       z.boolean().parse(allow),
       answers === undefined
         ? undefined
         : z.record(z.string(), z.string().max(8_000)).parse(answers),
+      z.string().uuid().optional().parse(workspaceId),
+      z
+        .union([z.string().max(300), z.number().int()])
+        .optional()
+        .parse(approvalId),
     ),
   );
   handle("reconnect", () => backend.connect());
@@ -202,13 +220,16 @@ async function createWindow() {
   window.on("closed", () => {
     window = null;
   });
-  window.once("ready-to-show", () => window?.show());
+  window.once("ready-to-show", () => {
+    if (!HIDDEN_TEST_WINDOW) window?.show();
+  });
   await window.loadURL(pathToFileURL(join(bundleDirectory, "index.html")).href);
 }
 
 app
   .whenReady()
   .then(async () => {
+    if (HIDDEN_TEST_WINDOW) app.dock?.hide();
     mkdirSync(DATA_DIRECTORY, { recursive: true, mode: 0o700 });
     const cwd = existsSync(__PROJECT_ROOT__) ? __PROJECT_ROOT__ : homedir();
     const state = loadState(join(DATA_DIRECTORY, "workspace.json"), cwd);

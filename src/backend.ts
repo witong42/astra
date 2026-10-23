@@ -21,9 +21,11 @@ import { newWorkspace } from "./storage";
 import { applySurfacePatch } from "./surface";
 import type {
   Approval,
+  Metrics,
   Model,
   Question,
   SavedState,
+  SessionStatus,
   Snapshot,
   Workspace,
 } from "./types";
@@ -60,21 +62,48 @@ export function findCodex() {
   return path;
 }
 
+type Session = {
+  busy: boolean;
+  activity: string;
+  error: string | null;
+  metrics: Metrics | null;
+  turnId: string | null;
+  initialReplyId: string | null;
+  replies: Map<string, string>;
+  streams: Map<string, CanvasStream>;
+  approvalQueue: { approval: Approval; params: Record<string, unknown> }[];
+  canvasMutated: boolean;
+  canvasBaseRevision: number;
+  fileChanges: Map<string, string>;
+  starting: Promise<void> | null;
+  settings: SessionStatus["settings"];
+};
+function newSession(): Session {
+  return {
+    busy: false,
+    activity: "Ready",
+    error: null,
+    metrics: null,
+    turnId: null,
+    initialReplyId: null,
+    replies: new Map(),
+    streams: new Map(),
+    approvalQueue: [],
+    canvasMutated: false,
+    canvasBaseRevision: 0,
+    fileChanges: new Map(),
+    starting: null,
+    settings: null,
+  };
+}
+
 export class CodexBackend {
   readonly state: Snapshot;
   private child: ChildProcessWithoutNullStreams | null = null;
   private rpc: RpcPeer | null = null;
   private loaded = new Set<string>();
-  private turnId: string | null = null;
-  private activeMessageId: string | null = null;
-  private streams = new Map<string, CanvasStream>();
-  private approvalQueue: {
-    approval: Approval;
-    params: Record<string, unknown>;
-  }[] = [];
-  private canvasMutated = false;
-  private canvasBaseRevision = 0;
-  private fileChanges = new Map<string, string>();
+  private sessions = new Map<string, Session>();
+  private connectionError: string | null = null;
   private starting: Promise<void> | null = null;
   private stopping = false;
 
@@ -85,6 +114,7 @@ export class CodexBackend {
   ) {
     this.state = {
       ...saved,
+      sessions: {},
       status: "connecting",
       activity: "Connecting to Codex",
       account: "",
@@ -105,7 +135,48 @@ export class CodexBackend {
     return structuredClone(this.state);
   }
 
+  private findWorkspace(id: string): Workspace {
+    const workspace = this.state.workspaces.find((entry) => entry.id === id);
+    if (!workspace)
+      throw new Error("Workspace not found. Reopen a saved workspace.");
+    return workspace;
+  }
+
+  private sessionFor(id: string): Session {
+    let session = this.sessions.get(id);
+    if (!session) {
+      session = newSession();
+      this.sessions.set(id, session);
+    }
+    return session;
+  }
+
+  private projectSessions() {
+    const active = this.sessionFor(this.state.activeId);
+    this.state.sessions = Object.fromEntries(
+      [...this.sessions].map(([id, session]) => [
+        id,
+        {
+          busy: session.busy,
+          activity: session.activity,
+          error: session.error,
+          metrics: session.metrics,
+          approval: session.approvalQueue[0]?.approval ?? null,
+          settings: session.settings,
+        },
+      ]),
+    );
+    if (this.state.status === "ready" || this.state.status === "working") {
+      this.state.status = active.busy ? "working" : "ready";
+      this.state.activity = active.activity;
+    }
+    this.state.approval = active.approvalQueue[0]?.approval ?? null;
+    this.state.metrics = active.metrics;
+    this.state.error = this.connectionError ?? active.error;
+  }
+
   private changed() {
+    this.projectSessions();
     const {
       version,
       activeId,
@@ -143,7 +214,7 @@ export class CodexBackend {
     if (this.child) await this.stop();
     this.stopping = false;
     this.state.status = "connecting";
-    this.state.error = null;
+    this.connectionError = null;
     this.state.activity = "Connecting to Codex";
     this.changed();
     const executable = findCodex();
@@ -168,7 +239,11 @@ export class CodexBackend {
         try {
           this.handleEvent(message);
         } catch {
-          this.state.error =
+          const workspace =
+            this.state.workspaces.find(
+              (entry) => entry.threadId === message.params?.threadId,
+            ) ?? this.workspace;
+          this.sessionFor(workspace.id).error =
             "Codex sent an unsupported request. Reconnect to continue.";
           if (message.id !== undefined)
             rpc.write({
@@ -227,113 +302,222 @@ export class CodexBackend {
     this.changed();
   }
 
+  private resetSessions() {
+    for (const session of this.sessions.values()) {
+      session.busy = false;
+      session.turnId = null;
+      session.approvalQueue = [];
+      session.streams.clear();
+      session.activity = "Disconnected";
+      if (session.metrics && session.metrics.total === null)
+        session.metrics.total = Date.now() - session.metrics.startedAt;
+    }
+  }
+
   private disconnected(error: Error) {
     this.rpc?.close(error);
     this.state.status = "offline";
-    this.state.error = error.message;
+    this.connectionError = error.message;
     this.state.activity = "Disconnected";
-    this.state.approval = null;
-    this.approvalQueue = [];
+    this.resetSessions();
     this.loaded.clear();
     this.changed();
   }
 
-  async send(input: string) {
+  private surfaceInput(text: string, workspace: Workspace) {
+    const context = JSON.stringify(
+      workspace.canvas
+        ? {
+            html: workspace.canvas.html,
+            css: workspace.canvas.css,
+            generation: workspace.canvas.generation,
+          }
+        : { legacySurface: workspace.spec },
+    );
+    if (context.length > UI_CONTEXT_LIMIT)
+      throw new Error(
+        "This workspace is too large for live UI editing. Start a new workspace to keep generation fast.",
+      );
+    return [
+      {
+        type: "text",
+        text: `${text}\n\n<codexos_current_surface_data>\n${context}\n</codexos_current_surface_data>`,
+      },
+    ];
+  }
+
+  async send(input: string, workspaceId = this.state.activeId) {
     const text = z.string().trim().min(1).max(PROMPT_LIMIT).parse(input);
-    if (this.state.status !== "ready" || !this.rpc)
-      throw new Error("Wait for Codex to finish or reconnect first.");
-    this.state.status = "working";
-    this.state.activity = "Thinking";
-    this.state.error = null;
-    this.state.metrics = {
+    if (
+      !this.rpc ||
+      this.state.status === "connecting" ||
+      this.state.status === "offline"
+    )
+      throw new Error("Reconnect to Codex before sending a message.");
+    const workspace = this.findWorkspace(workspaceId);
+    const current = this.sessionFor(workspaceId);
+    if (current.busy) {
+      await current.starting;
+      if (
+        !current.busy ||
+        !current.turnId ||
+        this.sessions.get(workspaceId) !== current
+      )
+        throw new Error(
+          "That turn finished before your guidance was sent. Send it again to start a new turn.",
+        );
+      const message = { id: crypto.randomUUID(), role: "user" as const, text };
+      const input = this.surfaceInput(text, workspace);
+      workspace.messages.push(message);
+      current.error = null;
+      this.changed();
+      try {
+        await this.rpc.request("turn/steer", {
+          threadId: workspace.threadId,
+          expectedTurnId: current.turnId,
+          clientUserMessageId: message.id,
+          input,
+        });
+        workspace.messages = workspace.messages.slice(-MAX_MESSAGES);
+        this.changed();
+      } catch (error) {
+        workspace.messages = workspace.messages.filter(
+          (entry) => entry.id !== message.id,
+        );
+        current.error = `Guidance was not sent: ${String(error)}`;
+        this.changed();
+        throw error;
+      }
+      return;
+    }
+    const session = newSession();
+    session.busy = true;
+    session.activity = "Thinking";
+    session.metrics = {
       startedAt: Date.now(),
       firstUI: null,
       total: null,
       patches: 0,
     };
-    this.streams.clear();
-    this.canvasMutated = false;
-    this.canvasBaseRevision = this.workspace.canvas?.revision ?? 0;
-    this.fileChanges.clear();
-    const workspace = this.workspace;
+    session.canvasBaseRevision = workspace.canvas?.revision ?? 0;
+    const turnInput = this.surfaceInput(text, workspace);
     if (workspace.messages.length === 0) workspace.name = text.slice(0, 70);
     workspace.messages.push({ id: crypto.randomUUID(), role: "user", text });
-    this.activeMessageId = crypto.randomUUID();
+    session.initialReplyId = crypto.randomUUID();
     workspace.messages.push({
-      id: this.activeMessageId,
+      id: session.initialReplyId,
       role: "assistant",
       text: "",
     });
     workspace.messages = workspace.messages.slice(-MAX_MESSAGES);
+    this.sessions.set(workspaceId, session);
+    const settings = {
+      model: this.state.model,
+      effort: this.state.reasoningEffort || undefined,
+      serviceTierForTurn: this.state.serviceTier,
+    };
+    session.settings = {
+      model: settings.model,
+      reasoningEffort: this.state.reasoningEffort,
+      serviceTier: this.state.serviceTier,
+    };
+    const rpc = this.rpc;
     this.changed();
-    try {
-      if (!workspace.threadId) {
-        const result = await this.rpc.request<{ thread: { id: string } }>(
-          "thread/start",
-          {
-            cwd: workspace.cwd,
-            model: this.state.model,
+    session.starting = (async () => {
+      try {
+        if (!workspace.threadId) {
+          const result = await rpc.request<{ thread: { id: string } }>(
+            "thread/start",
+            {
+              cwd: workspace.cwd,
+              model: settings.model,
+              developerInstructions: CANVAS_INSTRUCTIONS,
+            },
+          );
+          workspace.threadId = result.thread.id;
+          this.loaded.add(workspace.threadId);
+        } else if (!this.loaded.has(workspace.threadId)) {
+          await rpc.request("thread/resume", {
+            threadId: workspace.threadId,
+            excludeTurns: true,
             developerInstructions: CANVAS_INSTRUCTIONS,
+          });
+          this.loaded.add(workspace.threadId);
+        }
+        if (!session.busy || this.rpc !== rpc)
+          throw new Error(
+            "The connection changed before the turn could start.",
+          );
+        const result = await rpc.request<{ turn: { id: string } }>(
+          "turn/start",
+          {
+            threadId: workspace.threadId,
+            ...settings,
+            input: turnInput,
           },
         );
-        workspace.threadId = result.thread.id;
-        this.loaded.add(workspace.threadId);
-      } else if (!this.loaded.has(workspace.threadId)) {
-        await this.rpc.request("thread/resume", {
-          threadId: workspace.threadId,
-          excludeTurns: true,
-          developerInstructions: CANVAS_INSTRUCTIONS,
-        });
-        this.loaded.add(workspace.threadId);
+        if (session.busy) session.turnId = result.turn.id;
+        this.changed();
+      } catch (error) {
+        if (this.sessions.get(workspaceId) === session)
+          this.finish(workspace, session, String(error));
+        throw error;
       }
-      const context = JSON.stringify(
-        workspace.canvas
-          ? {
-              html: workspace.canvas.html,
-              css: workspace.canvas.css,
-              generation: workspace.canvas.generation,
-            }
-          : { legacySurface: workspace.spec },
-      );
-      if (context.length > UI_CONTEXT_LIMIT)
-        throw new Error(
-          "This workspace is too large for live UI editing. Start a new workspace to keep generation fast.",
-        );
-      const result = await this.rpc.request<{ turn: { id: string } }>(
-        "turn/start",
-        {
-          threadId: workspace.threadId,
-          model: this.state.model,
-          effort: this.state.reasoningEffort || undefined,
-          serviceTierForTurn: this.state.serviceTier,
-          input: [
-            {
-              type: "text",
-              text: `${text}\n\n<codexos_current_surface_data>\n${context}\n</codexos_current_surface_data>`,
-            },
-          ],
-        },
-      );
-      this.turnId = result.turn.id;
-      this.changed();
-    } catch (error) {
-      this.finish(String(error));
-      throw error;
+    })();
+    await session.starting;
+    session.starting = null;
+  }
+
+  private replyFor(workspace: Workspace, session: Session, itemId: string) {
+    let id = session.replies.get(itemId);
+    if (!id) {
+      id = session.initialReplyId ?? crypto.randomUUID();
+      session.initialReplyId = null;
+      session.replies.set(itemId, id);
+      if (!workspace.messages.some((entry) => entry.id === id)) {
+        workspace.messages.push({ id, role: "assistant", text: "" });
+        workspace.messages = workspace.messages.slice(-MAX_MESSAGES);
+      }
     }
+    return id;
   }
 
   private handleEvent(message: RpcMessage) {
     const params = message.params ?? {};
-    if (params.threadId && params.threadId !== this.workspace.threadId) {
+    const workspace =
+      typeof params.threadId === "string"
+        ? this.state.workspaces.find(
+            (entry) => entry.threadId === params.threadId,
+          )
+        : undefined;
+    const session = workspace ? this.sessions.get(workspace.id) : undefined;
+    const incomingTurn = String(
+      params.turnId ?? (params.turn as { id?: string } | undefined)?.id ?? "",
+    );
+    if (
+      !workspace ||
+      !session?.busy ||
+      (session.turnId && incomingTurn && session.turnId !== incomingTurn)
+    ) {
       if (message.id !== undefined)
         this.rpc?.write({
           id: message.id,
-          error: { code: -32602, message: "That workspace is not active." },
+          error: {
+            code: -32602,
+            message: "That workspace has no matching active turn.",
+          },
         });
+      else if (message.method === "error" && !params.threadId) {
+        this.connectionError = String(
+          (params.error as { message?: string })?.message ??
+            "Codex reported a connection error.",
+        );
+        this.changed();
+      }
       return;
     }
     if (message.id !== undefined) {
-      this.serverRequest(message);
+      this.serverRequest(message, session);
       return;
     }
     if (
@@ -341,58 +525,65 @@ export class CodexBackend {
       typeof params.delta === "string"
     ) {
       const id = String(params.itemId ?? "assistant");
-      let stream = this.streams.get(id);
+      const replyId = this.replyFor(workspace, session, id);
+      let stream = session.streams.get(id);
       if (!stream) {
         stream = new CanvasStream(
           (patch) => {
             try {
-              this.workspace.canvas ??= emptyCanvas();
-              if (!this.canvasMutated) {
-                beginCanvasGeneration(this.workspace.canvas);
-                this.canvasMutated = true;
+              workspace.canvas ??= emptyCanvas();
+              if (!session.canvasMutated) {
+                beginCanvasGeneration(workspace.canvas);
+                session.canvasMutated = true;
               }
-              queueCanvasOp(this.workspace.canvas, patch);
-              if (this.state.metrics) {
-                this.state.metrics.patches++;
+              queueCanvasOp(workspace.canvas, patch);
+              if (session.metrics) {
+                session.metrics.patches++;
               }
-              this.state.activity = "Updating workspace";
+              session.activity = "Updating workspace";
             } catch (error) {
-              this.state.error = `A UI update was rejected: ${error instanceof Error ? error.message : String(error)}`;
+              session.error = `A UI update was rejected: ${error instanceof Error ? error.message : String(error)}`;
             }
           },
           (text) => {
-            const reply = this.workspace.messages.find(
-              (entry) => entry.id === this.activeMessageId,
+            const reply = workspace.messages.find(
+              (entry) => entry.id === replyId,
             );
             if (reply) reply.text = `${reply.text}${text}`.slice(-100_000);
           },
           (error) => {
-            this.state.error = `A canvas update was rejected: ${error}`;
+            session.error = `A canvas update was rejected: ${error}`;
           },
         );
-        this.streams.set(id, stream);
+        session.streams.set(id, stream);
       }
       stream.push(params.delta);
       this.changed();
     } else if (message.method === "turn/started") {
-      this.turnId = String((params.turn as { id?: string })?.id ?? "");
+      session.turnId = String((params.turn as { id?: string })?.id ?? "");
     } else if (message.method === "turn/completed") {
       const turn = params.turn as
         | { status?: string; error?: { message?: string } }
         | undefined;
       this.finish(
+        workspace,
+        session,
         turn?.status === "failed"
           ? (turn.error?.message ?? "Codex could not finish this request.")
           : undefined,
       );
+    } else if (message.method === "item/completed") {
+      const item = params.item as { id?: string } | undefined;
+      if (item?.id) session.streams.get(item.id)?.flush();
+      this.changed();
     } else if (message.method === "item/started") {
       const item = params.item as
         | { type?: string; id?: string; changes?: unknown[] }
         | undefined;
       if (item?.type === "fileChange" && item.id && item.changes)
-        this.fileChanges.set(item.id, JSON.stringify(item.changes, null, 2));
+        session.fileChanges.set(item.id, JSON.stringify(item.changes, null, 2));
       if (item?.type && item.type !== "agentMessage") {
-        this.state.activity =
+        session.activity =
           item.type === "commandExecution"
             ? "Running a command"
             : item.type === "reasoning"
@@ -403,27 +594,27 @@ export class CodexBackend {
     } else if (message.method === "error") {
       const error = params.error as { message?: string } | undefined;
       if (error?.message) {
-        this.state.error = error.message;
+        session.error = error.message;
         this.changed();
       }
     }
   }
 
-  private finish(error?: string) {
-    for (const stream of this.streams.values()) stream.flush();
-    this.streams.clear();
-    if (this.state.metrics)
-      this.state.metrics.total = Date.now() - this.state.metrics.startedAt;
-    if (this.state.status !== "offline") this.state.status = "ready";
-    this.state.activity = "Ready";
-    this.state.approval = null;
-    this.approvalQueue = [];
-    this.turnId = null;
-    if (error) this.state.error = error;
+  private finish(workspace: Workspace, session: Session, error?: string) {
+    if (this.sessions.get(workspace.id) !== session) return;
+    for (const stream of session.streams.values()) stream.flush();
+    session.streams.clear();
+    if (session.metrics)
+      session.metrics.total = Date.now() - session.metrics.startedAt;
+    session.busy = false;
+    session.activity = "Ready";
+    session.approvalQueue = [];
+    session.turnId = null;
+    if (error) session.error = error;
     this.changed();
   }
 
-  private serverRequest(message: RpcMessage) {
+  private serverRequest(message: RpcMessage, session: Session) {
     const params = message.params ?? {};
     let kind: Approval["kind"];
     if (message.method === "item/commandExecution/requestApproval")
@@ -456,7 +647,7 @@ export class CodexBackend {
       details: String(
         params.command ??
           (kind === "file"
-            ? this.fileChanges.get(String(params.itemId))
+            ? session.fileChanges.get(String(params.itemId))
             : undefined) ??
           params.grantRoot ??
           (kind === "permissions"
@@ -465,14 +656,24 @@ export class CodexBackend {
       ),
       questions,
     };
-    this.approvalQueue.push({ approval, params });
-    this.state.approval ??= approval;
-    this.state.activity = "Waiting for you";
+    session.approvalQueue.push({ approval, params });
+    session.activity = "Waiting for you";
     this.changed();
   }
 
-  answer(allow: boolean, answers?: Record<string, string>) {
-    const approval = this.state.approval;
+  answer(
+    allow: boolean,
+    answers?: Record<string, string>,
+    workspaceId = this.state.activeId,
+    approvalId?: string | number,
+  ) {
+    this.findWorkspace(workspaceId);
+    const session = this.sessionFor(workspaceId);
+    const approval = session.approvalQueue[0]?.approval;
+    if (approvalId !== undefined && approval?.id !== approvalId)
+      throw new Error(
+        "This request is no longer pending. Review the current request before answering.",
+      );
     if (!approval || !this.rpc) throw new Error("There is no pending request.");
     const result =
       approval.kind === "question"
@@ -487,52 +688,48 @@ export class CodexBackend {
         : approval.kind === "permissions"
           ? {
               permissions: allow
-                ? (this.approvalQueue[0]?.params.permissions ?? {})
+                ? (session.approvalQueue[0]?.params.permissions ?? {})
                 : {},
               scope: "turn",
             }
           : { decision: allow ? "accept" : "decline" };
     this.rpc.write({ id: approval.id, result });
-    this.approvalQueue.shift();
-    this.state.approval = this.approvalQueue[0]?.approval ?? null;
-    this.state.activity = this.state.approval ? "Waiting for you" : "Working";
+    session.approvalQueue.shift();
+    session.activity = session.approvalQueue.length
+      ? "Waiting for you"
+      : "Working";
     this.changed();
   }
 
-  async interrupt() {
-    if (this.turnId && this.rpc && this.workspace.threadId)
+  async interrupt(workspaceId = this.state.activeId) {
+    const workspace = this.findWorkspace(workspaceId);
+    const session = this.sessionFor(workspaceId);
+    await session.starting;
+    if (session.busy && session.turnId && this.rpc && workspace.threadId)
       await this.rpc.request("turn/interrupt", {
-        threadId: this.workspace.threadId,
-        turnId: this.turnId,
+        threadId: workspace.threadId,
+        turnId: session.turnId,
       });
   }
 
   createWorkspace(cwd = this.workspace.cwd) {
-    if (this.state.status === "working")
-      throw new Error("Finish or stop the current request first.");
     if (this.state.workspaces.length >= MAX_WORKSPACES)
       throw new Error("CodexOS currently supports 20 saved workspaces.");
     const workspace = newWorkspace(cwd);
     this.state.workspaces.unshift(workspace);
     this.state.activeId = workspace.id;
-    this.state.error = null;
-    this.state.metrics = null;
     this.changed();
   }
 
   selectWorkspace(id: string) {
-    if (this.state.status === "working")
-      throw new Error("Finish or stop the current request first.");
     if (!this.state.workspaces.some((workspace) => workspace.id === id))
       throw new Error("Workspace does not exist.");
     this.state.activeId = id;
-    this.state.metrics = null;
-    this.state.error = null;
     this.changed();
   }
 
   setModel(model: string) {
-    if (this.state.status === "working")
+    if (this.sessionFor(this.state.activeId).busy)
       throw new Error("Finish the current request first.");
     if (!this.state.models.some((entry) => entry.model === model))
       throw new Error("Choose an available Codex model.");
@@ -562,7 +759,7 @@ export class CodexBackend {
   }
 
   setReasoningEffort(effort: string) {
-    if (this.state.status === "working")
+    if (this.sessionFor(this.state.activeId).busy)
       throw new Error("Wait for Codex to finish before changing reasoning.");
     const model = this.state.models.find(
       (entry) => entry.model === this.state.model,
@@ -578,7 +775,7 @@ export class CodexBackend {
   }
 
   setServiceTier(tier: string) {
-    if (this.state.status === "working")
+    if (this.sessionFor(this.state.activeId).busy)
       throw new Error("Wait for Codex to finish before changing speed.");
     const model = this.state.models.find(
       (entry) => entry.model === this.state.model,
@@ -593,9 +790,8 @@ export class CodexBackend {
   }
 
   updateData(id: string, path: string, value: unknown) {
-    if (id !== this.state.activeId)
-      throw new Error("That workspace is no longer active.");
-    this.workspace.spec = applySurfacePatch(this.workspace.spec, {
+    const workspace = this.findWorkspace(id);
+    workspace.spec = applySurfacePatch(workspace.spec, {
       op: "add",
       path: `/state${path}`,
       value,
@@ -604,35 +800,41 @@ export class CodexBackend {
   }
 
   updateCanvas(id: string, ack: unknown) {
-    if (id !== this.state.activeId)
-      throw new Error("That workspace is no longer active.");
-    const canvas = this.workspace.canvas;
+    const workspace = this.findWorkspace(id);
+    const session = this.sessionFor(id);
+    const canvas = workspace.canvas;
     if (!canvas) throw new Error("This workspace has no live document yet.");
     const error = acknowledgeCanvas(canvas, ack);
-    if (error) this.state.error = `A canvas update was rejected: ${error}`;
+    if (error) session.error = `A canvas update was rejected: ${error}`;
     if (
-      this.state.metrics &&
-      this.state.metrics.firstUI === null &&
-      this.state.metrics.patches > 0 &&
-      canvas.revision > this.canvasBaseRevision
+      session.metrics &&
+      session.metrics.firstUI === null &&
+      session.metrics.patches > 0 &&
+      canvas.revision > session.canvasBaseRevision
     )
-      this.state.metrics.firstUI = Date.now() - this.state.metrics.startedAt;
+      session.metrics.firstUI = Date.now() - session.metrics.startedAt;
     this.changed();
   }
 
-  restoreCanvas(index: number) {
-    if (this.state.status === "working")
+  restoreCanvas(index: number, workspaceId = this.state.activeId) {
+    const workspace = this.findWorkspace(workspaceId);
+    const session = this.sessionFor(workspaceId);
+    if (session.busy)
       throw new Error("Stop Codex before restoring a previous version.");
-    if (!this.workspace.canvas)
+    if (!workspace.canvas)
       throw new Error("This workspace has no canvas history.");
-    restoreCanvas(this.workspace.canvas, index);
-    this.state.error = null;
-    this.state.metrics = null;
+    restoreCanvas(workspace.canvas, index);
+    session.error = null;
+    session.metrics = null;
     this.changed();
   }
 
   async stop() {
     this.stopping = true;
+    this.resetSessions();
+    this.state.status = "offline";
+    this.state.activity = "Disconnected";
+    this.changed();
     this.rpc?.close();
     const child = this.child;
     this.child = null;
