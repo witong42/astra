@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import { desktopClient } from "./desktop-client";
+import { desktopClient, showWorkspace } from "./desktop-client";
 
 const app = await desktopClient();
+await showWorkspace(app);
+await app.evaluate(
+  "if(!document.querySelector('.chat-drawer').inert)document.querySelector('.close-chat').click()",
+);
 const canvas = await desktopClient("canvas");
 try {
   await app.evaluate(`{

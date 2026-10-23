@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
-import { desktopClient } from "./desktop-client";
+import { desktopClient, showWorkspace } from "./desktop-client";
 
 const client = await desktopClient();
 try {
-  await client.evaluate(`{
-    const history = document.querySelector('.messages');
-    const probe = document.createElement('div');
-    probe.id = 'layout-regression-probe';
-    probe.style.height = '10000px';
-    history.append(probe);
-    probe.scrollIntoView({block:'end'});
-  }`);
+  await showWorkspace(client, true);
+  await client.evaluate(
+    `{const probe=document.createElement('div');probe.id='layout-regression-probe';probe.style.height='10000px';document.querySelector('.messages').append(probe);probe.scrollIntoView({block:'end'});}`,
+  );
   for (const [width, height] of [
     [1440, 920],
     [960, 920],
@@ -30,75 +26,43 @@ try {
       canvasWidth: number;
       chatWidth: number;
       centerError: number;
-      sidebarWidth: number;
-      workspaceRowHeight: number;
-    }>(`(() => {
-      const chat = document.querySelector('.conversation-main').getBoundingClientRect();
-      const canvas = document.querySelector('.canvas').getBoundingClientRect();
-      const input = document.querySelector('.composer').getBoundingClientRect();
-      return {composerBottom:input.bottom, toolbarTop:document.querySelector('.toolbar').getBoundingClientRect().top,
-        documentHeight:document.documentElement.scrollHeight, height:innerHeight,
-        canvasWidth:canvas.width,chatWidth:chat.width,
-        sidebarWidth:document.querySelector('.sidebar').getBoundingClientRect().width,
-        workspaceRowHeight:document.querySelector('.workspace-link').getBoundingClientRect().height,
-        centerError:Math.abs(chat.x+chat.width/2-input.x-input.width/2)};
-    })()`);
+    }>(
+      `(()=>{const chat=document.querySelector('.chat-drawer').getBoundingClientRect(),canvas=document.querySelector('.app-stage').getBoundingClientRect(),input=document.querySelector('.composer').getBoundingClientRect();return {composerBottom:input.bottom,toolbarTop:document.querySelector('.toolbar').getBoundingClientRect().top,documentHeight:document.documentElement.scrollHeight,height:innerHeight,canvasWidth:canvas.width,chatWidth:chat.width,centerError:Math.abs(chat.x+chat.width/2-input.x-input.width/2)}})()`,
+    );
     assert.ok(
       layout.composerBottom < layout.height,
-      "Long chat must keep the input visible",
+      "Long chat keeps the input visible",
     );
+    assert.equal(layout.toolbarTop, 0);
+    assert.ok(layout.documentHeight <= layout.height);
     assert.equal(
-      layout.toolbarTop,
-      0,
-      "Conversation scrolling must keep the toolbar in place",
+      layout.canvasWidth,
+      width,
+      "Canvas retains the whole content area behind chat",
     );
-    assert.ok(
-      layout.documentHeight <= layout.height,
-      "Only conversation history should scroll",
-    );
-    assert.ok(
-      layout.canvasWidth > layout.chatWidth,
-      "The canvas must be larger than chat",
-    );
-    assert.ok(layout.centerError < 2, "The input must be centered within chat");
-    assert.ok(
-      layout.sidebarWidth >= 208,
-      "Workspace navigation must remain readable at the minimum window width",
-    );
-    assert.ok(
-      layout.workspaceRowHeight >= 40,
-      "Workspace rows need breathing room",
-    );
+    assert.ok(layout.chatWidth <= 440);
+    assert.ok(layout.centerError < 2, "Input stays centered in the drawer");
     console.log("LAYOUT_VERIFIED", width, height, JSON.stringify(layout));
   }
-  const canvasFrame = await client.evaluate(`(() => {
-    const frame = document.querySelector('.canvas-frame');
-    window.__layoutFrame = frame;
-    document.querySelector('.canvas-toggle').click();
-    return Boolean(frame);
-  })()`);
-  await Bun.sleep(50);
-  assert.equal(
-    await client.evaluate(
-      "getComputedStyle(document.querySelector('.canvas')).display",
-    ),
-    "none",
+  await client.evaluate(
+    "window.__layoutFrame=document.querySelector('.canvas-frame');document.querySelector('.close-chat').click()",
   );
-  await client.evaluate("document.querySelector('.canvas-toggle').click()");
-  await Bun.sleep(50);
+  assert.equal(
+    await client.evaluate("document.querySelector('.chat-drawer').inert"),
+    true,
+  );
+  await client.evaluate("document.getElementById('chat-toggle').click()");
   assert.equal(
     await client.evaluate(
-      "document.querySelector('.canvas-frame') === window.__layoutFrame",
+      "document.querySelector('.canvas-frame')===window.__layoutFrame",
     ),
     true,
-    "Toggling canvas must preserve its iframe and running UI",
+    "Chat toggling keeps the app runtime alive",
   );
-  assert.equal(canvasFrame, true);
-  await client.evaluate("delete window.__layoutFrame");
   assert.equal(client.errors.length, 0);
 } finally {
   await client.evaluate(
-    "document.getElementById('layout-regression-probe')?.remove()",
+    "document.getElementById('layout-regression-probe')?.remove();delete window.__layoutFrame",
   );
   await client.call("Emulation.clearDeviceMetricsOverride");
   client.close();

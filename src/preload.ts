@@ -15,6 +15,7 @@ const bridge: Bridge = {
   interrupt: (workspaceId) => invoke("interrupt", workspaceId),
   newWorkspace: () => invoke("newWorkspace"),
   selectWorkspace: (id) => invoke("selectWorkspace", id),
+  setFavorite: (id, favorite) => invoke("setFavorite", id, favorite),
   chooseFolder: () => invoke("chooseFolder"),
   setModel: (model) => invoke("setModel", model),
   updateData: (workspaceId, path, value) =>

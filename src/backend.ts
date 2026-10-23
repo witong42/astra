@@ -19,7 +19,7 @@ import { CANVAS_INSTRUCTIONS } from "./canvas-prompt";
 import { applyOpenUI, inspectOpenUI, updateOpenUIState } from "./openui";
 import { type RpcMessage, RpcPeer } from "./rpc";
 import { newWorkspace } from "./storage";
-import { applySurfacePatch } from "./surface";
+import { applySurfacePatch, hasWorkspaceSurface } from "./surface";
 import type {
   Approval,
   Metrics,
@@ -748,6 +748,14 @@ export class CodexBackend {
     if (!this.state.workspaces.some((workspace) => workspace.id === id))
       throw new Error("Workspace does not exist.");
     this.state.activeId = id;
+    this.changed();
+  }
+
+  setFavorite(id: string, favorite: boolean) {
+    const workspace = this.findWorkspace(id);
+    if (favorite && !hasWorkspaceSurface(workspace))
+      throw new Error("Create a canvas before adding it to Home.");
+    workspace.favorite = favorite;
     this.changed();
   }
 

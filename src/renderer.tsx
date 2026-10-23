@@ -1,20 +1,22 @@
 import {
   ArrowUpRightIcon,
-  CaretDownIcon,
+  ChatCircleDotsIcon,
   FolderSimpleIcon,
+  HouseIcon,
   IconContext,
   PlusIcon,
-  SidebarSimpleIcon,
   SquaresFourIcon,
-  TerminalWindowIcon,
+  StarIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { createRef, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { CanvasHandle } from "./CanvasSurface";
 import { Chat, Composer } from "./Chat";
+import { HomeScreen } from "./HomeScreen";
 import { Surface } from "./SurfaceView";
-import type { Snapshot } from "./types";
+import { hasWorkspaceSurface } from "./surface";
+import type { Snapshot, Workspace } from "./types";
 
 const STARTERS = [
   {
@@ -41,7 +43,8 @@ function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [canvasVisible, setCanvasVisible] = useState(true);
+  const [home, setHome] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
   const surfaceHandles = useRef(
     new Map<string, React.RefObject<CanvasHandle | null>>(),
   );
@@ -55,14 +58,13 @@ function App() {
   };
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  const previousWorkspace = useRef<string | null>(null);
   const onWorkspaceError = useCallback((id: string, value: unknown) => {
     const message = value instanceof Error ? value.message : String(value);
     setErrors((previous) => ({ ...previous, [id]: message }));
   }, []);
   const onError = useCallback(
-    (value: unknown) => {
-      onWorkspaceError(snapshot?.activeId ?? "", value);
-    },
+    (value: unknown) => onWorkspaceError(snapshot?.activeId ?? "", value),
     [snapshot?.activeId, onWorkspaceError],
   );
   const afterCapture = useCallback(async (action: () => Promise<void>) => {
@@ -78,7 +80,6 @@ function App() {
     await surfaceHandles.current.get(id)?.current?.flush();
     await window.codexos.send(text, id);
   }, []);
-
   useEffect(() => {
     window.codexosFlush = async () => {
       await Promise.all(
@@ -94,12 +95,57 @@ function App() {
       .catch((error) => onWorkspaceError("", error));
     return unsubscribe;
   }, [onWorkspaceError]);
-
+  useEffect(() => {
+    const id = snapshot?.activeId;
+    if (id && previousWorkspace.current && previousWorkspace.current !== id) {
+      setHome(false);
+      const next = snapshotRef.current?.workspaces.find(
+        (workspace) => workspace.id === id,
+      );
+      setChatOpen(
+        Boolean(snapshotRef.current?.sessions[id]?.approval) ||
+          Boolean(next && !hasWorkspaceSurface(next)),
+      );
+    }
+    if (id) previousWorkspace.current = id;
+  }, [snapshot?.activeId]);
+  const approvalId = snapshot?.approval?.id;
+  useEffect(() => {
+    if (!home && approvalId !== undefined) setChatOpen(true);
+  }, [home, approvalId]);
+  useEffect(() => {
+    if (chatOpen && !home)
+      document
+        .querySelector<HTMLTextAreaElement>(".composer textarea")
+        ?.focus();
+  }, [chatOpen, home]);
+  const closeChat = () => {
+    setChatOpen(false);
+    document.getElementById("chat-toggle")?.focus();
+  };
+  const openWorkspace = (workspace: Workspace) => {
+    void afterCapture(async () => {
+      const currentId = snapshotRef.current?.activeId;
+      await window.codexos.selectWorkspace(workspace.id);
+      if (currentId === workspace.id) {
+        setHome(false);
+        setChatOpen(
+          Boolean(snapshotRef.current?.sessions[workspace.id]?.approval) ||
+            !hasWorkspaceSurface(workspace),
+        );
+      }
+    }).catch(onError);
+  };
+  const newApp = () => {
+    void afterCapture(async () => {
+      await window.codexos.newWorkspace();
+    }).catch(onError);
+  };
   if (!snapshot)
     return (
       <div className="launch-screen">
         <div className="brand-mark">&gt;_</div>
-        <p>{errors[""] ?? "Opening your workspace…"}</p>
+        <p>{errors[""] ?? "Opening your apps…"}</p>
       </div>
     );
   const workspace = snapshot.workspaces.find(
@@ -108,174 +154,79 @@ function App() {
   if (!workspace)
     return <div role="alert">The selected workspace is missing.</div>;
   const busy = snapshot.status === "working";
-  const hasSurface = Boolean(
-    workspace.canvas
-      ? workspace.canvas.generation > 0
-      : workspace.spec.root && workspace.spec.elements[workspace.spec.root],
-  );
+  const hasSurface = hasWorkspaceSurface(workspace);
   const error = errors[workspace.id];
   const visibleError = error ?? snapshot.error;
-  const folder =
-    workspace.cwd.split("/").filter(Boolean).at(-1) ?? workspace.cwd;
-
+  const running = Object.values(snapshot.sessions).filter(
+    (session) => session.busy,
+  ).length;
+  const connection =
+    snapshot.status === "connecting"
+      ? "Connecting"
+      : snapshot.status === "offline"
+        ? "Disconnected"
+        : home && running
+          ? `${running} working`
+          : busy
+            ? snapshot.activity
+            : "Codex connected";
+  const favorite = (entry: Workspace) => {
+    void window.codexos.setFavorite(entry.id, !entry.favorite).catch(onError);
+  };
   return (
-    <div className={`app ${canvasVisible ? "" : "canvas-hidden"}`}>
-      <nav className="sidebar" aria-label="Workspaces">
-        <div className="traffic-space" />
-        <div className="brand">
-          <div className="brand-mark" aria-hidden="true">
-            &gt;_
-          </div>
-          <span>CodexOS</span>
-        </div>
-        <button
-          type="button"
-          className="new-workspace"
-          onClick={() =>
-            afterCapture(() => window.codexos.newWorkspace()).catch(onError)
-          }
-        >
-          <PlusIcon /> New workspace
-        </button>
-        <div className="sidebar-section-label">Workspaces</div>
-        <div className="workspace-list">
-          {snapshot.workspaces.map((entry) => (
-            <button
-              type="button"
-              className={`workspace-link ${entry.id === workspace.id ? "active" : ""}`}
-              key={entry.id}
-              title={entry.name}
-              aria-current={entry.id === workspace.id ? "page" : undefined}
-              onClick={() =>
-                afterCapture(() =>
-                  window.codexos.selectWorkspace(entry.id),
-                ).catch(onError)
-              }
-            >
-              <span className="workspace-symbol" aria-hidden="true">
-                <SquaresFourIcon />
+    <div className={`desktop-app ${home ? "on-home" : "in-app"}`}>
+      <header className="toolbar desktop-toolbar">
+        <div className="desktop-navigation">
+          {home ? (
+            <div className="desktop-brand">
+              <span className="brand-mark" aria-hidden="true">
+                &gt;_
               </span>
-              <span className="workspace-name">{entry.name}</span>
-              {snapshot.sessions[entry.id]?.busy && (
-                <span
-                  className={`workspace-activity ${snapshot.sessions[entry.id].approval ? "waiting" : ""}`}
-                  role="img"
-                  aria-label={snapshot.sessions[entry.id].activity}
-                  title={snapshot.sessions[entry.id].activity}
-                />
-              )}
-            </button>
-          ))}
-        </div>
-        <div className="sidebar-bottom">
-          <TerminalWindowIcon />
-          <div>
-            <strong>Codex</strong>
-            <span>Local workspace</span>
-          </div>
-        </div>
-      </nav>
-      <div className="main-area">
-        <header className="toolbar">
-          <div className="workspace-breadcrumb">
-            <button
-              type="button"
-              className="folder-button"
-              title={workspace.cwd}
-              onClick={() =>
-                afterCapture(() => window.codexos.chooseFolder()).catch(onError)
-              }
-            >
-              <FolderSimpleIcon /> <span>{folder}</span>
-              <CaretDownIcon size={12} />
-            </button>
-          </div>
-          <div className="toolbar-actions">
-            <span className="connection-label">
-              <span className={`status-dot ${snapshot.status}`} />
-              {snapshot.status === "connecting"
-                ? "Connecting"
-                : snapshot.status === "offline"
-                  ? "Disconnected"
-                  : busy
-                    ? snapshot.activity
-                    : "Codex connected"}
-            </span>
-            {snapshot.status === "offline" && (
+              CodexOS
+            </div>
+          ) : (
+            <>
               <button
                 type="button"
-                className="text-button"
-                onClick={() => window.codexos.reconnect().catch(onError)}
-              >
-                Reconnect
-              </button>
-            )}
-            <button
-              type="button"
-              className={`canvas-toggle ${canvasVisible ? "selected" : ""}`}
-              aria-pressed={canvasVisible}
-              onClick={() => setCanvasVisible(!canvasVisible)}
-            >
-              <SidebarSimpleIcon /> Canvas
-            </button>
-          </div>
-        </header>
-        {visibleError && (
-          <div className="error-banner" role="alert">
-            <span>{visibleError}</span>
-            {error && (
-              <button
-                type="button"
-                aria-label="Dismiss error"
+                className="home-button"
                 onClick={() =>
-                  setErrors((previous) => ({
-                    ...previous,
-                    [workspace.id]: null,
-                  }))
+                  void afterCapture(async () => {
+                    setHome(true);
+                    setChatOpen(false);
+                  }).catch(onError)
                 }
               >
-                <XIcon />
+                <HouseIcon />
+                Home
               </button>
-            )}
-          </div>
-        )}
-        <div className="workspace-body">
-          <section className="conversation-main">
-            <Chat
-              key={workspace.id}
-              snapshot={snapshot}
-              workspace={workspace}
-              onError={onError}
-            />
-            <footer className="workspace-footer">
-              <Composer
-                key={workspace.id}
-                snapshot={snapshot}
-                draft={drafts[workspace.id] ?? ""}
-                onDraftChange={(value) =>
-                  setDrafts((previous) => ({
-                    ...previous,
-                    [workspace.id]:
-                      typeof value === "function"
-                        ? value(previous[workspace.id] ?? "")
-                        : value,
-                  }))
-                }
-                onSend={(text) => onSend(text, workspace.id)}
-                workspaceId={workspace.id}
-                onError={onError}
-              />
-            </footer>
-          </section>
-          <aside
-            className={`canvas ${canvasVisible ? "" : "hidden"}`}
-            aria-label="Live canvas"
-          >
-            <div className="canvas-heading">
-              <span className="canvas-label">
-                <span className={`live-indicator ${busy ? "busy" : ""}`} />
-                Canvas
+              <span className="desktop-divider" />
+              <span className="app-title" title={workspace.name}>
+                {workspace.name}
               </span>
+            </>
+          )}
+        </div>
+        <div className="toolbar-actions">
+          <span className="connection-label">
+            <span className={`status-dot ${snapshot.status}`} />
+            {connection}
+          </span>
+          {snapshot.status === "offline" && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => window.codexos.reconnect().catch(onError)}
+            >
+              Reconnect
+            </button>
+          )}
+          {home ? (
+            <button type="button" className="new-app-button" onClick={newApp}>
+              <PlusIcon />
+              New app
+            </button>
+          ) : (
+            <>
               {workspace.canvas && workspace.canvas.history.length > 0 && (
                 <select
                   className="version-picker"
@@ -290,7 +241,7 @@ function App() {
                   }}
                 >
                   <option value="">
-                    Version {workspace.canvas.generation} · Restore…
+                    Version {workspace.canvas.generation}
                   </option>
                   {workspace.canvas.history.map((entry, index) => (
                     <option key={entry.generation} value={index}>
@@ -299,83 +250,188 @@ function App() {
                   ))}
                 </select>
               )}
-              {snapshot.metrics && snapshot.metrics.patches > 0 && (
-                <span
-                  className="generation-stats"
-                  title={`${snapshot.metrics.patches} updates${snapshot.metrics.firstUI === null ? "" : ` · ${(snapshot.metrics.firstUI / 1000).toFixed(1)}s to first view`}`}
+              <button
+                type="button"
+                className="favorite-toggle"
+                aria-label={
+                  workspace.favorite ? "Remove from Home" : "Add to Home"
+                }
+                aria-pressed={Boolean(workspace.favorite)}
+                disabled={!hasSurface}
+                onClick={() => favorite(workspace)}
+                title={workspace.favorite ? "Remove from Home" : "Add to Home"}
+              >
+                <StarIcon weight={workspace.favorite ? "fill" : "regular"} />
+              </button>
+              <button
+                type="button"
+                id="chat-toggle"
+                className={`chat-toggle ${chatOpen ? "selected" : ""}`}
+                aria-expanded={chatOpen}
+                aria-controls="chat-drawer"
+                onClick={() => (chatOpen ? closeChat() : setChatOpen(true))}
+              >
+                <ChatCircleDotsIcon />
+                Chat{snapshot.approval && <span className="attention-dot" />}
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+      {visibleError && (
+        <div className="error-banner" role="alert">
+          <span>{visibleError}</span>
+          {error && (
+            <button
+              type="button"
+              aria-label="Dismiss error"
+              onClick={() =>
+                setErrors((previous) => ({ ...previous, [workspace.id]: null }))
+              }
+            >
+              <XIcon />
+            </button>
+          )}
+        </div>
+      )}
+      <div className="desktop-body">
+        {home && (
+          <HomeScreen
+            snapshot={snapshot}
+            onOpen={openWorkspace}
+            onFavorite={favorite}
+          />
+        )}
+        <section
+          className={`canvas app-stage ${home ? "parked" : ""}`}
+          data-workspace-id={workspace.id}
+          aria-label="Live canvas"
+          aria-hidden={home}
+          inert={home}
+        >
+          <div className="canvas-content">
+            {snapshot.workspaces
+              .filter(
+                (entry) =>
+                  entry.id === workspace.id ||
+                  snapshot.sessions[entry.id]?.busy ||
+                  entry.canvas?.pending.length,
+              )
+              .map((entry) => (
+                <div
+                  key={entry.id}
+                  className={`generated-surface ${entry.id === workspace.id && hasSurface ? "" : "background-surface"}`}
+                  aria-hidden={entry.id !== workspace.id || !hasSurface}
+                  inert={entry.id !== workspace.id || !hasSurface}
                 >
-                  {snapshot.metrics.total === null
-                    ? "Updating canvas…"
-                    : "Saved locally"}
-                </span>
-              )}
-            </div>
-            <div className="canvas-content">
-              {snapshot.workspaces
-                .filter(
-                  (entry) =>
-                    entry.id === workspace.id ||
-                    snapshot.sessions[entry.id]?.busy ||
-                    entry.canvas?.pending.length,
-                )
-                .map((entry) => (
-                  <div
-                    key={entry.id}
-                    className={`generated-surface ${entry.id === workspace.id && hasSurface ? "" : "background-surface"}`}
-                    aria-hidden={entry.id !== workspace.id || !hasSurface}
-                    inert={entry.id !== workspace.id || !hasSurface}
-                  >
-                    <Surface
-                      workspace={entry}
-                      patches={
-                        snapshot.sessions[entry.id]?.metrics?.patches ?? 0
-                      }
-                      busy={snapshot.sessions[entry.id]?.busy ?? false}
-                      onAsk={(text, id) => {
-                        void onSend(text, id).catch((error) =>
-                          onWorkspaceError(id, error),
+                  <Surface
+                    workspace={entry}
+                    patches={snapshot.sessions[entry.id]?.metrics?.patches ?? 0}
+                    busy={snapshot.sessions[entry.id]?.busy ?? false}
+                    onAsk={(text, id) => {
+                      if (id === workspace.id && !home) setChatOpen(true);
+                      void onSend(text, id).catch((error) =>
+                        onWorkspaceError(id, error),
+                      );
+                    }}
+                    onError={onWorkspaceError}
+                    handle={surfaceHandle(entry.id)}
+                  />
+                </div>
+              ))}
+            {!hasSurface && (
+              <div className="empty-workspace">
+                <div className="workspace-emblem" aria-hidden="true">
+                  <SquaresFourIcon size={28} weight="light" />
+                </div>
+                <h2>What will you make?</h2>
+                <p className="empty-description">
+                  Describe an app in chat. Your canvas will take it from here.
+                </p>
+                <div className="starters">
+                  {STARTERS.map((starter) => (
+                    <button
+                      type="button"
+                      key={starter.title}
+                      disabled={snapshot.status !== "ready"}
+                      onClick={() => {
+                        setChatOpen(true);
+                        void onSend(starter.prompt, workspace.id).catch(
+                          onError,
                         );
                       }}
-                      onError={onWorkspaceError}
-                      handle={surfaceHandle(entry.id)}
-                    />
-                  </div>
-                ))}
-              {!hasSurface && (
-                <div className="empty-workspace">
-                  <div className="workspace-emblem" aria-hidden="true">
-                    <SquaresFourIcon size={28} weight="light" />
-                  </div>
-                  <h2>Your live canvas</h2>
-                  <p className="empty-description">
-                    Build a dashboard, explore an idea, or make something
-                    interactive.
-                  </p>
-                  <div className="starters">
-                    {STARTERS.map((starter) => (
-                      <button
-                        type="button"
-                        key={starter.title}
-                        disabled={snapshot.status !== "ready"}
-                        onClick={() =>
-                          onSend(starter.prompt, workspace.id).catch(onError)
-                        }
-                      >
-                        <span>
-                          <strong>{starter.title}</strong>
-                          <small>{starter.detail}</small>
-                        </span>
-                        <span className="starter-arrow" aria-hidden="true">
-                          <ArrowUpRightIcon />
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                    >
+                      <span>
+                        <strong>{starter.title}</strong>
+                        <small>{starter.detail}</small>
+                      </span>
+                      <span className="starter-arrow" aria-hidden="true">
+                        <ArrowUpRightIcon />
+                      </span>
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
+          </div>
+        </section>
+        <aside
+          id="chat-drawer"
+          className={`conversation-main chat-drawer ${chatOpen && !home ? "open" : ""}`}
+          aria-label="Chat"
+          aria-hidden={!chatOpen || home}
+          inert={!chatOpen || home}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Escape" &&
+              !event.defaultPrevented &&
+              !event.currentTarget.querySelector(":popover-open")
+            )
+              closeChat();
+          }}
+        >
+          <Chat
+            key={workspace.id}
+            snapshot={snapshot}
+            workspace={workspace}
+            onError={onError}
+            onClose={closeChat}
+          />
+          <footer className="workspace-footer">
+            <div className="drawer-folder">
+              <button
+                type="button"
+                title={workspace.cwd}
+                onClick={() =>
+                  void afterCapture(() => window.codexos.chooseFolder()).catch(
+                    onError,
+                  )
+                }
+              >
+                <FolderSimpleIcon />
+                {workspace.cwd.split("/").filter(Boolean).at(-1) ??
+                  workspace.cwd}
+              </button>
             </div>
-          </aside>
-        </div>
+            <Composer
+              key={workspace.id}
+              snapshot={snapshot}
+              draft={drafts[workspace.id] ?? ""}
+              onDraftChange={(value) =>
+                setDrafts((previous) => ({
+                  ...previous,
+                  [workspace.id]:
+                    typeof value === "function"
+                      ? value(previous[workspace.id] ?? "")
+                      : value,
+                }))
+              }
+              onSend={(text) => onSend(text, workspace.id)}
+              workspaceId={workspace.id}
+              onError={onError}
+            />
+          </footer>
+        </aside>
       </div>
     </div>
   );

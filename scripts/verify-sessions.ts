@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { Snapshot, Workspace } from "../src/types";
-import { desktopClient } from "./desktop-client";
+import { desktopClient, showWorkspace } from "./desktop-client";
 
 const TIMEOUT_MS = 180_000;
 const POLL_MS = 100;
@@ -38,29 +38,39 @@ async function waitFor(
   }
   throw new Error(`Session verification timed out: ${description}`);
 }
+async function goHome() {
+  await client.evaluate("document.querySelector('.home-button')?.click()");
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (
+      await client.evaluate("Boolean(document.querySelector('.home-screen'))")
+    )
+      return;
+    await Bun.sleep(50);
+  }
+  throw new Error("Home did not open");
+}
 async function createWorkspace() {
   const previous = (await snapshot()).activeId;
+  await goHome();
   assert.equal(
-    await client.evaluate("document.querySelector('.new-workspace').disabled"),
+    await client.evaluate("document.querySelector('.new-app-button').disabled"),
     false,
   );
-  await client.evaluate("document.querySelector('.new-workspace').click()");
+  await client.evaluate("document.querySelector('.new-app-button').click()");
   const state = await waitFor(
     (state) => state.activeId !== previous,
     "new workspace",
   );
-  await Bun.sleep(150);
+  await showWorkspace(client, true);
   return state.activeId;
 }
 async function select(id: string) {
-  const index = (await snapshot()).workspaces.findIndex(
-    (entry) => entry.id === id,
-  );
+  await goHome();
   await client.evaluate(
-    `document.querySelectorAll('.workspace-link')[${index}].click()`,
+    `document.querySelector('.library-open[data-workspace-id="${id}"]').click()`,
   );
   await waitFor((state) => state.activeId === id, "workspace selection");
-  await Bun.sleep(150);
+  await showWorkspace(client, true);
 }
 async function draft(text: string) {
   await client.evaluate(
@@ -121,7 +131,7 @@ try {
   );
   assert.equal(
     await client.evaluate(
-      "[...document.querySelectorAll('.workspace-link')].some(button=>button.disabled)",
+      "[...document.querySelectorAll('.home-button')].some(button=>button.disabled)",
     ),
     false,
   );

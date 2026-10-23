@@ -4,7 +4,7 @@ import { beginCanvasGeneration } from "../src/canvas";
 import { applyOpenUI } from "../src/openui";
 import { loadState, newWorkspace, saveState } from "../src/storage";
 import type { Snapshot } from "../src/types";
-import { desktopClient } from "./desktop-client";
+import { desktopClient, showWorkspace } from "./desktop-client";
 
 const PROFILE = "/tmp/codexos-openui-check";
 const THREE_MODULE =
@@ -71,6 +71,7 @@ if (process.argv.includes("--prepare")) {
 }
 
 const client = await desktopClient();
+await showWorkspace(client, true);
 let frame: Awaited<ReturnType<typeof desktopClient>> | undefined;
 const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
 const evaluateCanvas = <T = unknown>(expression: string) => {

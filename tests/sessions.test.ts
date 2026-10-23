@@ -572,6 +572,7 @@ test("persisted workspace state excludes transient sessions and approvals", () =
         expect(Object.keys(entry).sort()).toEqual([
           "canvas",
           "cwd",
+          "favorite",
           "id",
           "messages",
           "name",
@@ -637,3 +638,26 @@ test("OpenUI updates, edited controls and freeform switching stay in their origi
       expect(workspace(b)).toEqual(unchanged);
     },
   ));
+
+test("favoriting a live canvas preserves its running session and rejects empty canvases", () =>
+  withBackend(async ({ backend, a, b, workspace, event, session }) => {
+    expect(() => backend.setFavorite(b, true)).toThrow();
+    await backend.send("Build an app", a);
+    await event({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: workspace(a).threadId,
+        itemId: "app",
+        delta: '{"op":"append","sel":"#substrate","html":"<h1>My app</h1>"}\n',
+      },
+    });
+    await waitFor(() => workspace(a).canvas?.generation === 1, "an app canvas");
+    backend.setFavorite(a, true);
+    expect(workspace(a).favorite).toBe(true);
+    expect(session(a).busy).toBe(true);
+    backend.selectWorkspace(b);
+    backend.setFavorite(a, false);
+    expect(workspace(a).favorite).toBe(false);
+    expect(backend.state.activeId).toBe(b);
+    expect(session(a).busy).toBe(true);
+  }));

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import type { Snapshot } from "../src/types";
-import { desktopClient } from "./desktop-client";
+import { desktopClient, showWorkspace } from "./desktop-client";
 
 const client = await desktopClient();
+await showWorkspace(client, true);
 const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
 try {
   const before = await snapshot();

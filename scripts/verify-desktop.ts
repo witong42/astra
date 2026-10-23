@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import type { Snapshot, Workspace } from "../src/types";
-import { desktopClient } from "./desktop-client";
+import { desktopClient, showWorkspace } from "./desktop-client";
 
 const GENERATION_PROMPT =
   "Create a compact weekly planning canvas with heading 'This week', a Notes textarea with id notes, and a working counter button with id counter and initial text 'Count 0'. Clicking the counter must increment its count without calling the model. Store count in data-count and write idempotent inline JavaScript. Use a small responsive two-column layout and a muted green accent. Stream separate HTML, CSS and script operations so the view appears before all updates finish. Do not inspect files or use tools.";
 const LOCAL_NOTE = "Keep my local edits.";
 const TIMEOUT_MS = 60_000;
 const client = await desktopClient();
+await showWorkspace(client, true);
 let canvas: Awaited<ReturnType<typeof desktopClient>> | undefined;
 const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
 const workspace = (state: Snapshot): Workspace => {

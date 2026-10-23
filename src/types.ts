@@ -5,6 +5,7 @@ export type Message = { id: string; role: "user" | "assistant"; text: string };
 export type Workspace = {
   id: string;
   name: string;
+  favorite?: boolean;
   cwd: string;
   threadId: string | null;
   messages: Message[];
@@ -80,6 +81,7 @@ export type Bridge = {
   interrupt: (workspaceId?: string) => Promise<void>;
   newWorkspace: () => Promise<void>;
   selectWorkspace: (id: string) => Promise<void>;
+  setFavorite: (id: string, favorite: boolean) => Promise<void>;
   chooseFolder: () => Promise<void>;
   setModel: (model: string) => Promise<void>;
   setReasoningEffort: (effort: string) => Promise<void>;

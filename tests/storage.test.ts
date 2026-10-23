@@ -57,3 +57,17 @@ test("loads previous CodexOS workspaces without discarding their original view o
   expect(loaded.workspaces[0].spec.state?.notes).toBe("Keep my original notes");
   expect(loaded.workspaces[0].id).toBe(previous.workspaces[0].id);
 });
+
+test("favorites persist and old workspaces start unfavorited without losing content", () => {
+  const path = file();
+  const state = loadState(path, "/tmp");
+  const first = state.workspaces[0];
+  expect(first.favorite).toBe(false);
+  first.favorite = true;
+  saveState(path, state);
+  expect(loadState(path, "/tmp").workspaces[0].favorite).toBe(true);
+  const old = JSON.parse(readFileSync(path, "utf8"));
+  delete old.workspaces[0].favorite;
+  writeFileSync(path, JSON.stringify(old));
+  expect(loadState(path, "/tmp").workspaces[0].favorite).toBe(false);
+});

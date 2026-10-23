@@ -1,13 +1,98 @@
-import { ArrowUpIcon, ArrowUpRightIcon, StopIcon } from "@phosphor-icons/react";
+import {
+  ArrowUpIcon,
+  ArrowUpRightIcon,
+  StopIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import {
   type Dispatch,
+  memo,
   type SetStateAction,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ModelControls } from "./ModelControls";
+import { externalWebUrl } from "./navigation";
 import type { Approval, Snapshot, Workspace } from "./types";
+
+const MARKDOWN_PLUGINS = [remarkGfm];
+function markdownUrl(url: string, key: string) {
+  if (key === "href" && url.startsWith("#")) return url;
+  try {
+    return externalWebUrl(url);
+  } catch {
+    return "";
+  }
+}
+const MarkdownMessage = memo(function MarkdownMessage({
+  text,
+  onError,
+}: {
+  text: string;
+  onError: (error: unknown) => void;
+}) {
+  const components = useMemo<Components>(
+    () => ({
+      a: ({ href, children }) =>
+        href ? (
+          <a
+            href={href}
+            onClick={(event) => {
+              event.preventDefault();
+              try {
+                if (href.startsWith("#")) {
+                  const target = document.getElementById(
+                    decodeURIComponent(href.slice(1)),
+                  );
+                  target?.scrollIntoView({ block: "nearest" });
+                  target?.focus();
+                } else window.codexos.openExternal(href).catch(onError);
+              } catch (error) {
+                onError(error);
+              }
+            }}
+          >
+            {children}
+          </a>
+        ) : (
+          children
+        ),
+      img: ({ alt, src }) =>
+        src ? (
+          <a
+            href={src}
+            onClick={(event) => {
+              event.preventDefault();
+              window.codexos.openExternal(src).catch(onError);
+            }}
+          >
+            {alt || "Image"}
+          </a>
+        ) : (
+          <span>{alt || "Image"}</span>
+        ),
+      table: ({ children }) => (
+        <div className="markdown-table">
+          <table>{children}</table>
+        </div>
+      ),
+    }),
+    [onError],
+  );
+  return (
+    <Markdown
+      remarkPlugins={MARKDOWN_PLUGINS}
+      urlTransform={markdownUrl}
+      components={components}
+    >
+      {text}
+    </Markdown>
+  );
+});
 
 function ApprovalPanel({
   approval,
@@ -89,10 +174,12 @@ export function Chat({
   snapshot,
   workspace,
   onError,
+  onClose,
 }: {
   snapshot: Snapshot;
   workspace: Workspace;
   onError: (error: unknown) => void;
+  onClose?: () => void;
 }) {
   const history = useRef<HTMLDivElement>(null);
   const busy = snapshot.status === "working";
@@ -105,6 +192,16 @@ export function Chat({
     <main className="chat-panel" aria-label="Conversation">
       <div className="chat-header">
         <h2>Conversation</h2>
+        {onClose && (
+          <button
+            type="button"
+            className="close-chat"
+            aria-label="Close chat"
+            onClick={onClose}
+          >
+            <XIcon />
+          </button>
+        )}
       </div>
       <div
         className="messages"
@@ -134,10 +231,15 @@ export function Chat({
                 )}
             </div>
             <div className="message-text">
-              {message.text ||
-                (busy && index === workspace.messages.length - 1
-                  ? snapshot.activity
-                  : "Workspace updated.")}
+              <MarkdownMessage
+                onError={onError}
+                text={
+                  message.text ||
+                  (busy && index === workspace.messages.length - 1
+                    ? snapshot.activity
+                    : "Workspace updated.")
+                }
+              />
             </div>
           </article>
         ))}

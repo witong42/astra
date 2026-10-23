@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import type { Snapshot } from "../src/types";
-import { desktopClient } from "./desktop-client";
+import { desktopClient, showWorkspace } from "./desktop-client";
 
 const THREE_MODULE =
   "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js";
 const client = await desktopClient();
+await showWorkspace(client, true);
 let frame: Awaited<ReturnType<typeof desktopClient>> | undefined;
 const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
 try {

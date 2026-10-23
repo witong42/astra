@@ -30,6 +30,7 @@ const savedSchema = z.object({
       z.object({
         id: z.string(),
         name: z.string().max(120),
+        favorite: z.boolean().default(false),
         cwd: z.string(),
         threadId: z.string().nullable(),
         messages: z.array(messageSchema).max(80),
@@ -45,6 +46,7 @@ export function newWorkspace(cwd: string): Workspace {
   return {
     id: crypto.randomUUID(),
     name: "New workspace",
+    favorite: false,
     cwd,
     threadId: null,
     messages: [],

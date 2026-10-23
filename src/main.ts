@@ -97,6 +97,12 @@ function installHandlers() {
   handle("selectWorkspace", (id) =>
     backend.selectWorkspace(z.string().uuid().parse(id)),
   );
+  handle("setFavorite", (id, favorite) =>
+    backend.setFavorite(
+      z.string().uuid().parse(id),
+      z.boolean().parse(favorite),
+    ),
+  );
   handle("setModel", (model) =>
     backend.setModel(z.string().max(200).parse(model)),
   );

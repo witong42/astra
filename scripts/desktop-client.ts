@@ -7,6 +7,40 @@ type Response = {
   params?: Record<string, unknown>;
 };
 
+export async function showWorkspace(
+  client: Awaited<ReturnType<typeof desktopClient>>,
+  chat = false,
+) {
+  const id = await client.evaluate<string>(
+    "window.codexos.snapshot().then(state=>state.activeId)",
+  );
+  let opened = false;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const ready = await client.evaluate<boolean>(
+      `(()=>{const id=${JSON.stringify(id)}; if(document.querySelector('.home-screen')) {const button=document.querySelector('.library-open[data-workspace-id="'+id+'"]');button?.click();return false;} return document.querySelector('.app-stage')?.dataset.workspaceId===id;})()`,
+    );
+    if (ready) {
+      opened = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (!opened) throw new Error("The workspace did not open from Home.");
+  if (chat) {
+    await client.evaluate(
+      "if(document.querySelector('.chat-drawer').inert) document.getElementById('chat-toggle').click()",
+    );
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (
+        await client.evaluate("!document.querySelector('.chat-drawer').inert")
+      )
+        return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error("The chat drawer did not open.");
+  }
+}
+
 export async function desktopClient(
   surface: "app" | "canvas" = "app",
   workspaceId?: string,

@@ -1,6 +1,15 @@
 import { applySpecPatch, type JsonPatch, type Spec } from "@json-render/core";
 import { z } from "zod";
 import { catalog } from "./catalog";
+import type { Workspace } from "./types";
+
+export function hasWorkspaceSurface(workspace: Workspace) {
+  return Boolean(
+    workspace.canvas
+      ? workspace.canvas.generation > 0
+      : workspace.spec.root && workspace.spec.elements[workspace.spec.root],
+  );
+}
 
 export const MAX_SURFACE_BYTES = 512 * 1024;
 const MAX_ELEMENTS = 300;
