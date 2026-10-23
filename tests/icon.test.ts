@@ -12,7 +12,7 @@ test.skipIf(process.platform !== "darwin")(
     try {
       const { png, icns } = appIcon();
       expect(png).toEqual(
-        readFileSync(join(import.meta.dir, "../assets/codexos-icon.png")),
+        readFileSync(join(import.meta.dir, "../assets/astra-icon.png")),
       );
       const path = join(directory, "icon.icns");
       const output = join(directory, "icon.iconset");

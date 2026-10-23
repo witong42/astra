@@ -54,7 +54,8 @@ export async function desktopClient(
         surface === "app" ? "/dist/index.html" : "/dist/canvas.html",
       ) &&
       (entry.url.includes("/Projects/CodexOS/") ||
-        entry.url.startsWith("file:///Applications/CodexOS.app/")),
+        entry.url.startsWith("file:///Applications/CodexOS.app/") ||
+        entry.url.startsWith("file:///Applications/Astra.app/")),
   );
   if (surface === "canvas") {
     const app = await desktopClient("app");

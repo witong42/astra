@@ -40,7 +40,7 @@ const render = (snapshot: Snapshot) =>
 test("Home exposes all workspaces and explains how to add an app when favorites are empty", () => {
   const html = render(state());
   expect(html).toContain("Keep a canvas here.");
-  expect(html).toContain("All workspaces");
+  expect(html).toContain("All apps");
   expect(html).toContain("Orbit lab");
   expect(html).not.toContain('class="app-tile"');
   expect(html).toContain('title="Create a canvas first"');
@@ -68,4 +68,27 @@ test("favorites launch as app tiles while sessions needing input remain visible"
   expect(html).toContain('aria-label="Open Orbit lab"');
   expect(html).toContain('aria-pressed="true"');
   expect(html).toContain("Needs you");
+});
+
+test("Astra gives mini-apps distinct Solar icons instead of treating every Atlas as a planet", () => {
+  const snapshot = state();
+  snapshot.workspaces = [
+    "Memory Atlas",
+    "Inner Atlas",
+    "Chinese Studio",
+    "Personal Wiki",
+    "Spotify Studio",
+    "Decision Lab",
+  ].map((name) => ({ ...newWorkspace("/tmp"), name, favorite: true }));
+  const html = render(snapshot);
+  for (const icon of [
+    "brain",
+    "compass",
+    "global",
+    "notebook",
+    "soundwave",
+    "branching-paths-up",
+  ])
+    expect(html).toContain(`solar-${icon}-line-duotone`);
+  expect(html).not.toContain("solar-planet-line-duotone");
 });

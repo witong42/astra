@@ -10,6 +10,7 @@
         "@openuidev/lang-core": "1.0.1",
         "@openuidev/react-lang": "1.0.1",
         "@phosphor-icons/react": "2.1.10",
+        "@solar-icons/react": "2.3.3",
         "react": "19.3.1",
         "react-dom": "19.3.1",
         "react-markdown": "10.1.0",
@@ -69,6 +70,8 @@
     "@openuidev/react-lang": ["@openuidev/react-lang@1.0.1", "", { "dependencies": { "@openuidev/devtools": "^0.3.0", "@openuidev/lang-core": "^1.0.1", "@openuidev/observability": "^0.0.4" }, "peerDependencies": { "@modelcontextprotocol/sdk": ">=1.0.0", "react": "*", "react-dom": "*", "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["@modelcontextprotocol/sdk", "react-dom"] }, "sha512-jt5AKWyKe73BjD+bRC2kKerHCeAurI/D9KMQvbi736963D2lehpPGAvVGoxAN4MG6sM/7OOlfWvErQBPPPx30A=="],
 
     "@phosphor-icons/react": ["@phosphor-icons/react@2.1.10", "", { "peerDependencies": { "react": ">= 16.8", "react-dom": ">= 16.8" } }, "sha512-vt8Tvq8GLjheAZZYa+YG/pW7HDbov8El/MANW8pOAz4eGxrwhnbfrQZq0Cp4q8zBEu8NIhHdnr+r8thnfRSNYA=="],
+
+    "@solar-icons/react": ["@solar-icons/react@2.3.3", "", { "peerDependencies": { "react": ">= 16.8", "react-dom": ">= 16.8" } }, "sha512-ysV8O4SitjscEnfsuHehHwkQFPZYKk6A9+Zooqw9SmG80n4V/R0ciTkwABHZ3VTlCRtkqQgaDZHkczkujhtcag=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

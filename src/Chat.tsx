@@ -94,7 +94,7 @@ const MarkdownMessage = memo(function MarkdownMessage({
   );
 });
 
-function ApprovalPanel({
+export function ApprovalPanel({
   approval,
   workspaceId,
   onError,

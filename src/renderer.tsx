@@ -11,12 +11,14 @@ import {
 } from "@phosphor-icons/react";
 import { createRef, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { VOICE_LABELS } from "./Astra";
 import type { CanvasHandle } from "./CanvasSurface";
 import { Chat, Composer } from "./Chat";
 import { HomeScreen } from "./HomeScreen";
 import { Surface } from "./SurfaceView";
 import { hasWorkspaceSurface } from "./surface";
 import type { Snapshot, Workspace } from "./types";
+import { INITIAL_VOICE, type VoiceState } from "./voice";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 
 const STARTERS = [
@@ -44,6 +46,7 @@ function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [voice, setVoice] = useState<VoiceState>(INITIAL_VOICE);
   const [home, setHome] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const surfaceHandles = useRef(
@@ -101,6 +104,36 @@ function App() {
     },
     [captureWorkspace],
   );
+  useEffect(() => {
+    const unsubscribe = window.codexos.subscribeVoice(setVoice);
+    window.codexos.voiceSnapshot().then(setVoice).catch(onError);
+    return unsubscribe;
+  }, [onError]);
+  const toggleVoice = useCallback(() => {
+    const action = window.codexos.startVoice();
+    void action.catch(onError);
+  }, [onError]);
+  const pauseVoice = useCallback(() => {
+    void window.codexos.stopVoice().catch(onError);
+  }, [onError]);
+  const interruptVoice = useCallback(() => {
+    void window.codexos.interruptVoice().catch(onError);
+  }, [onError]);
+  useEffect(() => {
+    const interrupt = (event: KeyboardEvent) => {
+      if (
+        home &&
+        voice.active &&
+        event.key === "Escape" &&
+        !event.defaultPrevented
+      ) {
+        event.preventDefault();
+        interruptVoice();
+      }
+    };
+    addEventListener("keydown", interrupt);
+    return () => removeEventListener("keydown", interrupt);
+  }, [home, voice.active, interruptVoice]);
   useEffect(() => {
     window.codexosFlush = async () => {
       await Promise.all(
@@ -229,6 +262,19 @@ function App() {
     <div className={`desktop-app ${home ? "on-home" : "in-app"}`}>
       <header className="toolbar desktop-toolbar">
         <div className="desktop-navigation">
+          {voice.active && !home && (
+            <button
+              type="button"
+              className="astra-session-pill"
+              onClick={() => {
+                setHome(true);
+                setChatOpen(false);
+              }}
+            >
+              <span className="astra-status-dot" /> Astra ·{" "}
+              {VOICE_LABELS[voice.status]}
+            </button>
+          )}
           {!home && (
             <>
               <button
@@ -353,6 +399,11 @@ function App() {
             onFavorite={favorite}
             onRename={window.codexos.renameWorkspace}
             onDelete={deleteApp}
+            voice={voice}
+            onToggleVoice={toggleVoice}
+            onInterruptVoice={interruptVoice}
+            onPauseVoice={pauseVoice}
+            onError={onError}
           />
         )}
         <section

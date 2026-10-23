@@ -1382,36 +1382,12 @@ td {
   height: 88px;
   border-radius: 23px;
   color: #fff;
-  background: linear-gradient(155deg, var(--app-light), var(--app-color));
+  background: #10121c;
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.5),
     inset 0 -1px 0 rgb(0 0 0 / 0.08),
-    0 6px 12px -4px color-mix(in srgb, var(--app-color) 35%, transparent);
+    0 6px 12px -4px #090a1080;
   transition: transform 160ms ease;
-}
-.tone-sage {
-  --app-light: #5fbd96;
-  --app-color: #237b5e;
-}
-.tone-sky {
-  --app-light: #64b9ef;
-  --app-color: #286cc6;
-}
-.tone-clay {
-  --app-light: #f5a36b;
-  --app-color: #d6613d;
-}
-.tone-rose {
-  --app-light: #ee83a4;
-  --app-color: #c8436b;
-}
-.tone-gold {
-  --app-light: #edbd59;
-  --app-color: #be8528;
-}
-.tone-sand {
-  --app-light: #98a5bd;
-  --app-color: #54647d;
 }
 .app-icon svg {
   filter: drop-shadow(0 2px 2px rgb(0 0 0 / 0.1));
@@ -1706,6 +1682,285 @@ td {
 @media (prefers-reduced-motion: reduce) {
   .app-icon,
   .chat-drawer {
+    transition: none;
+  }
+}
+
+/* Astra Home keeps attention on the voice and its useful results. */
+.on-home {
+  --ink: #e0e2ef;
+  --muted: #9295aa;
+  --line: rgb(214 220 255 / 0.1);
+  --surface: #14151f;
+  --paper: #0b0c12;
+  --hover: rgb(214 220 255 / 0.05);
+  color: var(--ink);
+  background: #090a10;
+}
+.on-home .desktop-toolbar {
+  color: var(--ink);
+  background: #090a10;
+  border-bottom-color: transparent;
+}
+.on-home .home-screen {
+  background: radial-gradient(ellipse at 50% 20%, #10111e 0, #090a10 65%);
+}
+.on-home .home-content {
+  max-width: 1056px;
+  padding: 22px 48px 48px;
+}
+.on-home .new-app-button {
+  background: var(--hover);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.astra {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 510px;
+  padding: 12px 0 36px;
+  text-align: center;
+}
+.astra-name {
+  z-index: 1;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 450;
+  letter-spacing: 0.48em;
+  text-indent: 0.48em;
+  color: #c3c5da;
+}
+.astra-avatar {
+  position: relative;
+  width: 560px;
+  max-width: 100%;
+  height: 300px;
+  border-radius: 50%;
+  margin: -6px 0 -4px;
+  transition: filter 220ms ease;
+}
+.astra-avatar:hover {
+  filter: brightness(1.25);
+}
+.astra-avatar:focus-visible {
+  outline: 1px solid #aeb6ee;
+  outline-offset: 5px;
+}
+.astra-galaxy {
+  position: absolute;
+  width: 560px;
+  height: 560px;
+  max-width: none;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.astra-state {
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px;
+  font-size: 11px;
+  color: #a1a5c1;
+}
+.astra-status-dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #bbc5ff;
+  box-shadow: 0 0 10px #899bff80;
+}
+.voice-off .astra-status-dot {
+  background: #64677b;
+  box-shadow: none;
+}
+.voice-error .astra-status-dot {
+  background: #e5b6a6;
+}
+.astra-conversation {
+  z-index: 1;
+  max-width: 660px;
+  min-height: 62px;
+}
+.astra-task {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  font-size: clamp(20px, 2vw, 26px);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: -0.025em;
+  text-wrap: pretty;
+}
+.astra-result {
+  margin: 16px 0 0;
+  color: #a8abc2;
+  font-size: 14px;
+  line-height: 1.8;
+  text-wrap: pretty;
+}
+.astra-error {
+  margin-top: 16px;
+  color: #e5b6a6;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.astra-controls {
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 32px;
+  margin-top: 16px;
+  color: #8589a3;
+  font-size: 11px;
+}
+.astra-controls button {
+  padding: 7px 10px;
+  border-radius: 7px;
+}
+.astra-controls button:hover {
+  color: #e0e2ef;
+  background: var(--hover);
+}
+.astra-interrupt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.astra-controls kbd {
+  margin-left: 5px;
+  font-size: 9px;
+  opacity: 0.6;
+}
+.astra-session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: #676c9c;
+  background: #878db00c;
+}
+.on-home .home-favorites {
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.on-home .home-section-heading {
+  margin-bottom: 16px;
+}
+.on-home .home-section-title {
+  color: #a8abc2;
+  font-size: 12px;
+  font-weight: 500;
+}
+.on-home .app-grid {
+  grid-template-columns: repeat(auto-fill, minmax(102px, 1fr));
+  gap: 18px 10px;
+}
+.on-home .app-tile {
+  gap: 12px;
+  padding: 12px 6px;
+  border-radius: 12px;
+}
+.on-home .app-tile:hover {
+  background: var(--hover);
+}
+.on-home :is(.app-tile, .library-open) .app-icon {
+  width: 57px;
+  height: 57px;
+  border-radius: 16px;
+  background:
+    radial-gradient(
+      ellipse at 30% 12%,
+      color-mix(in srgb, var(--app-accent) 13%, transparent),
+      transparent 75%
+    ),
+    #0e1019;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 17%, transparent);
+  color: var(--app-accent);
+  box-shadow:
+    inset 0 1px 0 #e1e7ff0b,
+    0 5px 15px #00000020;
+}
+.on-home .app-icon svg {
+  width: 29px;
+  height: 29px;
+  filter: drop-shadow(
+    0 0 8px color-mix(in srgb, var(--app-accent) 16%, transparent)
+  );
+}
+.on-home .app-tile-name {
+  font-size: 11px;
+  color: #a5a9c1;
+}
+.on-home .home-library {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.home-library-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: #9295aa;
+  font-size: 11px;
+  list-style: none;
+}
+.home-library-toggle::-webkit-details-marker {
+  display: none;
+}
+.home-library-toggle::after {
+  content: "+";
+  margin-left: auto;
+  font-size: 16px;
+  font-weight: 300;
+}
+.home-library[open] > .home-library-toggle::after {
+  content: "−";
+}
+.on-home .home-library-toggle > span {
+  margin-left: 9px;
+  opacity: 0.6;
+}
+.home-library[open] > section {
+  padding-top: 22px;
+}
+.on-home .home-empty {
+  border-color: var(--line);
+}
+.on-home .approval {
+  max-width: 680px;
+  margin: 0 auto 28px;
+  background: var(--surface);
+  color: var(--ink);
+}
+@media (max-width: 1050px) {
+  .on-home .home-content {
+    padding: 24px 32px 36px;
+  }
+  .astra {
+    min-height: 460px;
+  }
+  .astra-avatar {
+    height: 260px;
+  }
+  .astra-galaxy {
+    width: 490px;
+    height: 490px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .astra-avatar {
     transition: none;
   }
 }
