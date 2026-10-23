@@ -53,7 +53,7 @@ export async function desktopClient(
       entry.url.endsWith(
         surface === "app" ? "/dist/index.html" : "/dist/canvas.html",
       ) &&
-      (entry.url.includes("/Projects/CodexOS/") ||
+      (entry.url.includes("/Projects/Astra/") ||
         entry.url.startsWith("file:///Applications/CodexOS.app/") ||
         entry.url.startsWith("file:///Applications/Astra.app/")),
   );
@@ -79,7 +79,7 @@ export async function desktopClient(
   }
   if (!candidates[0])
     throw new Error(
-      "Open the CodexOS test build with --remote-debugging-port=9337 first.",
+      "Open the Astra test build with --remote-debugging-port=9337 first.",
     );
   return connectTarget(candidates[0]);
 }
@@ -88,7 +88,7 @@ async function connectTarget(target: Target) {
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise<void>((resolve, reject) => {
     ws.onopen = () => resolve();
-    ws.onerror = () => reject(new Error("Cannot connect to CodexOS"));
+    ws.onerror = () => reject(new Error("Cannot connect to Astra"));
   });
   let nextId = 0;
   const pending = new Map<
