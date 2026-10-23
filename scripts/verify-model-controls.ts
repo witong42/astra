@@ -1,0 +1,77 @@
+import assert from "node:assert/strict";
+import type { Snapshot } from "../src/types";
+import { desktopClient } from "./desktop-client";
+
+const client = await desktopClient();
+const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
+try {
+  const before = await snapshot();
+  assert.equal(before.status, "ready");
+  for (const label of ["Model", "Reasoning effort", "Model speed"]) {
+    await client.evaluate(
+      `document.querySelector(${JSON.stringify(`button[data-setting="${label}"]`)}).click()`,
+    );
+    await Bun.sleep(100);
+    const menu = await client.evaluate<{
+      label: string;
+      options: number;
+      top: number;
+      bottom: number;
+      selected: number;
+    }>(
+      `(() => {const menu=document.querySelector('.choice-menu:popover-open');const rect=menu.getBoundingClientRect();return {label:menu.getAttribute('aria-label'),options:menu.querySelectorAll('[role=option]').length,selected:menu.querySelectorAll('[aria-selected=true]').length,top:rect.top,bottom:rect.bottom};})()`,
+    );
+    assert.equal(menu.label, label);
+    assert.ok(menu.options > 0);
+    assert.equal(menu.selected, 1);
+    assert.ok(menu.top >= 0);
+    if (label === "Reasoning effort")
+      await client.screenshot("test-results/reasoning-menu.png");
+    await client.call("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "ArrowDown",
+      code: "ArrowDown",
+      windowsVirtualKeyCode: 40,
+    });
+    assert.equal(
+      await client.evaluate('document.activeElement.getAttribute("role")'),
+      "option",
+    );
+    await client.call("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "Escape",
+      code: "Escape",
+      windowsVirtualKeyCode: 27,
+    });
+    await client.call("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key: "Escape",
+      code: "Escape",
+      windowsVirtualKeyCode: 27,
+    });
+    await Bun.sleep(100);
+    assert.equal(
+      await client.evaluate(
+        'Boolean(document.querySelector(".choice-menu:popover-open"))',
+      ),
+      false,
+    );
+  }
+  const after = await snapshot();
+  assert.equal(after.model, before.model);
+  assert.equal(after.reasoningEffort, before.reasoningEffort);
+  assert.equal(after.serviceTier, before.serviceTier);
+  assert.equal(client.errors.length, 0);
+  await client.screenshot("test-results/model-controls.png");
+  console.log(
+    "MODEL_MENUS_VERIFIED",
+    JSON.stringify({
+      readableMenus: true,
+      keyboardNavigation: true,
+      selectionUnchanged: true,
+      errors: 0,
+    }),
+  );
+} finally {
+  client.close();
+}

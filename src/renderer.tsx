@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { CanvasHandle } from "./CanvasSurface";
 import { Chat, Composer } from "./Chat";
 import { Surface } from "./SurfaceView";
 import type { Snapshot } from "./types";
@@ -29,6 +30,7 @@ function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [canvasVisible, setCanvasVisible] = useState(true);
+  const surfaceHandle = useRef<CanvasHandle | null>(null);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
   const onError = useCallback(
@@ -36,19 +38,24 @@ function App() {
       setError(value instanceof Error ? value.message : String(value)),
     [],
   );
+  const afterCapture = useCallback(async (action: () => Promise<void>) => {
+    await surfaceHandle.current?.flush();
+    await action();
+  }, []);
   const onSend = useCallback(
-    (text: string) => {
+    async (text: string) => {
       if (snapshotRef.current?.status !== "ready") {
-        setError("Wait for Codex to finish or reconnect first.");
-        return;
+        throw new Error("Wait for Codex to finish or reconnect first.");
       }
       setError(null);
-      window.codexos.send(text).catch(onError);
+      await afterCapture(() => window.codexos.send(text));
     },
-    [onError],
+    [afterCapture],
   );
 
   useEffect(() => {
+    window.codexosFlush = () =>
+      surfaceHandle.current?.flush() ?? Promise.resolve();
     const unsubscribe = window.codexos.subscribe(setSnapshot);
     window.codexos.snapshot().then(setSnapshot).catch(onError);
     return unsubscribe;
@@ -68,7 +75,9 @@ function App() {
     return <div role="alert">The selected workspace is missing.</div>;
   const busy = snapshot.status === "working";
   const hasSurface = Boolean(
-    workspace.spec.root && workspace.spec.elements[workspace.spec.root],
+    workspace.canvas
+      ? workspace.canvas.generation > 0
+      : workspace.spec.root && workspace.spec.elements[workspace.spec.root],
   );
   const visibleError = error ?? snapshot.error;
   const folder =
@@ -88,7 +97,9 @@ function App() {
           type="button"
           className="new-workspace"
           disabled={busy}
-          onClick={() => window.codexos.newWorkspace().catch(onError)}
+          onClick={() =>
+            afterCapture(() => window.codexos.newWorkspace()).catch(onError)
+          }
         >
           <span>＋</span> New workspace
         </button>
@@ -101,7 +112,9 @@ function App() {
               key={entry.id}
               disabled={busy && entry.id !== workspace.id}
               onClick={() =>
-                window.codexos.selectWorkspace(entry.id).catch(onError)
+                afterCapture(() =>
+                  window.codexos.selectWorkspace(entry.id),
+                ).catch(onError)
               }
             >
               <span className="workspace-symbol" aria-hidden="true">
@@ -132,7 +145,9 @@ function App() {
               className="folder-button"
               disabled={busy}
               title={workspace.cwd}
-              onClick={() => window.codexos.chooseFolder().catch(onError)}
+              onClick={() =>
+                afterCapture(() => window.codexos.chooseFolder()).catch(onError)
+              }
             >
               <span aria-hidden="true">⌑</span> {folder}{" "}
               <span aria-hidden="true">⌄</span>
@@ -203,13 +218,39 @@ function App() {
               />
             </footer>
           </section>
-          {canvasVisible && (
-            <aside className="canvas" aria-label="Live canvas">
+          {
+            <aside
+              className={`canvas ${canvasVisible ? "" : "hidden"}`}
+              aria-label="Live canvas"
+            >
               <div className="canvas-heading">
                 <span className="eyebrow">
                   <span className={`live-indicator ${busy ? "busy" : ""}`} />
                   LIVE WORKSPACE
                 </span>
+                {workspace.canvas && workspace.canvas.history.length > 0 && (
+                  <select
+                    className="version-picker"
+                    aria-label="Restore canvas version"
+                    value=""
+                    disabled={busy || workspace.canvas.pending.length > 0}
+                    onChange={(event) => {
+                      const index = Number(event.currentTarget.value);
+                      void afterCapture(() =>
+                        window.codexos.restoreCanvas(index),
+                      ).catch(onError);
+                    }}
+                  >
+                    <option value="">
+                      Version {workspace.canvas.generation} · Restore…
+                    </option>
+                    {workspace.canvas.history.map((entry, index) => (
+                      <option key={entry.generation} value={index}>
+                        Restore version {entry.generation}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {snapshot.metrics && snapshot.metrics.patches > 0 && (
                   <span className="generation-stats">
                     {snapshot.metrics.firstUI !== null &&
@@ -222,18 +263,22 @@ function App() {
                   </span>
                 )}
               </div>
-              {hasSurface ? (
-                <div className="generated-surface">
-                  <Surface
-                    key={workspace.id}
-                    workspace={workspace}
-                    patches={snapshot.metrics?.patches ?? 0}
-                    busy={busy}
-                    onAsk={onSend}
-                    onError={onError}
-                  />
-                </div>
-              ) : (
+              <div
+                className={`generated-surface ${hasSurface ? "" : "hidden"}`}
+              >
+                <Surface
+                  key={workspace.id}
+                  workspace={workspace}
+                  patches={snapshot.metrics?.patches ?? 0}
+                  busy={busy}
+                  onAsk={(text) => {
+                    void onSend(text).catch(onError);
+                  }}
+                  onError={onError}
+                  handle={surfaceHandle}
+                />
+              </div>
+              {!hasSurface && (
                 <div className="empty-workspace">
                   <div className="workspace-emblem" aria-hidden="true">
                     <span>↗</span>
@@ -251,7 +296,7 @@ function App() {
                         type="button"
                         key={starter.title}
                         disabled={snapshot.status !== "ready"}
-                        onClick={() => onSend(starter.prompt)}
+                        onClick={() => onSend(starter.prompt).catch(onError)}
                       >
                         <span>
                           <strong>{starter.title}</strong>
@@ -269,7 +314,7 @@ function App() {
                 </div>
               )}
             </aside>
-          )}
+          }
         </div>
       </div>
     </div>

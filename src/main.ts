@@ -12,6 +12,7 @@ import {
 } from "electron";
 import { z } from "zod";
 import { CodexBackend } from "./backend";
+import { canvasAckSchema } from "./canvas";
 import { loadState, saveState } from "./storage";
 import type { SavedState, Snapshot } from "./types";
 
@@ -21,6 +22,7 @@ const DATA_DIRECTORY =
   join(homedir(), "Library/Application Support/CodexOS");
 const SNAPSHOT_INTERVAL_MS = 40;
 const SAVE_INTERVAL_MS = 300;
+const FLUSH_TIMEOUT_MS = 5000;
 let window: BrowserWindow | null = null;
 let backend: CodexBackend;
 let latest: Snapshot | null = null;
@@ -93,6 +95,21 @@ function installHandlers() {
       value,
     ),
   );
+  handle("setReasoningEffort", (effort) =>
+    backend.setReasoningEffort(z.string().max(100).parse(effort)),
+  );
+  handle("setServiceTier", (tier) =>
+    backend.setServiceTier(z.string().max(100).parse(tier)),
+  );
+  handle("updateCanvas", (id, ack) =>
+    backend.updateCanvas(
+      z.string().uuid().parse(id),
+      canvasAckSchema.parse(ack),
+    ),
+  );
+  handle("restoreCanvas", (index) =>
+    backend.restoreCanvas(z.number().int().nonnegative().parse(index)),
+  );
   handle("answer", (allow, answers) =>
     backend.answer(
       z.boolean().parse(allow),
@@ -112,6 +129,30 @@ function installHandlers() {
     if (!selected.canceled && selected.filePaths[0])
       backend.createWorkspace(selected.filePaths[0]);
   });
+}
+
+async function flushRenderer() {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed())
+    return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      window.webContents.executeJavaScript("window.codexosFlush?.()"),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("The canvas did not respond before closing.")),
+          FLUSH_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (error) {
+    dialog.showErrorBox(
+      "The latest canvas edit could not be saved",
+      String(error),
+    );
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function createWindow() {
@@ -140,12 +181,21 @@ async function createWindow() {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
+  window.webContents.on("will-frame-navigate", (event) => {
+    if (event.url !== pathToFileURL(join(bundleDirectory, "canvas.html")).href)
+      event.preventDefault();
+  });
   window.webContents.on("will-attach-webview", (event) =>
     event.preventDefault(),
   );
   window.webContents.session.setPermissionRequestHandler(
     (_contents, _permission, callback) => callback(false),
   );
+  window.on("close", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    void flushRenderer().finally(() => window?.destroy());
+  });
   window.on("closed", () => {
     window = null;
   });
@@ -224,15 +274,19 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   event.preventDefault();
   quitting = true;
-  if (saveTimer) clearTimeout(saveTimer);
-  if (saved) {
-    try {
-      saveState(join(DATA_DIRECTORY, "workspace.json"), saved);
-    } catch (error) {
-      dialog.showErrorBox("Workspace could not be saved", String(error));
-    }
-  }
-  (backend?.stop() ?? Promise.resolve()).finally(() => app.quit());
+  void flushRenderer()
+    .then(async () => {
+      if (saveTimer) clearTimeout(saveTimer);
+      if (saved) {
+        try {
+          saveState(join(DATA_DIRECTORY, "workspace.json"), saved);
+        } catch (error) {
+          dialog.showErrorBox("Workspace could not be saved", String(error));
+        }
+      }
+      await backend?.stop();
+    })
+    .finally(() => app.quit());
 });
 process.on("SIGTERM", () => app.quit());
 process.on("SIGINT", () => app.quit());

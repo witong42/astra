@@ -7,10 +7,18 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { UI_INSTRUCTIONS } from "./catalog";
+import {
+  acknowledgeCanvas,
+  beginCanvasGeneration,
+  CanvasStream,
+  emptyCanvas,
+  queueCanvasOp,
+  restoreCanvas,
+} from "./canvas";
+import { CANVAS_INSTRUCTIONS } from "./canvas-prompt";
 import { type RpcMessage, RpcPeer } from "./rpc";
 import { newWorkspace } from "./storage";
-import { applySurfacePatch, SurfaceStream } from "./surface";
+import { applySurfacePatch } from "./surface";
 import type {
   Approval,
   Model,
@@ -23,7 +31,7 @@ import type {
 const MAX_MESSAGES = 80;
 const MAX_WORKSPACES = 20;
 const PROMPT_LIMIT = 24_000;
-const UI_CONTEXT_LIMIT = 40_000;
+const UI_CONTEXT_LIMIT = 600_000;
 const questionsSchema = z.array(
   z.object({
     id: z.string(),
@@ -59,11 +67,13 @@ export class CodexBackend {
   private loaded = new Set<string>();
   private turnId: string | null = null;
   private activeMessageId: string | null = null;
-  private streams = new Map<string, SurfaceStream>();
+  private streams = new Map<string, CanvasStream>();
   private approvalQueue: {
     approval: Approval;
     params: Record<string, unknown>;
   }[] = [];
+  private canvasMutated = false;
+  private canvasBaseRevision = 0;
   private fileChanges = new Map<string, string>();
   private starting: Promise<void> | null = null;
   private stopping = false;
@@ -96,9 +106,23 @@ export class CodexBackend {
   }
 
   private changed() {
-    const { version, activeId, model, workspaces } = this.state;
+    const {
+      version,
+      activeId,
+      model,
+      reasoningEffort,
+      serviceTier,
+      workspaces,
+    } = this.state;
     try {
-      this.persist({ version, activeId, model, workspaces });
+      this.persist({
+        version,
+        activeId,
+        model,
+        reasoningEffort,
+        serviceTier,
+        workspaces,
+      });
     } catch (error) {
       this.state.error = String(error);
     }
@@ -190,6 +214,7 @@ export class CodexBackend {
         models.data.find((model) => model.isDefault)?.model ??
         models.data[0]?.model ??
         "";
+    this.normalizeModelSettings();
     this.state.account = account.account
       ? account.account.type === "chatgpt"
         ? `ChatGPT ${account.account.planType ?? ""}`.trim()
@@ -227,6 +252,8 @@ export class CodexBackend {
       patches: 0,
     };
     this.streams.clear();
+    this.canvasMutated = false;
+    this.canvasBaseRevision = this.workspace.canvas?.revision ?? 0;
     this.fileChanges.clear();
     const workspace = this.workspace;
     if (workspace.messages.length === 0) workspace.name = text.slice(0, 70);
@@ -246,7 +273,7 @@ export class CodexBackend {
           {
             cwd: workspace.cwd,
             model: this.state.model,
-            developerInstructions: UI_INSTRUCTIONS,
+            developerInstructions: CANVAS_INSTRUCTIONS,
           },
         );
         workspace.threadId = result.thread.id;
@@ -255,29 +282,30 @@ export class CodexBackend {
         await this.rpc.request("thread/resume", {
           threadId: workspace.threadId,
           excludeTurns: true,
-          developerInstructions: UI_INSTRUCTIONS,
+          developerInstructions: CANVAS_INSTRUCTIONS,
         });
         this.loaded.add(workspace.threadId);
       }
-      const context = JSON.stringify(workspace.spec);
+      const context = JSON.stringify(
+        workspace.canvas
+          ? {
+              html: workspace.canvas.html,
+              css: workspace.canvas.css,
+              generation: workspace.canvas.generation,
+            }
+          : { legacySurface: workspace.spec },
+      );
       if (context.length > UI_CONTEXT_LIMIT)
         throw new Error(
           "This workspace is too large for live UI editing. Start a new workspace to keep generation fast.",
         );
-      const model = this.state.models.find(
-        (entry) => entry.model === this.state.model,
-      );
-      const effort = model?.supportedReasoningEfforts?.some(
-        (entry) => entry.reasoningEffort === "low",
-      )
-        ? "low"
-        : undefined;
       const result = await this.rpc.request<{ turn: { id: string } }>(
         "turn/start",
         {
           threadId: workspace.threadId,
           model: this.state.model,
-          effort,
+          effort: this.state.reasoningEffort || undefined,
+          serviceTierForTurn: this.state.serviceTier,
           input: [
             {
               type: "text",
@@ -315,21 +343,17 @@ export class CodexBackend {
       const id = String(params.itemId ?? "assistant");
       let stream = this.streams.get(id);
       if (!stream) {
-        stream = new SurfaceStream(
+        stream = new CanvasStream(
           (patch) => {
             try {
-              this.workspace.spec = applySurfacePatch(
-                this.workspace.spec,
-                patch,
-              );
+              this.workspace.canvas ??= emptyCanvas();
+              if (!this.canvasMutated) {
+                beginCanvasGeneration(this.workspace.canvas);
+                this.canvasMutated = true;
+              }
+              queueCanvasOp(this.workspace.canvas, patch);
               if (this.state.metrics) {
                 this.state.metrics.patches++;
-                if (
-                  this.state.metrics.firstUI === null &&
-                  this.workspace.spec.elements[this.workspace.spec.root]
-                )
-                  this.state.metrics.firstUI =
-                    Date.now() - this.state.metrics.startedAt;
               }
               this.state.activity = "Updating workspace";
             } catch (error) {
@@ -341,6 +365,9 @@ export class CodexBackend {
               (entry) => entry.id === this.activeMessageId,
             );
             if (reply) reply.text = `${reply.text}${text}`.slice(-100_000);
+          },
+          (error) => {
+            this.state.error = `A canvas update was rejected: ${error}`;
           },
         );
         this.streams.set(id, stream);
@@ -510,6 +537,58 @@ export class CodexBackend {
     if (!this.state.models.some((entry) => entry.model === model))
       throw new Error("Choose an available Codex model.");
     this.state.model = model;
+    this.normalizeModelSettings();
+    this.changed();
+  }
+
+  private normalizeModelSettings() {
+    const model = this.state.models.find(
+      (entry) => entry.model === this.state.model,
+    );
+    if (
+      !model?.supportedReasoningEfforts?.some(
+        (entry) => entry.reasoningEffort === this.state.reasoningEffort,
+      )
+    )
+      this.state.reasoningEffort =
+        model?.defaultReasoningEffort ??
+        model?.supportedReasoningEfforts?.[0]?.reasoningEffort ??
+        "";
+    if (
+      this.state.serviceTier !== "default" &&
+      !model?.serviceTiers?.some((entry) => entry.id === this.state.serviceTier)
+    )
+      this.state.serviceTier = "default";
+  }
+
+  setReasoningEffort(effort: string) {
+    if (this.state.status === "working")
+      throw new Error("Wait for Codex to finish before changing reasoning.");
+    const model = this.state.models.find(
+      (entry) => entry.model === this.state.model,
+    );
+    if (
+      !model?.supportedReasoningEfforts?.some(
+        (entry) => entry.reasoningEffort === effort,
+      )
+    )
+      throw new Error("Choose a reasoning level supported by this model.");
+    this.state.reasoningEffort = effort;
+    this.changed();
+  }
+
+  setServiceTier(tier: string) {
+    if (this.state.status === "working")
+      throw new Error("Wait for Codex to finish before changing speed.");
+    const model = this.state.models.find(
+      (entry) => entry.model === this.state.model,
+    );
+    if (
+      tier !== "default" &&
+      !model?.serviceTiers?.some((entry) => entry.id === tier)
+    )
+      throw new Error("Choose a speed supported by this model.");
+    this.state.serviceTier = tier;
     this.changed();
   }
 
@@ -521,6 +600,34 @@ export class CodexBackend {
       path: `/state${path}`,
       value,
     });
+    this.changed();
+  }
+
+  updateCanvas(id: string, ack: unknown) {
+    if (id !== this.state.activeId)
+      throw new Error("That workspace is no longer active.");
+    const canvas = this.workspace.canvas;
+    if (!canvas) throw new Error("This workspace has no live document yet.");
+    const error = acknowledgeCanvas(canvas, ack);
+    if (error) this.state.error = `A canvas update was rejected: ${error}`;
+    if (
+      this.state.metrics &&
+      this.state.metrics.firstUI === null &&
+      this.state.metrics.patches > 0 &&
+      canvas.revision > this.canvasBaseRevision
+    )
+      this.state.metrics.firstUI = Date.now() - this.state.metrics.startedAt;
+    this.changed();
+  }
+
+  restoreCanvas(index: number) {
+    if (this.state.status === "working")
+      throw new Error("Stop Codex before restoring a previous version.");
+    if (!this.workspace.canvas)
+      throw new Error("This workspace has no canvas history.");
+    restoreCanvas(this.workspace.canvas, index);
+    this.state.error = null;
+    this.state.metrics = null;
     this.changed();
   }
 

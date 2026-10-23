@@ -1,4 +1,5 @@
 import type { Spec } from "@json-render/core";
+import type { CanvasAck, CanvasState } from "./canvas";
 
 export type Message = { id: string; role: "user" | "assistant"; text: string };
 export type Workspace = {
@@ -8,11 +9,14 @@ export type Workspace = {
   threadId: string | null;
   messages: Message[];
   spec: Spec;
+  canvas: CanvasState | null;
 };
 export type SavedState = {
   version: 1;
   activeId: string;
   model: string;
+  reasoningEffort: string;
+  serviceTier: string;
   workspaces: Workspace[];
 };
 export type Model = {
@@ -20,7 +24,12 @@ export type Model = {
   model: string;
   displayName: string;
   isDefault: boolean;
-  supportedReasoningEfforts?: { reasoningEffort: string }[];
+  supportedReasoningEfforts?: {
+    reasoningEffort: string;
+    description?: string;
+  }[];
+  defaultReasoningEffort?: string;
+  serviceTiers?: { id: string; name: string; description: string }[];
 };
 export type Question = {
   id: string;
@@ -60,11 +69,15 @@ export type Bridge = {
   selectWorkspace: (id: string) => Promise<void>;
   chooseFolder: () => Promise<void>;
   setModel: (model: string) => Promise<void>;
+  setReasoningEffort: (effort: string) => Promise<void>;
+  setServiceTier: (tier: string) => Promise<void>;
   updateData: (
     workspaceId: string,
     path: string,
     value: unknown,
   ) => Promise<void>;
+  updateCanvas: (workspaceId: string, ack: CanvasAck) => Promise<void>;
+  restoreCanvas: (index: number) => Promise<void>;
   answer: (allow: boolean, answers?: Record<string, string>) => Promise<void>;
   reconnect: () => Promise<void>;
 };
@@ -72,5 +85,6 @@ export type Bridge = {
 declare global {
   interface Window {
     codexos: Bridge;
+    codexosFlush: () => Promise<void>;
   }
 }

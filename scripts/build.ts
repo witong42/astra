@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appIcon } from "./icon";
 
@@ -24,6 +24,25 @@ const renderer = await Bun.build({
   minify: true,
   define: { "process.env.NODE_ENV": '"production"' },
 });
+const canvas = await Bun.build({
+  entrypoints: [join(root, "src/canvas-runtime.ts")],
+  target: "browser",
+  format: "iife",
+  minify: true,
+});
+if (!canvas.success)
+  throw new AggregateError(canvas.logs, "Canvas build failed");
+const runtime = (await canvas.outputs[0].text()).replace(
+  /<\/script/gi,
+  "<\\/script",
+);
+await Bun.write(
+  join(outdir, "canvas.html"),
+  readFileSync(join(root, "src/canvas.html"), "utf8").replace(
+    "<!--CANVAS_RUNTIME-->",
+    `<script>${runtime}</script>`,
+  ),
+);
 for (const result of [main, renderer])
   if (!result.success)
     throw new AggregateError(result.logs, "CodexOS build failed");

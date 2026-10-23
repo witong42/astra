@@ -7,13 +7,15 @@ type Response = {
   params?: Record<string, unknown>;
 };
 
-export async function desktopClient() {
+export async function desktopClient(surface: "app" | "canvas" = "app") {
   const targets = (await (
     await fetch("http://127.0.0.1:9337/json/list")
   ).json()) as Target[];
   const target = targets.find(
     (entry) =>
-      entry.url.endsWith("/dist/index.html") &&
+      entry.url.endsWith(
+        surface === "app" ? "/dist/index.html" : "/dist/canvas.html",
+      ) &&
       (entry.url.includes("/Projects/CodexOS/") ||
         entry.url.startsWith("file:///Applications/CodexOS.app/")),
   );

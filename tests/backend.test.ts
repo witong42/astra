@@ -29,11 +29,12 @@ createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line);
  if(m.method==='initialize')send({id:m.id,result:{}});
  if(m.method==='account/read')send({id:m.id,result:{account:{type:'chatgpt',planType:'test'}}});
- if(m.method==='model/list')send({id:m.id,result:{data:[{id:'test',model:'test',displayName:'Test',isDefault:true}]}});
+ if(m.method==='model/list')send({id:m.id,result:{data:[{id:'test',model:'test',displayName:'Test',isDefault:true,defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'high'}],serviceTiers:[{id:'priority',name:'Fast',description:'Higher usage'}]}]}});
  if(m.method==='config/read')send({id:m.id,result:{config:{model:'test'}}});
  if(m.method==='thread/start')send({id:m.id,result:{thread:{id:'thread-test'}}});
  if(m.method==='turn/start'){
   send({id:m.id,result:{turn:{id:'turn-test'}}});
+  if(m.params.input?.[0]?.text.startsWith('settings probe')){send({method:'item/agentMessage/delta',params:{threadId:'thread-test',itemId:'settings',delta:m.params.effort+'|'+m.params.serviceTierForTurn+'\\n'}});send({method:'turn/completed',params:{threadId:'thread-test',turn:{id:'turn-test',status:'completed'}}});return;}
   send({method:'thread/readState/changed',params:{threadId:'thread-test',newField:true}});
   for(const id of ['first','second'])send({id,method:'item/commandExecution/requestApproval',params:{threadId:'thread-test',itemId:id,command:'echo '+id,reason:'Review '+id}});
  }
@@ -72,6 +73,20 @@ createInterface({input:process.stdin}).on('line',line=>{
       "first:decline,second:accept",
     );
     expect(backend.state.error).toBeNull();
+    backend.setReasoningEffort("high");
+    backend.setServiceTier("priority");
+    expect(() => backend.setReasoningEffort("imaginary")).toThrow();
+    expect(() => backend.setServiceTier("imaginary")).toThrow();
+    await backend.send("settings probe fast");
+    await wait(() => backend.state.status === "ready");
+    expect(backend.workspace.messages.at(-1)?.text.trim()).toBe(
+      "high|priority",
+    );
+    backend.setReasoningEffort("low");
+    backend.setServiceTier("default");
+    await backend.send("settings probe standard");
+    await wait(() => backend.state.status === "ready");
+    expect(backend.workspace.messages.at(-1)?.text.trim()).toBe("low|default");
   } finally {
     await backend.stop();
   }

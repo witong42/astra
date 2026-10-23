@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ModelControls } from "./ModelControls";
 import type { Approval, Snapshot, Workspace } from "./types";
 
 function ApprovalPanel({
@@ -76,12 +77,12 @@ export function Chat({
   workspace: Workspace;
   onError: (error: unknown) => void;
 }) {
-  const end = useRef<HTMLDivElement>(null);
+  const history = useRef<HTMLDivElement>(null);
   const busy = snapshot.status === "working";
   const lastText = workspace.messages.at(-1)?.text;
   useEffect(() => {
     if (lastText !== undefined || snapshot.approval)
-      end.current?.scrollIntoView({ block: "end", behavior: "instant" });
+      history.current?.scrollTo({ top: history.current.scrollHeight });
   }, [lastText, snapshot.approval]);
   return (
     <main className="chat-panel" aria-label="Conversation">
@@ -93,6 +94,7 @@ export function Chat({
       </div>
       <div
         className="messages"
+        ref={history}
         aria-live="polite"
         aria-relevant="additions text"
       >
@@ -133,7 +135,6 @@ export function Chat({
             onError={onError}
           />
         )}
-        <div ref={end} />
       </div>
     </main>
   );
@@ -145,15 +146,16 @@ export function Composer({
   onError,
 }: {
   snapshot: Snapshot;
-  onSend: (text: string) => void;
+  onSend: (text: string) => Promise<void>;
   onError: (error: unknown) => void;
 }) {
   const [draft, setDraft] = useState("");
   const busy = snapshot.status === "working";
   const send = () => {
     if (!draft.trim() || snapshot.status !== "ready") return;
-    onSend(draft.trim());
-    setDraft("");
+    onSend(draft.trim())
+      .then(() => setDraft(""))
+      .catch(onError);
   };
   return (
     <div className="composer-area">
@@ -202,24 +204,7 @@ export function Composer({
           )}
         </div>
       </div>
-      <label className="model-picker">
-        <span className="sr-only">Model</span>
-        <select
-          aria-label="Model"
-          value={snapshot.model}
-          disabled={busy}
-          onChange={(event) =>
-            window.codexos.setModel(event.target.value).catch(onError)
-          }
-        >
-          {snapshot.models.map((model) => (
-            <option key={model.id} value={model.model}>
-              {model.displayName || model.model}
-            </option>
-          ))}
-        </select>
-        <span className="small muted">{snapshot.account}</span>
-      </label>
+      <ModelControls snapshot={snapshot} onError={onError} />
     </div>
   );
 }

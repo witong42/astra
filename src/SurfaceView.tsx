@@ -1,5 +1,6 @@
 import { createStateStore, JSONUIProvider, Renderer } from "@json-render/react";
 import { Component, type ReactNode, useEffect, useRef, useState } from "react";
+import { type CanvasHandle, CanvasSurface } from "./CanvasSurface";
 import { AgentActionContext, registry } from "./registry";
 import type { Workspace } from "./types";
 
@@ -33,7 +34,7 @@ class RenderBoundary extends Component<
 const escapePointer = (value: string) =>
   value.replace(/~/g, "~0").replace(/\//g, "~1");
 
-export function Surface({
+function LegacySurface({
   workspace,
   patches,
   busy,
@@ -90,5 +91,23 @@ export function Surface({
         </JSONUIProvider>
       </AgentActionContext>
     </RenderBoundary>
+  );
+}
+
+export function Surface(
+  props: Parameters<typeof LegacySurface>[0] & {
+    handle: React.RefObject<CanvasHandle | null>;
+  },
+) {
+  return props.workspace.canvas ? (
+    <CanvasSurface
+      key={props.workspace.id}
+      id={props.workspace.id}
+      canvas={props.workspace.canvas}
+      onError={props.onError}
+      handle={props.handle}
+    />
+  ) : (
+    <LegacySurface {...props} />
   );
 }

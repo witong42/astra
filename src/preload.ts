@@ -19,6 +19,10 @@ const bridge: Bridge = {
   setModel: (model) => invoke("setModel", model),
   updateData: (workspaceId, path, value) =>
     invoke("updateData", workspaceId, path, value),
+  setReasoningEffort: (effort) => invoke("setReasoningEffort", effort),
+  setServiceTier: (tier) => invoke("setServiceTier", tier),
+  updateCanvas: (id, ack) => invoke("updateCanvas", id, ack),
+  restoreCanvas: (index) => invoke("restoreCanvas", index),
   answer: (allow, answers) => invoke("answer", allow, answers),
   reconnect: () => invoke("reconnect"),
 };

@@ -26,6 +26,8 @@ describe("saved workspaces", () => {
     const path = file();
     const state = loadState(path, "/tmp");
     state.workspaces[0].threadId = "thread-to-resume";
+    state.reasoningEffort = "high";
+    state.serviceTier = "priority";
     state.workspaces[0].spec.state = {
       notes: "My edits",
       tasks: [{ id: "1", title: "Keep me", status: "Doing" }],
@@ -41,4 +43,17 @@ describe("saved workspaces", () => {
     expect(() => loadState(path, "/tmp")).toThrow();
     expect(readFileSync(path, "utf8")).toBe("invalid original data");
   });
+});
+
+test("loads previous CodexOS workspaces without discarding their original view or edits", () => {
+  const path = file();
+  const state = loadState(path, "/tmp");
+  const previous = JSON.parse(JSON.stringify(state));
+  delete previous.workspaces[0].canvas;
+  previous.workspaces[0].spec.state = { notes: "Keep my original notes" };
+  writeFileSync(path, JSON.stringify(previous));
+  const loaded = loadState(path, "/tmp");
+  expect(loaded.workspaces[0].canvas).toBeNull();
+  expect(loaded.workspaces[0].spec.state?.notes).toBe("Keep my original notes");
+  expect(loaded.workspaces[0].id).toBe(previous.workspaces[0].id);
 });
