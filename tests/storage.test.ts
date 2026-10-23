@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_CANVAS_BYTES } from "../src/canvas";
-import { loadState, saveState } from "../src/storage";
+import { loadState, newWorkspace, saveState } from "../src/storage";
 
 const directories: string[] = [];
 function file() {
@@ -105,4 +105,27 @@ test("legacy prompt names become short app names while content and identities st
   });
   saveState(path, loaded);
   expect(loadState(path, "/tmp")).toEqual(loaded);
+});
+
+test("Astra's hidden assistant and wake preference survive upgrades without changing apps", () => {
+  const directory = mkdtempSync(join(tmpdir(), "astra-storage-test-"));
+  try {
+    const path = join(directory, "workspace.json");
+    const state = loadState(path, directory);
+    const original = structuredClone(state.workspaces);
+    state.assistant = newWorkspace(directory);
+    state.assistant.name = "Astra";
+    state.assistant.threadId = "assistant-thread";
+    state.assistant.messages = [
+      { id: "spoken", role: "user", text: "Bonjour" },
+    ];
+    state.voiceEnabled = true;
+    saveState(path, state);
+    const restored = loadState(path, directory);
+    expect(restored.workspaces).toEqual(original);
+    expect(restored.assistant).toEqual(state.assistant);
+    expect(restored.voiceEnabled).toBe(true);
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
 });

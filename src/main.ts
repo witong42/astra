@@ -10,13 +10,16 @@ import {
   Menu,
   nativeImage,
   shell,
+  Tray,
 } from "electron";
 import { z } from "zod";
 import { CodexBackend } from "./backend";
 import { canvasAckSchema } from "./canvas";
+import { NativeSpeech } from "./native-speech";
 import { externalWebUrl } from "./navigation";
 import { loadState, saveState } from "./storage";
 import type { SavedState, Snapshot } from "./types";
+import { VoiceSession, type VoiceState } from "./voice";
 import { appNameSchema } from "./workspace-name";
 
 declare const __PROJECT_ROOT__: string;
@@ -31,19 +34,19 @@ const HIDDEN_TEST_WINDOW =
   Boolean(process.env.CODEXOS_DATA_DIR);
 let window: BrowserWindow | null = null;
 let backend: CodexBackend;
+let voice: VoiceSession;
+let tray: Tray | null = null;
+let trayStatus = "";
 let latest: Snapshot | null = null;
 let saved: SavedState | null = null;
 let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let quitting = false;
 
-app.setName("CodexOS");
+app.setName("Astra");
 app.setPath("userData", DATA_DIRECTORY);
 if (!app.requestSingleInstanceLock()) app.quit();
-app.on("second-instance", () => {
-  window?.show();
-  window?.focus();
-});
+app.on("second-instance", () => void showWindow());
 
 function persist(state: SavedState, immediate = false) {
   if (immediate) {
@@ -70,6 +73,7 @@ function persist(state: SavedState, immediate = false) {
 }
 
 function broadcast(snapshot: Snapshot) {
+  voice?.observe(snapshot);
   latest = snapshot;
   if (broadcastTimer) return;
   broadcastTimer = setTimeout(() => {
@@ -87,10 +91,21 @@ function installHandlers() {
         event.sender !== window.webContents ||
         event.senderFrame !== window.webContents.mainFrame
       )
-        throw new Error("This request did not come from the CodexOS window.");
+        throw new Error("This request did not come from the Astra window.");
       return callback(...args);
     });
   };
+  handle("voiceSnapshot", () => voice.snapshot());
+  handle("startVoice", async () => {
+    await voice.start();
+    if (voice.snapshot().active && voice.snapshot().status !== "starting")
+      backend.setVoiceEnabled(true);
+  });
+  handle("stopVoice", () => {
+    voice.stop();
+    backend.setVoiceEnabled(false);
+  });
+  handle("interruptVoice", () => voice.interrupt());
   handle("snapshot", () => backend.snapshot());
   handle("send", (text, workspaceId) =>
     backend.send(
@@ -139,7 +154,7 @@ function installHandlers() {
       await window.webContents.session.clearCache();
     } catch {
       throw new Error(
-        "Cached files could not be cleared. Restart CodexOS and retry deletion. The app has been kept.",
+        "Cached files could not be cleared. Restart Astra and retry deletion. The app has been kept.",
       );
     }
     await backend.deleteWorkspace(workspaceId);
@@ -231,6 +246,76 @@ async function flushRenderer() {
   }
 }
 
+async function showWindow() {
+  try {
+    if (!window) await createWindow();
+    window?.show();
+    window?.focus();
+  } catch (error) {
+    dialog.showErrorBox("Astra could not open", String(error));
+  }
+}
+function updateVoice(state: VoiceState) {
+  if (window && !window.isDestroyed())
+    window.webContents.send("codexos:voice", state);
+  if (state.status === trayStatus) return;
+  trayStatus = state.status;
+  if (!tray) {
+    tray = new Tray(
+      nativeImage
+        .createFromPath(join(app.getAppPath(), "dist/icon.png"))
+        .resize({ width: 18, height: 18 }),
+    );
+    tray.on("click", () => void showWindow());
+  }
+  const label =
+    state.status === "standby"
+      ? "Say Astra · Dites Astra"
+      : state.status === "off"
+        ? "Microphone paused"
+        : state.status === "error"
+          ? "Voice unavailable"
+          : state.status;
+  tray.setToolTip(`Astra · ${label}`);
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: `Astra · ${label}`, enabled: false },
+      { label: "Open Astra", click: () => void showWindow() },
+      { type: "separator" },
+      {
+        label: state.active ? "Pause microphone" : "Enable voice",
+        click: () => {
+          if (voice.snapshot().active) {
+            voice.stop();
+            backend.setVoiceEnabled(false);
+          } else
+            void voice
+              .start()
+              .then(() => backend.setVoiceEnabled(voice.snapshot().active))
+              .catch((error) =>
+                dialog.showErrorBox(
+                  "Astra voice could not start",
+                  String(error),
+                ),
+              );
+        },
+      },
+      {
+        label: "Interrupt",
+        enabled: state.status === "thinking" || state.status === "speaking",
+        click: () =>
+          void voice
+            .interrupt()
+            .catch((error) =>
+              dialog.showErrorBox("Astra could not interrupt", String(error)),
+            ),
+      },
+      { type: "separator" },
+      { role: "quit" },
+    ]),
+  );
+}
+
 async function createWindow() {
   const bundleDirectory = join(app.getAppPath(), "dist");
   app.dock?.setIcon(
@@ -241,10 +326,10 @@ async function createWindow() {
     height: 920,
     minWidth: 960,
     minHeight: 650,
-    title: "CodexOS",
+    title: "Astra",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 18, y: 21 },
-    backgroundColor: "#f5f5f2",
+    backgroundColor: "#090a10",
     show: false,
     webPreferences: {
       preload: join(bundleDirectory, "preload.cjs"),
@@ -253,6 +338,7 @@ async function createWindow() {
       sandbox: true,
       webSecurity: true,
       spellcheck: false,
+      backgroundThrottling: false,
     },
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -270,7 +356,7 @@ async function createWindow() {
   window.on("close", (event) => {
     if (quitting) return;
     event.preventDefault();
-    void flushRenderer().finally(() => window?.destroy());
+    void flushRenderer().finally(() => window?.hide());
   });
   window.on("closed", () => {
     window = null;
@@ -289,11 +375,22 @@ app
     const cwd = existsSync(__PROJECT_ROOT__) ? __PROJECT_ROOT__ : homedir();
     const state = loadState(join(DATA_DIRECTORY, "workspace.json"), cwd);
     backend = new CodexBackend(state, broadcast, persist);
+    voice = new VoiceSession(
+      backend,
+      (onEvent) =>
+        new NativeSpeech(join(app.getAppPath(), "dist/voice-helper"), onEvent),
+      updateVoice,
+    );
+    app.setAboutPanelOptions({
+      applicationName: "Astra",
+      credits:
+        "Mini-app icons: Solar by 480 Design. Colors and presentation adapted for Astra. CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/\nSource: https://www.figma.com/community/file/1166831539721848736",
+    });
     installHandlers();
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
         {
-          label: "CodexOS",
+          label: "Astra",
           submenu: [
             { role: "about" },
             { type: "separator" },
@@ -332,20 +429,21 @@ app
       ]),
     );
     await createWindow();
+    updateVoice(voice.snapshot());
+    if (state.voiceEnabled && !HIDDEN_TEST_WINDOW)
+      void voice.start(true).catch((error) => {
+        backend.state.error = String(error);
+        broadcast(backend.snapshot());
+      });
     backend.connect().catch((error) => {
       backend.state.status = "offline";
       backend.state.error = String(error);
       broadcast(backend.snapshot());
     });
-    app.on("activate", () => {
-      if (!window)
-        createWindow().catch((error) =>
-          dialog.showErrorBox("CodexOS could not open", String(error)),
-        );
-    });
+    app.on("activate", () => void showWindow());
   })
   .catch((error) => {
-    dialog.showErrorBox("CodexOS could not start", String(error));
+    dialog.showErrorBox("Astra could not start", String(error));
     app.quit();
   });
 
@@ -353,6 +451,9 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   event.preventDefault();
   quitting = true;
+  voice?.stop();
+  tray?.destroy();
+  tray = null;
   void flushRenderer()
     .then(async () => {
       if (saveTimer) clearTimeout(saveTimer);

@@ -20,27 +20,25 @@ const messageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   text: z.string().max(100_000),
 });
+const workspaceSchema = z.object({
+  id: z.string(),
+  name: z.string().max(120),
+  favorite: z.boolean().default(false),
+  cwd: z.string(),
+  threadId: z.string().nullable(),
+  messages: z.array(messageSchema).max(80),
+  spec: z.unknown(),
+  canvas: z.unknown().optional(),
+});
 const savedSchema = z.object({
   version: z.literal(1),
   activeId: z.string(),
   model: z.string(),
   reasoningEffort: z.string().max(100).default("low"),
   serviceTier: z.string().max(100).default("default"),
-  workspaces: z
-    .array(
-      z.object({
-        id: z.string(),
-        name: z.string().max(120),
-        favorite: z.boolean().default(false),
-        cwd: z.string(),
-        threadId: z.string().nullable(),
-        messages: z.array(messageSchema).max(80),
-        spec: z.unknown(),
-        canvas: z.unknown().optional(),
-      }),
-    )
-    .min(1)
-    .max(20),
+  workspaces: z.array(workspaceSchema).min(1).max(20),
+  assistant: workspaceSchema.optional(),
+  voiceEnabled: z.boolean().optional(),
 });
 
 export function newWorkspace(cwd: string): Workspace {
@@ -69,18 +67,25 @@ export function loadState(path: string, cwd: string): SavedState {
     };
   }
   if (statSync(path).size > MAX_FILE_BYTES)
-    throw new Error("CodexOS saved state is too large to load.");
+    throw new Error("Astra saved state is too large to load.");
   const parsed = savedSchema.parse(JSON.parse(readFileSync(path, "utf8")));
   if (!parsed.workspaces.some((workspace) => workspace.id === parsed.activeId))
-    throw new Error("CodexOS saved workspace is missing.");
+    throw new Error("Astra saved workspace is missing.");
+  const { assistant, ...saved } = parsed;
   return {
-    ...parsed,
-    workspaces: parsed.workspaces.map((workspace) => ({
-      ...workspace,
-      name: shortAppName(workspace.name),
-      spec: validateSurface(workspace.spec),
-      canvas: workspace.canvas ? validateCanvas(workspace.canvas) : null,
-    })),
+    ...saved,
+    workspaces: parsed.workspaces.map(restoreWorkspace),
+    ...(assistant ? { assistant: restoreWorkspace(assistant) } : {}),
+  };
+}
+function restoreWorkspace(
+  workspace: z.infer<typeof workspaceSchema>,
+): Workspace {
+  return {
+    ...workspace,
+    name: shortAppName(workspace.name),
+    spec: validateSurface(workspace.spec),
+    canvas: workspace.canvas ? validateCanvas(workspace.canvas) : null,
   };
 }
 

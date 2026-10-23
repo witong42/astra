@@ -9,10 +9,10 @@ import {
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
-const output = join(root, "release/CodexOS.app");
+const output = join(root, "release/Astra.app");
 if (existsSync(output))
   throw new Error(
-    "release/CodexOS.app already exists. Move the previous package before packaging a new one.",
+    "release/Astra.app already exists. Move the previous package before packaging a new one.",
   );
 mkdirSync(join(root, "release"), { recursive: true });
 execFileSync("/usr/bin/ditto", [
@@ -26,26 +26,35 @@ const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 writeFileSync(
   join(resources, "app/package.json"),
   JSON.stringify({
-    name: "codexos",
-    productName: "CodexOS",
+    name: "astra",
+    productName: "Astra",
     version: source.version,
     main: "dist/main.cjs",
   }),
 );
 const plist = join(output, "Contents/Info.plist");
+const existing = JSON.parse(
+  execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", plist], {
+    encoding: "utf8",
+  }),
+);
 for (const [key, value] of Object.entries({
-  CFBundleName: "CodexOS",
-  CFBundleDisplayName: "CodexOS",
+  CFBundleName: "Astra",
+  CFBundleDisplayName: "Astra",
   CFBundleIdentifier: "local.codexos.desktop",
   CFBundleShortVersionString: source.version,
   CFBundleVersion: "1",
   CFBundleIconFile: "icon.icns",
-}))
-  execFileSync("/usr/libexec/PlistBuddy", [
-    "-c",
-    `Set :${key} ${value}`,
-    plist,
-  ]);
+  NSMicrophoneUsageDescription:
+    "Listen locally for Astra while voice is enabled, including in the background. Pause the microphone at any time.",
+  NSSpeechRecognitionUsageDescription:
+    "Transcribe French and English voice requests on this Mac for your existing Codex agent.",
+})) {
+  const command = Object.hasOwn(existing, key)
+    ? `Set :${key} ${value}`
+    : `Add :${key} string ${value}`;
+  execFileSync("/usr/libexec/PlistBuddy", ["-c", command, plist]);
+}
 execFileSync(
   "/usr/bin/codesign",
   ["--force", "--deep", "--sign", "-", output],

@@ -1,5 +1,6 @@
 import type { Spec } from "@json-render/core";
 import type { CanvasAck, CanvasState } from "./canvas";
+import type { VoiceState } from "./voice";
 
 export type Message = { id: string; role: "user" | "assistant"; text: string };
 export type Workspace = {
@@ -19,6 +20,8 @@ export type SavedState = {
   reasoningEffort: string;
   serviceTier: string;
   workspaces: Workspace[];
+  assistant?: Workspace;
+  voiceEnabled?: boolean;
 };
 export type Model = {
   id: string;
@@ -75,6 +78,11 @@ export type Snapshot = SavedState & {
   metrics: Metrics | null;
 };
 export type Bridge = {
+  voiceSnapshot: () => Promise<VoiceState>;
+  subscribeVoice: (listener: (state: VoiceState) => void) => () => void;
+  startVoice: () => Promise<void>;
+  stopVoice: () => Promise<void>;
+  interruptVoice: () => Promise<void>;
   snapshot: () => Promise<Snapshot>;
   subscribe: (listener: (snapshot: Snapshot) => void) => () => void;
   send: (text: string, workspaceId?: string) => Promise<void>;

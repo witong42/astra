@@ -1,9 +1,20 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Bridge, Snapshot } from "./types";
+import type { VoiceState } from "./voice";
 
 const invoke = (name: string, ...args: unknown[]) =>
   ipcRenderer.invoke(`codexos:${name}`, ...args);
 const bridge: Bridge = {
+  voiceSnapshot: () => invoke("voiceSnapshot"),
+  startVoice: () => invoke("startVoice"),
+  stopVoice: () => invoke("stopVoice"),
+  interruptVoice: () => invoke("interruptVoice"),
+  subscribeVoice: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: VoiceState) =>
+      callback(state);
+    ipcRenderer.on("codexos:voice", listener);
+    return () => ipcRenderer.removeListener("codexos:voice", listener);
+  },
   snapshot: () => invoke("snapshot"),
   subscribe: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: Snapshot) =>

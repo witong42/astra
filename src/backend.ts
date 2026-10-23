@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { APP_TOOL, ASTRA_INSTRUCTIONS, runAppTool } from "./app-tools";
 import {
   acknowledgeCanvas,
   beginCanvasGeneration,
@@ -146,7 +147,9 @@ export class CodexBackend {
 
   private findWorkspace(id: string): Workspace {
     if (this.deleting.has(id)) throw new Error("This app is being deleted.");
-    const workspace = this.state.workspaces.find((entry) => entry.id === id);
+    const workspace =
+      this.state.workspaces.find((entry) => entry.id === id) ??
+      (this.state.assistant?.id === id ? this.state.assistant : undefined);
     if (!workspace)
       throw new Error("Workspace not found. Reopen a saved workspace.");
     return workspace;
@@ -211,6 +214,10 @@ export class CodexBackend {
       reasoningEffort,
       serviceTier,
       workspaces,
+      ...(this.state.assistant ? { assistant: this.state.assistant } : {}),
+      ...(this.state.voiceEnabled !== undefined
+        ? { voiceEnabled: this.state.voiceEnabled }
+        : {}),
     };
   }
 
@@ -294,7 +301,8 @@ export class CodexBackend {
         this.disconnected(new Error("Codex stopped. Reconnect to continue."));
     });
     await rpc.request("initialize", {
-      clientInfo: { name: "codexos", title: "CodexOS", version: "0.1.0" },
+      clientInfo: { name: "codexos", title: "Astra", version: "0.1.0" },
+      capabilities: { experimentalApi: true },
     });
     rpc.write({ method: "initialized", params: {} });
     const [account, models, config] = await Promise.all([
@@ -351,6 +359,13 @@ export class CodexBackend {
   }
 
   private surfaceInput(text: string, workspace: Workspace) {
+    if (workspace.id === this.state.assistant?.id)
+      return [
+        {
+          type: "text",
+          text: `${text}\n\n<codexos_apps_data>\n${JSON.stringify(runAppTool(this, { action: "list" }))}\n</codexos_apps_data>`,
+        },
+      ];
     let context = JSON.stringify(
       workspace.canvas
         ? {
@@ -432,7 +447,9 @@ export class CodexBackend {
     };
     session.canvasBaseRevision = workspace.canvas?.revision ?? 0;
     const turnInput = this.surfaceInput(text, workspace);
-    session.canName = workspace.messages.length === 0;
+    session.canName =
+      workspace.id !== this.state.assistant?.id &&
+      workspace.messages.length === 0;
     if (session.canName) workspace.name = shortAppName(text);
     workspace.messages.push({ id: crypto.randomUUID(), role: "user", text });
     session.initialReplyId = crypto.randomUUID();
@@ -465,7 +482,13 @@ export class CodexBackend {
               model: settings.model,
               approvalPolicy: APPROVAL_POLICY,
               sandbox: SANDBOX_MODE,
-              developerInstructions: CANVAS_INSTRUCTIONS,
+              developerInstructions:
+                workspace.id === this.state.assistant?.id
+                  ? `${CANVAS_INSTRUCTIONS}\n${ASTRA_INSTRUCTIONS}`
+                  : CANVAS_INSTRUCTIONS,
+              ...(workspace.id === this.state.assistant?.id
+                ? { dynamicTools: [APP_TOOL] }
+                : {}),
             },
           );
           workspace.threadId = result.thread.id;
@@ -476,7 +499,10 @@ export class CodexBackend {
             excludeTurns: true,
             approvalPolicy: APPROVAL_POLICY,
             sandbox: SANDBOX_MODE,
-            developerInstructions: CANVAS_INSTRUCTIONS,
+            developerInstructions:
+              workspace.id === this.state.assistant?.id
+                ? `${CANVAS_INSTRUCTIONS}\n${ASTRA_INSTRUCTIONS}`
+                : CANVAS_INSTRUCTIONS,
           });
           this.loaded.add(workspace.threadId);
         }
@@ -524,9 +550,10 @@ export class CodexBackend {
     const params = message.params ?? {};
     const workspace =
       typeof params.threadId === "string"
-        ? this.state.workspaces.find(
-            (entry) => entry.threadId === params.threadId,
-          )
+        ? [
+            ...this.state.workspaces,
+            ...(this.state.assistant ? [this.state.assistant] : []),
+          ].find((entry) => entry.threadId === params.threadId)
         : undefined;
     const session = workspace ? this.sessions.get(workspace.id) : undefined;
     const incomingTurn = String(
@@ -555,6 +582,34 @@ export class CodexBackend {
       return;
     }
     if (message.id !== undefined) {
+      if (
+        message.method === "item/tool/call" &&
+        workspace.id === this.state.assistant?.id
+      ) {
+        try {
+          if (params.tool !== APP_TOOL.name)
+            throw new Error("Unknown Home tool.");
+          const result = runAppTool(this, params.arguments);
+          this.rpc?.write({
+            id: message.id,
+            result: {
+              success: true,
+              contentItems: [
+                { type: "inputText", text: JSON.stringify(result) },
+              ],
+            },
+          });
+        } catch (error) {
+          this.rpc?.write({
+            id: message.id,
+            result: {
+              success: false,
+              contentItems: [{ type: "inputText", text: String(error) }],
+            },
+          });
+        }
+        return;
+      }
       this.serverRequest(message, session);
       return;
     }
@@ -569,6 +624,10 @@ export class CodexBackend {
         stream = new CanvasStream(
           (patch) => {
             try {
+              if (workspace.id === this.state.assistant?.id)
+                throw new Error(
+                  "Use codexos_app to update a mini-app, then describe the result here.",
+                );
               workspace.canvas ??= emptyCanvas();
               if (!session.canvasMutated) {
                 beginCanvasGeneration(workspace.canvas);
@@ -594,6 +653,11 @@ export class CodexBackend {
             session.error = `A canvas update was rejected: ${error}`;
           },
           (source, complete) => {
+            if (workspace.id === this.state.assistant?.id) {
+              session.error =
+                "Use codexos_app to update a mini-app, then describe the result here.";
+              return;
+            }
             if (workspace.canvas?.openui?.source === source) return;
             const result = inspectOpenUI(source, complete);
             if (
@@ -691,7 +755,7 @@ export class CodexBackend {
         id: message.id,
         error: {
           code: -32601,
-          message: `CodexOS does not support ${message.method}. No action was taken.`,
+          message: `Astra does not support ${message.method}. No action was taken.`,
         },
       });
       return;
@@ -774,12 +838,48 @@ export class CodexBackend {
       });
   }
 
-  createWorkspace(cwd = this.workspace.cwd) {
+  createWorkspace(cwd = this.workspace.cwd, activate = true) {
     if (this.state.workspaces.length >= MAX_WORKSPACES)
-      throw new Error("CodexOS currently supports 20 saved workspaces.");
+      throw new Error("Astra currently supports 20 saved workspaces.");
     const workspace = newWorkspace(cwd);
     this.state.workspaces.unshift(workspace);
-    this.state.activeId = workspace.id;
+    if (activate) this.state.activeId = workspace.id;
+    this.changed();
+    return workspace.id;
+  }
+
+  setVoiceEnabled(enabled: boolean) {
+    this.state.voiceEnabled = enabled;
+    this.changed();
+  }
+
+  ensureAssistantWorkspace() {
+    if (!this.state.assistant) {
+      this.state.assistant = newWorkspace(this.workspace.cwd);
+      this.state.assistant.name = "Astra";
+      this.changed();
+    }
+    return this.state.assistant.id;
+  }
+
+  updateAppCanvas(
+    id: string,
+    input: { operations?: unknown[]; openui?: string },
+  ) {
+    const workspace = this.findWorkspace(id);
+    if (this.sessionFor(id).busy)
+      throw new Error("This app is responding. Wait before editing it.");
+    if (!input.operations?.length && input.openui === undefined)
+      throw new Error("Provide canvas operations or an OpenUI program.");
+    const canvas = structuredClone(workspace.canvas ?? emptyCanvas());
+    beginCanvasGeneration(canvas);
+    if (input.openui !== undefined) applyOpenUI(canvas, input.openui, true);
+    for (const operation of input.operations ?? []) {
+      if ((operation as { op?: string } | null)?.op === "freeform")
+        delete canvas.openui;
+      else queueCanvasOp(canvas, operation);
+    }
+    workspace.canvas = canvas;
     this.changed();
   }
 

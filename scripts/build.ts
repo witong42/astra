@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appIcon } from "./icon";
@@ -5,6 +6,37 @@ import { appIcon } from "./icon";
 const root = join(import.meta.dir, "..");
 const outdir = join(root, "dist");
 mkdirSync(outdir, { recursive: true });
+if (process.platform === "darwin") {
+  execFileSync(
+    "xcrun",
+    [
+      "swiftc",
+      "-swift-version",
+      "5",
+      "-O",
+      join(root, "native/Voice.swift"),
+      "-o",
+      join(outdir, "voice-helper"),
+      "-Xlinker",
+      "-sectcreate",
+      "-Xlinker",
+      "__TEXT",
+      "-Xlinker",
+      "__info_plist",
+      "-Xlinker",
+      join(root, "native/Voice-Info.plist"),
+    ],
+    { stdio: "inherit" },
+  );
+  execFileSync("/usr/bin/codesign", [
+    "--force",
+    "--sign",
+    "-",
+    "--identifier",
+    "local.codexos.desktop.voice",
+    join(outdir, "voice-helper"),
+  ]);
+}
 const main = await Bun.build({
   entrypoints: [join(root, "src/main.ts"), join(root, "src/preload.ts")],
   outdir,
@@ -45,10 +77,10 @@ await Bun.write(
 );
 for (const result of [main, renderer])
   if (!result.success)
-    throw new AggregateError(result.logs, "CodexOS build failed");
+    throw new AggregateError(result.logs, "Astra build failed");
 for (const file of ["index.html", "styles.css"])
   copyFileSync(join(root, "src", file), join(outdir, file));
-console.log("Built CodexOS desktop and renderer.");
+console.log("Built Astra desktop and renderer.");
 const icon = appIcon();
 await Bun.write(join(outdir, "icon.png"), icon.png);
 await Bun.write(join(outdir, "icon.icns"), icon.icns);

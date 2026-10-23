@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>local.codexos.desktop.voice</string>
+<key>CFBundleName</key><string>Astra</string>
+<key>NSMicrophoneUsageDescription</key><string>Listen locally for Astra while voice is enabled, including when the app is in the background. Pause the microphone at any time.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Transcribe your voice requests for the existing Codex agent.</string>
+</dict></plist>

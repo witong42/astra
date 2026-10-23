@@ -931,3 +931,69 @@ test("retry after a confirmed missing Codex thread still removes local app data"
     expect(requests("thread/read")).toHaveLength(1);
     expect(backend.state.workspaces.some((w) => w.id === a)).toBe(false);
   }));
+
+test("Astra has a persistent hidden agent and exposes app tools only on its active turn", () =>
+  withBackend(async ({ backend, a, requests, event, readWire }) => {
+    const assistantId = backend.ensureAssistantWorkspace();
+    expect(backend.state.workspaces.some((w) => w.id === assistantId)).toBe(
+      false,
+    );
+    expect(backend.state.activeId).toBe(a);
+    await backend.send("Bonjour Astra", assistantId);
+    const start = requests("thread/start").at(-1);
+    expect(start?.params?.dynamicTools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "codexos_app" }),
+      ]),
+    );
+    expect(start?.params?.developerInstructions).toContain("You are Astra");
+    expect(backend.state.assistant?.name).toBe("Astra");
+    const threadId = backend.state.assistant?.threadId;
+    const turnId = requests("turn/start").at(-1)?.id;
+    const turn = `turn-${threadId}-${turnId}`;
+    await event({
+      id: "create-app",
+      method: "item/tool/call",
+      params: {
+        threadId,
+        turnId: turn,
+        tool: "codexos_app",
+        arguments: { action: "create", name: "Moon Notes" },
+      },
+    });
+    const created = backend.state.workspaces.find(
+      (w) => w.name === "Moon Notes",
+    );
+    if (!created) throw new Error("Astra did not create the test app.");
+    expect(backend.state.activeId).toBe(a);
+    expect(
+      readWire().find((m) => m.id === "create-app" && m.result)?.result,
+    ).toMatchObject({ success: true });
+    await event({
+      id: "stale-app",
+      method: "item/tool/call",
+      params: {
+        threadId,
+        turnId: "old-turn",
+        tool: "codexos_app",
+        arguments: { action: "create", name: "Wrong App" },
+      },
+    });
+    expect(backend.state.workspaces.some((w) => w.name === "Wrong App")).toBe(
+      false,
+    );
+    const canvas = structuredClone(created?.canvas);
+    expect(() =>
+      backend.updateAppCanvas(created.id, {
+        operations: [
+          {
+            op: "replace",
+            sel: "#substrate",
+            html: "<main id='substrate'>Valid</main>",
+          },
+          { op: "unknown" },
+        ],
+      }),
+    ).toThrow();
+    expect(created?.canvas).toEqual(canvas);
+  }));
