@@ -211,12 +211,7 @@ function App() {
       <header className="toolbar desktop-toolbar">
         <div className="desktop-navigation">
           {home ? (
-            <div className="desktop-brand">
-              <span className="brand-mark" aria-hidden="true">
-                &gt;_
-              </span>
-              CodexOS
-            </div>
+            <div className="desktop-brand">CodexOS</div>
           ) : (
             <>
               <button
