@@ -1,0 +1,34 @@
+{
+  "name": "codexos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "packageManager": "bun@1.4.3",
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "start": "bun run build && electron .",
+    "test": "bun test",
+    "check": "biome check . && tsc --noEmit",
+    "format": "biome check --write .",
+    "package": "bun run build && bun scripts/package.ts"
+  },
+  "dependencies": {
+    "@json-render/core": "0.21.1",
+    "@json-render/react": "0.21.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.2",
+    "@types/bun": "1.4.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "electron": "45.0.0",
+    "typescript": "7.0.2"
+  },
+  "trustedDependencies": [
+    "electron"
+  ]
+}

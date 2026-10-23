@@ -1,0 +1,225 @@
+import { useEffect, useRef, useState } from "react";
+import type { Approval, Snapshot, Workspace } from "./types";
+
+function ApprovalPanel({
+  approval,
+  onError,
+}: {
+  approval: Approval;
+  onError: (error: unknown) => void;
+}) {
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  return (
+    <section className="approval" aria-label="Codex request">
+      <strong>{approval.summary}</strong>
+      {approval.kind === "question" ? (
+        approval.questions?.map((question) => (
+          <fieldset key={question.id}>
+            <legend>{question.question}</legend>
+            {question.options.map((option) => (
+              <label key={option.label}>
+                <input
+                  type="radio"
+                  name={question.id}
+                  value={option.label}
+                  checked={answers[question.id] === option.label}
+                  onChange={() =>
+                    setAnswers({ ...answers, [question.id]: option.label })
+                  }
+                />
+                <span>
+                  {option.label}
+                  <small>{option.description}</small>
+                </span>
+              </label>
+            ))}
+            <input
+              aria-label={`Your answer: ${question.header}`}
+              placeholder="Your answer"
+              value={answers[question.id] ?? ""}
+              onChange={(event) =>
+                setAnswers({ ...answers, [question.id]: event.target.value })
+              }
+            />
+          </fieldset>
+        ))
+      ) : (
+        <pre>{approval.details}</pre>
+      )}
+      <div className="approval-actions">
+        {approval.kind !== "question" && (
+          <button
+            type="button"
+            onClick={() => window.codexos.answer(false).catch(onError)}
+          >
+            Decline
+          </button>
+        )}
+        <button
+          type="button"
+          className="primary"
+          onClick={() => window.codexos.answer(true, answers).catch(onError)}
+        >
+          {approval.kind === "question" ? "Send answer" : "Allow once"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+export function Chat({
+  snapshot,
+  workspace,
+  onError,
+}: {
+  snapshot: Snapshot;
+  workspace: Workspace;
+  onError: (error: unknown) => void;
+}) {
+  const end = useRef<HTMLDivElement>(null);
+  const busy = snapshot.status === "working";
+  const lastText = workspace.messages.at(-1)?.text;
+  useEffect(() => {
+    if (lastText !== undefined || snapshot.approval)
+      end.current?.scrollIntoView({ block: "end", behavior: "instant" });
+  }, [lastText, snapshot.approval]);
+  return (
+    <main className="chat-panel" aria-label="Conversation">
+      <div className="chat-header">
+        <h2>Conversation</h2>
+        <span className="small muted">
+          {busy ? "In progress" : "Make it yours"}
+        </span>
+      </div>
+      <div
+        className="messages"
+        aria-live="polite"
+        aria-relevant="additions text"
+      >
+        {workspace.messages.length === 0 && (
+          <div className="chat-intro">
+            <div className="small-mark" aria-hidden="true">
+              ↗
+            </div>
+            <h1>What are we working on?</h1>
+            <p>
+              Ask Codex to build a view, work on your project, or change this
+              workspace as you go.
+            </p>
+          </div>
+        )}
+        {workspace.messages.map((message, index) => (
+          <article className={`message ${message.role}`} key={message.id}>
+            <div className="message-author">
+              {message.role === "user" ? "You" : "Codex"}
+              {message.role === "assistant" &&
+                busy &&
+                index === workspace.messages.length - 1 && (
+                  <span className="working-dot" />
+                )}
+            </div>
+            <div className="message-text">
+              {message.text ||
+                (busy && index === workspace.messages.length - 1
+                  ? snapshot.activity
+                  : "Workspace updated.")}
+            </div>
+          </article>
+        ))}
+        {snapshot.approval && (
+          <ApprovalPanel
+            key={snapshot.approval.id}
+            approval={snapshot.approval}
+            onError={onError}
+          />
+        )}
+        <div ref={end} />
+      </div>
+    </main>
+  );
+}
+
+export function Composer({
+  snapshot,
+  onSend,
+  onError,
+}: {
+  snapshot: Snapshot;
+  onSend: (text: string) => void;
+  onError: (error: unknown) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const busy = snapshot.status === "working";
+  const send = () => {
+    if (!draft.trim() || snapshot.status !== "ready") return;
+    onSend(draft.trim());
+    setDraft("");
+  };
+  return (
+    <div className="composer-area">
+      <div className="composer">
+        <textarea
+          aria-label="Message Codex"
+          placeholder="Ask Codex, or describe a view…"
+          value={draft}
+          maxLength={24_000}
+          rows={3}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              send();
+            }
+          }}
+        />
+        <div className="composer-bottom">
+          <span>
+            ↵ send <span className="muted">· Shift ↵ new line</span>
+          </span>
+          {busy ? (
+            <button
+              type="button"
+              className="send-button stop"
+              aria-label="Stop Codex"
+              onClick={() => window.codexos.interrupt().catch(onError)}
+            >
+              ■
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="send-button"
+              aria-label="Send message"
+              disabled={!draft.trim() || snapshot.status !== "ready"}
+              onClick={send}
+            >
+              ↑
+            </button>
+          )}
+        </div>
+      </div>
+      <label className="model-picker">
+        <span className="sr-only">Model</span>
+        <select
+          aria-label="Model"
+          value={snapshot.model}
+          disabled={busy}
+          onChange={(event) =>
+            window.codexos.setModel(event.target.value).catch(onError)
+          }
+        >
+          {snapshot.models.map((model) => (
+            <option key={model.id} value={model.model}>
+              {model.displayName || model.model}
+            </option>
+          ))}
+        </select>
+        <span className="small muted">{snapshot.account}</span>
+      </label>
+    </div>
+  );
+}
