@@ -11,6 +11,7 @@ export const OP_ACTIONS = [
   "style",
   "attr",
   "note",
+  "freeform",
 ] as const;
 
 export type OpAction = (typeof OP_ACTIONS)[number];
@@ -20,7 +21,8 @@ export type MutationOp =
   | { op: "remove"; sel: string }
   | { op: "style"; css: string }
   | { op: "attr"; sel: string; name: string; value: string }
-  | { op: "note"; text: string };
+  | { op: "note"; text: string }
+  | { op: "freeform" };
 
 // Fragments legitimately carry inline <script> now (games, widgets), so the
 // budget is sized for code, not just markup.
@@ -78,6 +80,8 @@ export function validateOp(candidate: unknown): ParseResult {
   }
 
   switch (action as OpAction) {
+    case "freeform":
+      return { ok: true, op: { op: "freeform" } };
     case "replace":
     case "append":
     case "prepend": {

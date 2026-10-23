@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { type CanvasHandle, CanvasSurface } from "./CanvasSurface";
+import { OpenUISurface } from "./OpenUISurface";
 import { AgentActionContext, registry } from "./registry";
 import type { Workspace } from "./types";
 
@@ -117,6 +118,21 @@ export function Surface(
     (text: string) => props.onAsk(text, id),
     [id, props.onAsk],
   );
+  if (props.workspace.canvas?.openui)
+    return (
+      <RenderBoundary
+        revision={props.patches + props.workspace.canvas.generation}
+      >
+        <OpenUISurface
+          id={id}
+          canvas={props.workspace.canvas}
+          busy={props.busy}
+          onAsk={onAsk}
+          onError={onError}
+          handle={props.handle}
+        />
+      </RenderBoundary>
+    );
   return props.workspace.canvas ? (
     <CanvasSurface
       id={id}

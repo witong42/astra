@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { CanvasAck, CanvasState } from "./canvas";
+import type { CanvasInputs } from "./openui";
 
 export type CanvasHandle = { flush: () => Promise<void> };
 const CAPTURE_TIMEOUT_MS = 5000;
@@ -8,15 +9,19 @@ export function CanvasSurface({
   canvas,
   onError,
   handle,
+  inputs,
 }: {
   id: string;
   canvas: CanvasState;
   onError: (error: unknown) => void;
   handle: React.RefObject<CanvasHandle | null>;
+  inputs?: CanvasInputs;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const state = useRef(canvas);
   state.current = canvas;
+  const inputRef = useRef(inputs);
+  inputRef.current = inputs;
   const sent = useRef(-1);
   const ready = useRef(false);
   const captures = useRef(
@@ -44,6 +49,7 @@ export function CanvasSurface({
         html: current.html,
         css: current.css,
         revision: current.revision,
+        inputs: inputRef.current,
       });
       if (current.pending.length) {
         post({ type: "canvas:ops", entries: current.pending });
@@ -141,6 +147,7 @@ export function CanvasSurface({
         html: canvas.html,
         css: canvas.css,
         revision: canvas.revision,
+        inputs: inputRef.current,
       });
       sent.current = canvas.revision;
     }
@@ -150,6 +157,9 @@ export function CanvasSurface({
       sent.current = entries.at(-1)?.id ?? sent.current;
     }
   }, [canvas, post]);
+  useEffect(() => {
+    if (ready.current && inputs) post({ type: "canvas:inputs", inputs });
+  }, [inputs, post]);
   return (
     <iframe
       ref={frame}

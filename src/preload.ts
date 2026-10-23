@@ -22,6 +22,8 @@ const bridge: Bridge = {
   setReasoningEffort: (effort) => invoke("setReasoningEffort", effort),
   setServiceTier: (tier) => invoke("setServiceTier", tier),
   updateCanvas: (id, ack) => invoke("updateCanvas", id, ack),
+  updateOpenUI: (id, generation, state) =>
+    invoke("updateOpenUI", id, generation, state),
   restoreCanvas: (index, workspaceId) =>
     invoke("restoreCanvas", index, workspaceId),
   answer: (allow, answers, workspaceId, approvalId) =>

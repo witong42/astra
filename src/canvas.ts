@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  inspectOpenUI,
+  MAX_OPENUI_BYTES,
+  openuiSchema,
+  validateOpenUIState,
+} from "./openui";
 import { type MutationOp, parseOpLine, validateOp } from "./substrate-protocol";
 
 export const MAX_CANVAS_BYTES = 512 * 1024;
@@ -8,6 +14,7 @@ const documentSchema = z.object({
   html: z.string().max(MAX_CANVAS_BYTES),
   css: z.string().max(MAX_CANVAS_BYTES),
   generation: z.number().int().nonnegative(),
+  openui: openuiSchema.optional(),
 });
 export type CanvasDocument = z.infer<typeof documentSchema>;
 export type CanvasState = CanvasDocument & {
@@ -53,7 +60,13 @@ export function validateCanvas(value: unknown): CanvasState {
     previous = entry.id;
     return { id: entry.id, op: result.op };
   });
-  for (const doc of [canvas, ...canvas.history]) checkSize(doc);
+  for (const doc of [canvas, ...canvas.history]) {
+    checkSize(doc);
+    if (doc.openui) {
+      inspectOpenUI(doc.openui.source);
+      validateOpenUIState(doc.openui.state);
+    }
+  }
   return { ...canvas, pending };
 }
 function checkSize(document: { html: string; css: string }) {
@@ -66,7 +79,12 @@ function checkSize(document: { html: string; css: string }) {
     );
 }
 function currentDocument(canvas: CanvasState): CanvasDocument {
-  return { html: canvas.html, css: canvas.css, generation: canvas.generation };
+  return structuredClone({
+    html: canvas.html,
+    css: canvas.css,
+    generation: canvas.generation,
+    ...(canvas.openui ? { openui: canvas.openui } : {}),
+  });
 }
 export function beginCanvasGeneration(canvas: CanvasState) {
   if (canvas.pending.length)
@@ -80,6 +98,8 @@ export function beginCanvasGeneration(canvas: CanvasState) {
 export function queueCanvasOp(canvas: CanvasState, input: unknown) {
   const result = validateOp(input);
   if (!result.ok) throw new Error(result.error);
+  if (result.op.op === "freeform")
+    throw new Error("Layout changes must be applied by the host.");
   if (canvas.pending.length >= MAX_PENDING_OPS)
     throw new Error("Too many pending canvas updates.");
   const id = (canvas.pending.at(-1)?.id ?? canvas.revision) + 1;
@@ -113,18 +133,23 @@ export function restoreCanvas(
   canvas.history.push(currentDocument(canvas));
   canvas.html = previous.html;
   canvas.css = previous.css;
+  if (previous.openui) canvas.openui = previous.openui;
+  else delete canvas.openui;
   canvas.generation++;
   canvas.revision++;
 }
 
 export class CanvasStream {
   private buffer = "";
-  private fence: "canvas" | "text" | null = null;
+  private fence: "canvas" | "openui" | "text" | null = null;
+  private openuiSource = "";
+  private openuiRejected = false;
   private operations = 0;
   constructor(
     private onOp: (op: MutationOp) => void,
     private onText: (text: string) => void,
     private onError: (error: string) => void,
+    private onOpenUI?: (source: string, complete: boolean) => void,
   ) {}
   push(chunk: string) {
     this.buffer += chunk;
@@ -143,19 +168,51 @@ export class CanvasStream {
   flush() {
     if (this.buffer) this.line(this.buffer);
     this.buffer = "";
+    if (this.fence === "openui") this.emitOpenUI(true);
+  }
+  private emitOpenUI(complete: boolean) {
+    if (this.openuiRejected) return;
+    try {
+      if (!this.onOpenUI)
+        throw new Error("OpenUI is unavailable in this renderer.");
+      this.onOpenUI(this.openuiSource, complete);
+    } catch (error) {
+      if (complete)
+        this.onError(error instanceof Error ? error.message : String(error));
+    }
   }
   private line(line: string) {
     const trimmed = line.trim();
     if (trimmed.startsWith("```")) {
       if (this.fence) {
         if (this.fence === "text") this.onText(`${line}\n`);
+        if (this.fence === "openui") this.emitOpenUI(true);
         this.fence = null;
       } else {
-        this.fence = /^```(?:substrate|canvas)\s*$/.test(trimmed)
-          ? "canvas"
-          : "text";
+        this.fence = /^```openui\s*$/.test(trimmed)
+          ? "openui"
+          : /^```(?:substrate|canvas)\s*$/.test(trimmed)
+            ? "canvas"
+            : "text";
+        if (this.fence === "openui") {
+          this.openuiSource = "";
+          this.openuiRejected = false;
+        }
         if (this.fence === "text") this.onText(`${line}\n`);
       }
+      return;
+    }
+    if (this.fence === "openui") {
+      if (this.openuiRejected) return;
+      this.openuiSource += `${line}\n`;
+      if (
+        new TextEncoder().encode(this.openuiSource).byteLength >
+        MAX_OPENUI_BYTES
+      ) {
+        this.onError("OpenUI program is too large.");
+        this.openuiRejected = true;
+        this.openuiSource = "";
+      } else this.emitOpenUI(false);
       return;
     }
     if (

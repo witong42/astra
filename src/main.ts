@@ -125,6 +125,13 @@ function installHandlers() {
       z.string().uuid().optional().parse(workspaceId),
     ),
   );
+  handle("updateOpenUI", (id, generation, state) =>
+    backend.updateOpenUI(
+      z.string().uuid().parse(id),
+      z.number().int().nonnegative().parse(generation),
+      state,
+    ),
+  );
   handle("answer", (allow, answers, workspaceId, approvalId) =>
     backend.answer(
       z.boolean().parse(allow),

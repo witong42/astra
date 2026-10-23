@@ -16,6 +16,7 @@ import {
   restoreCanvas,
 } from "./canvas";
 import { CANVAS_INSTRUCTIONS } from "./canvas-prompt";
+import { applyOpenUI, inspectOpenUI, updateOpenUIState } from "./openui";
 import { type RpcMessage, RpcPeer } from "./rpc";
 import { newWorkspace } from "./storage";
 import { applySurfacePatch } from "./surface";
@@ -331,6 +332,9 @@ export class CodexBackend {
             html: workspace.canvas.html,
             css: workspace.canvas.css,
             generation: workspace.canvas.generation,
+            ...(workspace.canvas.openui
+              ? { openui: workspace.canvas.openui }
+              : {}),
           }
         : { legacySurface: workspace.spec },
     );
@@ -536,7 +540,8 @@ export class CodexBackend {
                 beginCanvasGeneration(workspace.canvas);
                 session.canvasMutated = true;
               }
-              queueCanvasOp(workspace.canvas, patch);
+              if (patch.op === "freeform") delete workspace.canvas.openui;
+              else queueCanvasOp(workspace.canvas, patch);
               if (session.metrics) {
                 session.metrics.patches++;
               }
@@ -553,6 +558,24 @@ export class CodexBackend {
           },
           (error) => {
             session.error = `A canvas update was rejected: ${error}`;
+          },
+          (source, complete) => {
+            if (workspace.canvas?.openui?.source === source) return;
+            const result = inspectOpenUI(source, complete);
+            if (
+              !result.root ||
+              result.meta.unresolved.length ||
+              result.meta.incomplete
+            )
+              return;
+            workspace.canvas ??= emptyCanvas();
+            if (!session.canvasMutated) {
+              beginCanvasGeneration(workspace.canvas);
+              session.canvasMutated = true;
+            }
+            applyOpenUI(workspace.canvas, source, complete);
+            if (session.metrics) session.metrics.patches++;
+            session.activity = "Composing workspace";
           },
         );
         session.streams.set(id, stream);
@@ -810,9 +833,16 @@ export class CodexBackend {
       session.metrics &&
       session.metrics.firstUI === null &&
       session.metrics.patches > 0 &&
-      canvas.revision > session.canvasBaseRevision
+      (canvas.revision > session.canvasBaseRevision || Boolean(canvas.openui))
     )
       session.metrics.firstUI = Date.now() - session.metrics.startedAt;
+    this.changed();
+  }
+
+  updateOpenUI(id: string, generation: number, state: unknown) {
+    const canvas = this.findWorkspace(id).canvas;
+    if (!canvas) throw new Error("This workspace has no live document yet.");
+    updateOpenUIState(canvas, generation, state);
     this.changed();
   }
 

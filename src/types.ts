@@ -90,6 +90,11 @@ export type Bridge = {
     value: unknown,
   ) => Promise<void>;
   updateCanvas: (workspaceId: string, ack: CanvasAck) => Promise<void>;
+  updateOpenUI: (
+    workspaceId: string,
+    generation: number,
+    state: Record<string, unknown>,
+  ) => Promise<void>;
   restoreCanvas: (index: number, workspaceId?: string) => Promise<void>;
   answer: (
     allow: boolean,

@@ -1224,3 +1224,145 @@ td {
   background: var(--hover);
   color: var(--ink);
 }
+
+.generated-surface:has(.openui-surface):not(.hidden) {
+  display: block;
+  overflow: auto;
+}
+.openui-surface {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  padding: var(--space-8);
+  container-type: inline-size;
+}
+.openui-heading {
+  margin: 0;
+  font-size: clamp(24px, 3cqw, 32px);
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+}
+.openui-text {
+  margin: 0;
+  max-width: 65ch;
+  color: var(--muted);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.openui-surface .gen-card {
+  min-width: 0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.openui-surface .gen-card > h3 {
+  margin: 0 0 var(--space-5);
+  font-size: 14px;
+  font-weight: 600;
+}
+.openui-control {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+.openui-control-label,
+.openui-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.openui-control output {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.openui-control input:not([type="range"]),
+.openui-control select,
+.openui-control textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  line-height: 1.5;
+}
+.openui-control textarea {
+  resize: vertical;
+}
+.openui-control input[type="range"] {
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  accent-color: var(--success);
+}
+.openui-toggle {
+  min-height: 40px;
+  font-size: 13px;
+}
+.openui-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--success);
+}
+.openui-button {
+  justify-self: start;
+  align-self: flex-start;
+  min-height: 40px;
+}
+.openui-live-canvas {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--canvas);
+}
+.openui-standby {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.openui-chart {
+  margin: 0;
+}
+.openui-chart figcaption {
+  margin-bottom: var(--space-4);
+  font-size: 14px;
+  font-weight: 600;
+}
+.openui-chart-row {
+  display: grid;
+  grid-template-columns: minmax(60px, 1fr) 2fr minmax(30px, auto);
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.openui-chart-track {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--hover);
+}
+.openui-chart-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
+}
+@container (max-width: 550px) {
+  .openui-surface .gen-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 1100px) {
+  .openui-surface {
+    padding: var(--space-5);
+  }
+}

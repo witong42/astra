@@ -582,3 +582,58 @@ test("persisted workspace state excludes transient sessions and approvals", () =
       expect(JSON.stringify(saved)).not.toContain("transient-approval");
     },
   ));
+
+test("OpenUI updates, edited controls and freeform switching stay in their originating workspace", () =>
+  withBackend(
+    async ({ backend, a, b, workspace, session, event, command, requests }) => {
+      await backend.send("Build a hybrid", a);
+      backend.selectWorkspace(b);
+      const unchanged = structuredClone(workspace(b));
+      const source =
+        'root = Stack([title, scene])\n$speed = 1\ntitle = Heading("Hybrid A")\nscene = LiveCanvas({speed: $speed})\n';
+      await event({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: workspace(a).threadId,
+          itemId: "hybrid",
+          delta: `Here it is.\n\`\`\`openui\n${source}\`\`\`\n`,
+        },
+      });
+      await waitFor(
+        () => Boolean(workspace(a).canvas?.openui),
+        "background OpenUI layout",
+      );
+      const canvas = workspace(a).canvas;
+      if (!canvas) throw new Error("A must retain its canvas");
+      expect(canvas.openui?.source).toBe(source);
+      expect(workspace(a).messages.at(-1)?.text).not.toContain("root =");
+      expect(session(a).error).toBeNull();
+      backend.updateOpenUI(a, canvas.generation, { $speed: 2 });
+      expect(canvas.openui?.state).toEqual({ $speed: 2 });
+      expect(workspace(b)).toEqual(unchanged);
+      expect(backend.state.activeId).toBe(b);
+      await command({ kind: "complete", threadId: workspace(a).threadId });
+      await waitFor(() => !session(a).busy, "A completion");
+      await backend.send("Make it freeform", a);
+      const input = requests("turn/start").at(-1)?.params?.input as {
+        text: string;
+      }[];
+      expect(input[0].text).toContain('"$speed":2');
+      await event({
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: workspace(a).threadId,
+          itemId: "freeform",
+          delta: '{"op":"freeform"}\n',
+        },
+      });
+      await waitFor(() => !canvas.openui, "freeform switch");
+      expect(canvas.pending).toHaveLength(0);
+      await command({ kind: "complete", threadId: workspace(a).threadId });
+      await waitFor(() => !session(a).busy, "freeform completion");
+      backend.restoreCanvas(canvas.history.length - 1, a);
+      expect(canvas.openui?.source).toBe(source);
+      expect(canvas.openui?.state).toEqual({ $speed: 2 });
+      expect(workspace(b)).toEqual(unchanged);
+    },
+  ));

@@ -14,6 +14,13 @@ import type { MutationOp } from "./substrate-protocol";
   const post = (value: unknown) => parent.postMessage(value, "*");
   const errorText = (error: unknown) =>
     error instanceof Error ? error.message : String(error);
+  const inputTarget = window as unknown as { canvasInputs: unknown };
+  function updateInputs(inputs: unknown) {
+    inputTarget.canvasInputs = inputs ?? {};
+    dispatchEvent(
+      new CustomEvent("codexos:inputs", { detail: inputTarget.canvasInputs }),
+    );
+  }
 
   function serializeDocument() {
     const host = root();
@@ -85,6 +92,8 @@ import type { MutationOp } from "./substrate-protocol";
   }
   function apply(op: MutationOp) {
     if (op.op === "note") return;
+    if (op.op === "freeform")
+      throw new Error("Layout changes must be applied by the host.");
     if (op.op === "style") {
       sheet.textContent += `\n${op.css}`;
       return;
@@ -129,7 +138,9 @@ import type { MutationOp } from "./substrate-protocol";
     if (message?.type === "canvas:init") {
       try {
         revision = message.revision;
+        inputTarget.canvasInputs = message.inputs ?? {};
         hydrate(message.html, message.css);
+        updateInputs(message.inputs);
         initialized = true;
         snapshot();
       } catch (error) {
@@ -154,6 +165,8 @@ import type { MutationOp } from "./substrate-protocol";
           post({ type: "canvas:error", error: errorText(error) });
         }
       }
+    } else if (message?.type === "canvas:inputs") {
+      updateInputs(message.inputs);
     } else if (message?.type === "canvas:capture" && initialized) {
       try {
         snapshot(message.requestId);
