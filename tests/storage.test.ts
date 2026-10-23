@@ -71,3 +71,22 @@ test("favorites persist and old workspaces start unfavorited without losing cont
   writeFileSync(path, JSON.stringify(old));
   expect(loadState(path, "/tmp").workspaces[0].favorite).toBe(false);
 });
+
+test("legacy prompt names become short app names while content and identities stay intact", () => {
+  const path = file();
+  const state = loadState(path, "/tmp");
+  state.workspaces[0].name =
+    "Create an orbit dashboard with interactive controls";
+  state.workspaces[0].messages = [
+    { id: "message", role: "user", text: "Original full request" },
+  ];
+  state.workspaces[0].threadId = "retain-thread";
+  saveState(path, state);
+  const loaded = loadState(path, "/elsewhere");
+  expect(loaded.workspaces[0]).toEqual({
+    ...state.workspaces[0],
+    name: "Orbit Lab",
+  });
+  saveState(path, loaded);
+  expect(loadState(path, "/tmp")).toEqual(loaded);
+});

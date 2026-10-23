@@ -12,6 +12,7 @@ import { z } from "zod";
 import { emptyCanvas, validateCanvas } from "./canvas";
 import { emptySurface, validateSurface } from "./surface";
 import type { SavedState, Workspace } from "./types";
+import { shortAppName } from "./workspace-name";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const messageSchema = z.object({
@@ -45,7 +46,7 @@ const savedSchema = z.object({
 export function newWorkspace(cwd: string): Workspace {
   return {
     id: crypto.randomUUID(),
-    name: "New workspace",
+    name: "New App",
     favorite: false,
     cwd,
     threadId: null,
@@ -76,6 +77,7 @@ export function loadState(path: string, cwd: string): SavedState {
     ...parsed,
     workspaces: parsed.workspaces.map((workspace) => ({
       ...workspace,
+      name: shortAppName(workspace.name),
       spec: validateSurface(workspace.spec),
       canvas: workspace.canvas ? validateCanvas(workspace.canvas) : null,
     })),

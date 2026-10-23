@@ -9,7 +9,7 @@ import { desktopClient, showWorkspace } from "./desktop-client";
 const PROFILE = "/tmp/codexos-openui-check";
 const THREE_MODULE =
   "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js";
-const SEED_NAME = "Hybrid orbit lab · verification";
+const SEED_NAME = "Orbit Lab";
 const ROOT = join(import.meta.dir, "..");
 const SOURCE = `root = Stack([title, intro, scene, controls, notes])
 $speed = 1
@@ -54,7 +54,7 @@ if (process.argv.includes("--prepare")) {
   seed.canvas.css = CSS;
   beginCanvasGeneration(seed.canvas);
   applyOpenUI(seed.canvas, SOURCE, true);
-  state.workspaces = [seed, ...state.workspaces].slice(0, 20);
+  state.workspaces = [seed, newWorkspace(ROOT)];
   state.activeId = seed.id;
   saveState(join(PROFILE, "workspace.json"), state);
   console.log(

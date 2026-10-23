@@ -29,7 +29,13 @@ function state(): Snapshot {
 }
 const render = (snapshot: Snapshot) =>
   renderToStaticMarkup(
-    <HomeScreen snapshot={snapshot} onOpen={() => {}} onFavorite={() => {}} />,
+    <HomeScreen
+      snapshot={snapshot}
+      onOpen={() => {}}
+      onFavorite={() => {}}
+      onRename={async () => {}}
+      onDelete={async () => {}}
+    />,
   );
 test("Home exposes all workspaces and explains how to add an app when favorites are empty", () => {
   const html = render(state());

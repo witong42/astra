@@ -30,6 +30,7 @@ import type {
   Snapshot,
   Workspace,
 } from "./types";
+import { appNameSchema, shortAppName } from "./workspace-name";
 
 const MAX_MESSAGES = 80;
 const MAX_WORKSPACES = 20;
@@ -78,6 +79,7 @@ type Session = {
   fileChanges: Map<string, string>;
   starting: Promise<void> | null;
   settings: SessionStatus["settings"];
+  canName: boolean;
 };
 function newSession(): Session {
   return {
@@ -95,6 +97,7 @@ function newSession(): Session {
     fileChanges: new Map(),
     starting: null,
     settings: null,
+    canName: false,
   };
 }
 
@@ -104,6 +107,7 @@ export class CodexBackend {
   private rpc: RpcPeer | null = null;
   private loaded = new Set<string>();
   private sessions = new Map<string, Session>();
+  private deleting = new Set<string>();
   private connectionError: string | null = null;
   private starting: Promise<void> | null = null;
   private stopping = false;
@@ -111,7 +115,7 @@ export class CodexBackend {
   constructor(
     saved: SavedState,
     private publish: (snapshot: Snapshot) => void,
-    private persist: (saved: SavedState) => void,
+    private persist: (saved: SavedState, immediate?: boolean) => void,
   ) {
     this.state = {
       ...saved,
@@ -137,6 +141,7 @@ export class CodexBackend {
   }
 
   private findWorkspace(id: string): Workspace {
+    if (this.deleting.has(id)) throw new Error("This app is being deleted.");
     const workspace = this.state.workspaces.find((entry) => entry.id === id);
     if (!workspace)
       throw new Error("Workspace not found. Reopen a saved workspace.");
@@ -178,6 +183,15 @@ export class CodexBackend {
 
   private changed() {
     this.projectSessions();
+    try {
+      this.persist(this.savedState());
+    } catch (error) {
+      this.state.error = String(error);
+    }
+    this.publish(this.snapshot());
+  }
+
+  private savedState(): SavedState {
     const {
       version,
       activeId,
@@ -186,19 +200,14 @@ export class CodexBackend {
       serviceTier,
       workspaces,
     } = this.state;
-    try {
-      this.persist({
-        version,
-        activeId,
-        model,
-        reasoningEffort,
-        serviceTier,
-        workspaces,
-      });
-    } catch (error) {
-      this.state.error = String(error);
-    }
-    this.publish(this.snapshot());
+    return {
+      version,
+      activeId,
+      model,
+      reasoningEffort,
+      serviceTier,
+      workspaces,
+    };
   }
 
   async connect() {
@@ -405,7 +414,8 @@ export class CodexBackend {
     };
     session.canvasBaseRevision = workspace.canvas?.revision ?? 0;
     const turnInput = this.surfaceInput(text, workspace);
-    if (workspace.messages.length === 0) workspace.name = text.slice(0, 70);
+    session.canName = workspace.messages.length === 0;
+    if (session.canName) workspace.name = shortAppName(text);
     workspace.messages.push({ id: crypto.randomUUID(), role: "user", text });
     session.initialReplyId = crypto.randomUUID();
     workspace.messages.push({
@@ -576,6 +586,11 @@ export class CodexBackend {
             applyOpenUI(workspace.canvas, source, complete);
             if (session.metrics) session.metrics.patches++;
             session.activity = "Composing workspace";
+          },
+          (name) => {
+            if (!session.canName) return;
+            workspace.name = appNameSchema.parse(name);
+            session.canName = false;
           },
         );
         session.streams.set(id, stream);
@@ -757,6 +772,77 @@ export class CodexBackend {
       throw new Error("Create a canvas before adding it to Home.");
     workspace.favorite = favorite;
     this.changed();
+  }
+
+  renameWorkspace(id: string, name: string) {
+    const workspace = this.findWorkspace(id);
+    workspace.name = appNameSchema.parse(name);
+    this.sessionFor(id).canName = false;
+    this.changed();
+  }
+
+  private async deleteThread(rpc: RpcPeer, threadId: string) {
+    try {
+      await rpc.request("thread/delete", { threadId });
+    } catch (error) {
+      const missing = `no rollout found for thread id ${threadId}`;
+      if (!(error instanceof Error) || error.message !== missing) throw error;
+      try {
+        await rpc.request("thread/read", { threadId });
+      } catch (readError) {
+        if (readError instanceof Error && readError.message === missing) return;
+        throw readError;
+      }
+      throw error;
+    }
+  }
+
+  async deleteWorkspace(id: string) {
+    const workspace = this.findWorkspace(id);
+    if (this.sessionFor(id).busy)
+      throw new Error("Stop this app's current response before deleting it.");
+    if (
+      workspace.threadId &&
+      this.state.workspaces.some(
+        (entry) => entry.id !== id && entry.threadId === workspace.threadId,
+      )
+    )
+      throw new Error(
+        "This app shares its Codex thread with another saved app. Its history cannot be deleted independently.",
+      );
+    const rpc = this.rpc;
+    if (
+      workspace.threadId &&
+      (!rpc ||
+        this.state.status === "offline" ||
+        this.state.status === "connecting")
+    )
+      throw new Error(
+        "Reconnect to Codex to permanently delete this app's history.",
+      );
+    this.deleting.add(id);
+    try {
+      if (workspace.threadId && rpc)
+        await this.deleteThread(rpc, workspace.threadId);
+      const remaining = this.state.workspaces.filter(
+        (entry) => entry.id !== id,
+      );
+      if (!remaining.length) remaining.push(newWorkspace(workspace.cwd));
+      const activeId =
+        this.state.activeId === id ? remaining[0].id : this.state.activeId;
+      this.persist(
+        { ...this.savedState(), workspaces: remaining, activeId },
+        true,
+      );
+      this.state.workspaces = remaining;
+      this.state.activeId = activeId;
+      this.sessions.delete(id);
+      if (workspace.threadId) this.loaded.delete(workspace.threadId);
+      this.projectSessions();
+      this.publish(this.snapshot());
+    } finally {
+      this.deleting.delete(id);
+    }
   }
 
   setModel(model: string) {

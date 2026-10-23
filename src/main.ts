@@ -17,6 +17,7 @@ import { canvasAckSchema } from "./canvas";
 import { externalWebUrl } from "./navigation";
 import { loadState, saveState } from "./storage";
 import type { SavedState, Snapshot } from "./types";
+import { appNameSchema } from "./workspace-name";
 
 declare const __PROJECT_ROOT__: string;
 const DATA_DIRECTORY =
@@ -44,7 +45,14 @@ app.on("second-instance", () => {
   window?.focus();
 });
 
-function persist(state: SavedState) {
+function persist(state: SavedState, immediate = false) {
+  if (immediate) {
+    saveState(join(DATA_DIRECTORY, "workspace.json"), state);
+    saved = state;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = null;
+    return;
+  }
   saved = state;
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
@@ -103,6 +111,40 @@ function installHandlers() {
       z.boolean().parse(favorite),
     ),
   );
+  handle("renameWorkspace", (id, name) =>
+    backend.renameWorkspace(
+      z.string().uuid().parse(id),
+      appNameSchema.parse(name),
+    ),
+  );
+  handle("deleteWorkspace", async (id) => {
+    const workspaceId = z.string().uuid().parse(id);
+    const workspace = backend.state.workspaces.find(
+      (entry) => entry.id === workspaceId,
+    );
+    if (!workspace || !window) throw new Error("This app no longer exists.");
+    if (backend.snapshot().sessions[workspaceId]?.busy)
+      throw new Error("Stop this app's current response before deleting it.");
+    const result = await dialog.showMessageBox(window, {
+      type: "warning",
+      buttons: ["Delete App", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      message: `Delete ${workspace.name}?`,
+      detail:
+        "Permanently removes this app's conversation, canvas, saved versions, and Codex thread history. This cannot be undone. Project files and external backups are kept.",
+    });
+    if (result.response !== 0) return false;
+    try {
+      await window.webContents.session.clearCache();
+    } catch {
+      throw new Error(
+        "Cached files could not be cleared. Restart CodexOS and retry deletion. The app has been kept.",
+      );
+    }
+    await backend.deleteWorkspace(workspaceId);
+    return true;
+  });
   handle("setModel", (model) =>
     backend.setModel(z.string().max(200).parse(model)),
   );

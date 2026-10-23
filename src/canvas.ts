@@ -6,6 +6,7 @@ import {
   validateOpenUIState,
 } from "./openui";
 import { type MutationOp, parseOpLine, validateOp } from "./substrate-protocol";
+import { MAX_APP_NAME_LENGTH } from "./workspace-name";
 
 export const MAX_CANVAS_BYTES = 512 * 1024;
 const MAX_HISTORY = 8;
@@ -141,7 +142,9 @@ export function restoreCanvas(
 
 export class CanvasStream {
   private buffer = "";
-  private fence: "canvas" | "openui" | "text" | null = null;
+  private fence: "canvas" | "openui" | "name" | "text" | null = null;
+  private nameSource = "";
+  private nameRejected = false;
   private openuiSource = "";
   private openuiRejected = false;
   private operations = 0;
@@ -150,6 +153,7 @@ export class CanvasStream {
     private onText: (text: string) => void,
     private onError: (error: string) => void,
     private onOpenUI?: (source: string, complete: boolean) => void,
+    private onName?: (name: string) => void,
   ) {}
   push(chunk: string) {
     this.buffer += chunk;
@@ -187,18 +191,45 @@ export class CanvasStream {
       if (this.fence) {
         if (this.fence === "text") this.onText(`${line}\n`);
         if (this.fence === "openui") this.emitOpenUI(true);
+        if (this.fence === "name" && !this.nameRejected) {
+          try {
+            this.onName?.(this.nameSource.trim());
+          } catch (error) {
+            this.onError(
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
         this.fence = null;
       } else {
-        this.fence = /^```openui\s*$/.test(trimmed)
-          ? "openui"
-          : /^```(?:substrate|canvas)\s*$/.test(trimmed)
-            ? "canvas"
-            : "text";
+        this.fence = /^```codexos-name\s*$/.test(trimmed)
+          ? "name"
+          : /^```openui\s*$/.test(trimmed)
+            ? "openui"
+            : /^```(?:substrate|canvas)\s*$/.test(trimmed)
+              ? "canvas"
+              : "text";
         if (this.fence === "openui") {
           this.openuiSource = "";
           this.openuiRejected = false;
         }
+        if (this.fence === "name") {
+          this.nameSource = "";
+          this.nameRejected = false;
+        }
         if (this.fence === "text") this.onText(`${line}\n`);
+      }
+      return;
+    }
+    if (this.fence === "name") {
+      if (this.nameRejected) return;
+      this.nameSource += `${line}\n`;
+      if (this.nameSource.trim().length > MAX_APP_NAME_LENGTH) {
+        this.nameRejected = true;
+        this.nameSource = "";
+        this.onError(
+          "Use an app name of one or two words, up to 32 characters.",
+        );
       }
       return;
     }

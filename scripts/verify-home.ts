@@ -34,16 +34,8 @@ if (process.argv.includes("--prepare")) {
   const orbit = newWorkspace(ROOT);
   orbit.name = "Orbit lab";
   orbit.favorite = true;
-  const qa = loadState("/tmp/codexos-openui-check/workspace.json", ROOT);
-  const sample = qa.workspaces.find(
-    (workspace) =>
-      workspace.canvas?.openui && workspace.canvas.html.includes("three"),
-  );
-  assert.ok(
-    sample?.canvas,
-    "Run the hybrid check before preparing the Home fixture",
-  );
-  orbit.canvas = structuredClone(sample.canvas);
+  orbit.canvas = structuredClone(planner.canvas);
+  orbit.canvas.html = '<main id="substrate"><h1>Orbit Lab</h1></main>';
   const notes = newWorkspace(ROOT);
   notes.name = "Life dashboard";
   notes.favorite = true;

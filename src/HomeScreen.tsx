@@ -1,34 +1,55 @@
 import {
   AppWindowIcon,
+  CalculatorIcon,
   CalendarBlankIcon,
   ChartPieSliceIcon,
+  CurrencyDollarIcon,
   GameControllerIcon,
   MusicNotesIcon,
   NotebookIcon,
   PlanetIcon,
+  PlayCircleIcon,
+  PresentationChartIcon,
+  SparkleIcon,
   StarIcon,
 } from "@phosphor-icons/react";
 import { hasWorkspaceSurface } from "./surface";
 import type { Snapshot, Workspace } from "./types";
+import { WorkspaceMenu } from "./WorkspaceMenu";
 
+const APP_STYLES = [
+  { match: /present|slide/, icon: PresentationChartIcon, tone: "clay" },
+  { match: /calculat/, icon: CalculatorIcon, tone: "sage" },
+  {
+    match: /solar|solaire|orbit|planet|\b(?:atlas|star)\b/,
+    icon: PlanetIcon,
+    tone: "sky",
+  },
+  {
+    match: /game|jeu|threejs|adventure|story|arcade/,
+    icon: GameControllerIcon,
+    tone: "clay",
+  },
+  { match: /music|listen|musique|radio/, icon: MusicNotesIcon, tone: "rose" },
+  { match: /money|argent|income/, icon: CurrencyDollarIcon, tone: "sage" },
+  { match: /video|vidéo|youtube/, icon: PlayCircleIcon, tone: "clay" },
+  {
+    match: /dashboard|business|tableau|life board/,
+    icon: ChartPieSliceIcon,
+    tone: "sage",
+  },
+  { match: /plan|week|semaine/, icon: CalendarBlankIcon, tone: "gold" },
+  { match: /wiki|note|page/, icon: NotebookIcon, tone: "sand" },
+  { match: /idea|idée|cool/, icon: SparkleIcon, tone: "gold" },
+];
 function AppIcon({ workspace }: { workspace: Workspace }) {
-  const name = workspace.name.toLowerCase();
-  const [Icon, tone] = /solar|solaire|orbit|planet/.test(name)
-    ? [PlanetIcon, "sky"]
-    : /game|jeu|threejs/.test(name)
-      ? [GameControllerIcon, "clay"]
-      : /music|listen|musique/.test(name)
-        ? [MusicNotesIcon, "rose"]
-        : /dashboard|business|tableau/.test(name)
-          ? [ChartPieSliceIcon, "sage"]
-          : /plan|week|semaine/.test(name)
-            ? [CalendarBlankIcon, "gold"]
-            : /wiki|note|page/.test(name)
-              ? [NotebookIcon, "sand"]
-              : [AppWindowIcon, "sage"];
+  const topic =
+    `${workspace.name} ${workspace.messages.find((message) => message.role === "user")?.text ?? ""}`.toLowerCase();
+  const style = APP_STYLES.find(({ match }) => match.test(topic));
+  const Icon = style?.icon ?? AppWindowIcon;
   return (
-    <span className={`app-icon tone-${tone}`}>
-      <Icon size={40} weight="duotone" />
+    <span className={`app-icon tone-${style?.tone ?? "sky"}`}>
+      <Icon size={48} weight="fill" />
     </span>
   );
 }
@@ -36,10 +57,14 @@ export function HomeScreen({
   snapshot,
   onOpen,
   onFavorite,
+  onRename,
+  onDelete,
 }: {
   snapshot: Snapshot;
   onOpen: (workspace: Workspace) => void;
   onFavorite: (workspace: Workspace) => void;
+  onRename: (id: string, name: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }) {
   const favorites = snapshot.workspaces.filter(
     (workspace) => workspace.favorite,
@@ -149,6 +174,12 @@ export function HomeScreen({
                 >
                   <StarIcon weight={workspace.favorite ? "fill" : "regular"} />
                 </button>
+                <WorkspaceMenu
+                  workspace={workspace}
+                  busy={Boolean(snapshot.sessions[workspace.id]?.busy)}
+                  onRename={onRename}
+                  onDelete={onDelete}
+                />
               </div>
             ))}
           </div>

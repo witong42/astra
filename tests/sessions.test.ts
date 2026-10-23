@@ -63,6 +63,10 @@ const pendingStarts = [];
 let holdStarts = false;
 let threadSequence = 0;
 let commandsRead = 0;
+let rejectDeletes = false;
+let holdDeletes = false;
+let alreadyDeleted = false;
+const pendingDeletes = [];
 const complete = (threadId, status = 'completed') => send({method:'turn/completed', params:{threadId, turn:{id:turns.get(threadId),status}}});
 createInterface({input:process.stdin}).on('line', line => {
   const message = JSON.parse(line);
@@ -74,6 +78,16 @@ createInterface({input:process.stdin}).on('line', line => {
   if (method === 'config/read') send({id,result:{config:{model:'test'}}});
   if (method === 'thread/start') send({id,result:{thread:{id:'thread-'+ ++threadSequence}}});
   if (method === 'thread/resume') send({id,result:{thread:{id:params.threadId}}});
+  if (method === 'thread/delete') {
+    if(alreadyDeleted) send({id,error:{code:-32000,message:'no rollout found for thread id '+params.threadId}});
+    else if(rejectDeletes) send({id,error:{code:-32000,message:'Thread cleanup failed'}});
+    else if(holdDeletes) pendingDeletes.push(id);
+    else send({id,result:{}});
+  }
+  if (method === 'thread/read') {
+    if(alreadyDeleted) send({id,error:{code:-32000,message:'no rollout found for thread id '+params.threadId}});
+    else send({id,result:{thread:{id:params.threadId}}});
+  }
   if (method === 'turn/start') {
     const turnId = 'turn-' + params.threadId + '-' + id;
     turns.set(params.threadId, turnId);
@@ -103,6 +117,10 @@ setInterval(() => {
     const command = JSON.parse(lines[commandsRead++]);
     record({controlId:command.controlId});
     if (command.kind === 'hold-starts') holdStarts = true;
+    if (command.kind === 'reject-deletes') rejectDeletes = command.value;
+    if (command.kind === 'already-deleted') alreadyDeleted = true;
+    if (command.kind === 'hold-deletes') holdDeletes = true;
+    if (command.kind === 'release-deletes') { holdDeletes=false; for(const id of pendingDeletes.splice(0)) send({id,result:{}}); }
     if (command.kind === 'release-starts') {
       holdStarts = false;
       for (const pending of pendingStarts.splice(0)) {
@@ -125,10 +143,14 @@ setInterval(() => {
   saved.workspaces.push(second);
   const b = second.id;
   const persisted: SavedState[] = [];
+  let failImmediatePersist = false;
   const backend = new CodexBackend(
     saved,
     () => {},
-    (state) => persisted.push(structuredClone(state)),
+    (state, immediate) => {
+      if (immediate && failImmediatePersist) throw new Error("Disk is full");
+      persisted.push(structuredClone(state));
+    },
   );
   const readWire = () =>
     readFileSync(wirePath, "utf8")
@@ -167,6 +189,9 @@ setInterval(() => {
     command,
     event,
     persisted,
+    failPersistence: (fail: boolean) => {
+      failImmediatePersist = fail;
+    },
   };
 }
 
@@ -660,4 +685,182 @@ test("favoriting a live canvas preserves its running session and rejects empty c
     expect(workspace(a).favorite).toBe(false);
     expect(backend.state.activeId).toBe(b);
     expect(session(a).busy).toBe(true);
+  }));
+
+test("deleting an inactive app permanently removes its thread and data while another app runs", () =>
+  withBackend(
+    async ({
+      backend,
+      a,
+      b,
+      workspace,
+      command,
+      session,
+      persisted,
+      requests,
+      event,
+    }) => {
+      await backend.send("A private marker to delete", b);
+      const threadId = workspace(b).threadId;
+      await command({ kind: "complete", threadId });
+      await waitFor(() => !session(b).busy, "B completion");
+      workspace(b).favorite = true;
+      const canvas = workspace(b).canvas;
+      if (canvas)
+        canvas.history.push({
+          html: "deleted history marker",
+          css: "",
+          generation: 0,
+        });
+      backend.selectWorkspace(a);
+      await backend.send("Keep A running", a);
+      await backend.deleteWorkspace(b);
+      expect(requests("thread/delete").at(-1)?.params).toEqual({ threadId });
+      expect(backend.snapshot().activeId).toBe(a);
+      expect(session(a).busy).toBe(true);
+      expect(backend.snapshot().sessions[b]).toBeUndefined();
+      expect(JSON.stringify(persisted.at(-1))).not.toContain("private marker");
+      expect(JSON.stringify(persisted.at(-1))).not.toContain(
+        "deleted history marker",
+      );
+      expect(backend.state.workspaces.some((w) => w.id === b)).toBe(false);
+      await event({
+        method: "item/agentMessage/delta",
+        params: { threadId, itemId: "late", delta: "Resurrect" },
+      });
+      expect(backend.state.workspaces.some((w) => w.id === b)).toBe(false);
+    },
+  ));
+
+test("deletion rejects a running target and retains data when Codex cleanup or disk persistence fails", () =>
+  withBackend(
+    async ({
+      backend,
+      a,
+      workspace,
+      command,
+      session,
+      requests,
+      failPersistence,
+    }) => {
+      await backend.send("Keep my content", a);
+      await expect(backend.deleteWorkspace(a)).rejects.toThrow("Stop this app");
+      expect(requests("thread/delete")).toHaveLength(0);
+      await command({ kind: "complete", threadId: workspace(a).threadId });
+      await waitFor(() => !session(a).busy, "completion");
+      const before = backend.snapshot();
+      await command({ kind: "reject-deletes", value: true });
+      await expect(backend.deleteWorkspace(a)).rejects.toThrow(
+        "Thread cleanup failed",
+      );
+      expect(backend.snapshot()).toEqual(before);
+      await command({ kind: "reject-deletes", value: false });
+      failPersistence(true);
+      await expect(backend.deleteWorkspace(a)).rejects.toThrow("Disk is full");
+      expect(backend.snapshot()).toEqual(before);
+      failPersistence(false);
+      await backend.deleteWorkspace(a);
+      expect(backend.state.workspaces.some((w) => w.id === a)).toBe(false);
+    },
+  ));
+
+test("a pending deletion blocks new turns and renames, then the last deletion creates one clean app", () =>
+  withBackend(
+    async ({
+      backend,
+      a,
+      b,
+      workspace,
+      command,
+      session,
+      requests,
+      persisted,
+    }) => {
+      await backend.send("Delete after completion", a);
+      await command({ kind: "complete", threadId: workspace(a).threadId });
+      await waitFor(() => !session(a).busy, "completion");
+      await command({ kind: "hold-deletes" });
+      const deleting = backend.deleteWorkspace(a);
+      await waitFor(
+        () => requests("thread/delete").length === 1,
+        "delete request",
+      );
+      await expect(backend.send("Race", a)).rejects.toThrow("being deleted");
+      expect(() => backend.renameWorkspace(a, "Race")).toThrow("being deleted");
+      await expect(backend.deleteWorkspace(a)).rejects.toThrow("being deleted");
+      await command({ kind: "release-deletes" });
+      await deleting;
+      await backend.deleteWorkspace(b);
+      expect(backend.state.workspaces).toHaveLength(1);
+      expect(backend.workspace.name).toBe("New App");
+      expect(backend.workspace.messages).toEqual([]);
+      expect(backend.workspace.threadId).toBeNull();
+      expect(backend.workspace.canvas?.history).toEqual([]);
+      expect(persisted.at(-1)?.activeId).toBe(backend.workspace.id);
+    },
+  ));
+
+test("a thread-backed app needs a live connection to delete while an unused app can be removed offline", () =>
+  withBackend(async ({ backend, a, b, workspace, command }) => {
+    await backend.send("Retain disconnected history", a);
+    await command({ kind: "disconnect" });
+    await waitFor(() => backend.state.status === "offline", "disconnect");
+    await expect(backend.deleteWorkspace(a)).rejects.toThrow("Reconnect");
+    expect(workspace(a).messages[0].text).toBe("Retain disconnected history");
+    await backend.deleteWorkspace(b);
+    expect(backend.state.workspaces).toHaveLength(1);
+  }));
+
+test("names are short, streamed naming stays out of chat, and a manual rename wins over late naming", () =>
+  withBackend(async ({ backend, a, b, workspace, event, command }) => {
+    await backend.send("Create an orbit dashboard with Three.js", a);
+    expect(workspace(a).name).toBe("Orbit Lab");
+    const threadId = workspace(a).threadId;
+    await event({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId,
+        itemId: "title",
+        delta: "```codexos-name\nStar Atlas\n```\nReady.\n",
+      },
+    });
+    expect(workspace(a).name).toBe("Star Atlas");
+    expect(workspace(a).messages.at(-1)?.text).toBe("Ready.\n");
+    await command({ kind: "complete", threadId });
+    await waitFor(() => !backend.snapshot().sessions[a].busy, "completion");
+    await backend.send("Change the sky", a);
+    await event({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId,
+        itemId: "late-title",
+        delta: "```codexos-name\nChanged Name\n```\n",
+      },
+    });
+    expect(workspace(a).name).toBe("Star Atlas");
+    await backend.send("Make a music player", b);
+    backend.renameWorkspace(b, "My Radio");
+    await event({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: workspace(b).threadId,
+        itemId: "late-title",
+        delta: "```codexos-name\nMusic Room\n```\n",
+      },
+    });
+    expect(workspace(b).name).toBe("My Radio");
+    expect(() =>
+      backend.renameWorkspace(b, "A really long app name"),
+    ).toThrow();
+  }));
+
+test("retry after a confirmed missing Codex thread still removes local app data", () =>
+  withBackend(async ({ backend, a, workspace, command, session, requests }) => {
+    await backend.send("Already deleted at Codex", a);
+    await command({ kind: "complete", threadId: workspace(a).threadId });
+    await waitFor(() => !session(a).busy, "completion");
+    await command({ kind: "already-deleted" });
+    await backend.deleteWorkspace(a);
+    expect(requests("thread/read")).toHaveLength(1);
+    expect(backend.state.workspaces.some((w) => w.id === a)).toBe(false);
   }));

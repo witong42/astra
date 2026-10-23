@@ -17,6 +17,7 @@ import { HomeScreen } from "./HomeScreen";
 import { Surface } from "./SurfaceView";
 import { hasWorkspaceSurface } from "./surface";
 import type { Snapshot, Workspace } from "./types";
+import { WorkspaceMenu } from "./WorkspaceMenu";
 
 const STARTERS = [
   {
@@ -59,6 +60,7 @@ function App() {
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
   const previousWorkspace = useRef<string | null>(null);
+  const deletedWorkspace = useRef<string | null>(null);
   const onWorkspaceError = useCallback((id: string, value: unknown) => {
     const message = value instanceof Error ? value.message : String(value);
     setErrors((previous) => ({ ...previous, [id]: message }));
@@ -98,6 +100,13 @@ function App() {
   useEffect(() => {
     const id = snapshot?.activeId;
     if (id && previousWorkspace.current && previousWorkspace.current !== id) {
+      if (previousWorkspace.current === deletedWorkspace.current) {
+        deletedWorkspace.current = null;
+        setHome(true);
+        setChatOpen(false);
+        previousWorkspace.current = id;
+        return;
+      }
       setHome(false);
       const next = snapshotRef.current?.workspaces.find(
         (workspace) => workspace.id === id,
@@ -140,6 +149,30 @@ function App() {
     void afterCapture(async () => {
       await window.codexos.newWorkspace();
     }).catch(onError);
+  };
+  const deleteApp = async (id: string) => {
+    const active = snapshotRef.current?.activeId === id;
+    if (active) deletedWorkspace.current = id;
+    try {
+      if (!(await window.codexos.deleteWorkspace(id))) {
+        deletedWorkspace.current = null;
+        return;
+      }
+      surfaceHandles.current.delete(id);
+      setDrafts((previous) => {
+        const next = { ...previous };
+        delete next[id];
+        return next;
+      });
+      setErrors((previous) => {
+        const next = { ...previous };
+        delete next[id];
+        return next;
+      });
+    } catch (error) {
+      deletedWorkspace.current = null;
+      throw error;
+    }
   };
   if (!snapshot)
     return (
@@ -203,6 +236,12 @@ function App() {
               <span className="app-title" title={workspace.name}>
                 {workspace.name}
               </span>
+              <WorkspaceMenu
+                workspace={workspace}
+                busy={Boolean(snapshot.sessions[workspace.id]?.busy)}
+                onRename={window.codexos.renameWorkspace}
+                onDelete={deleteApp}
+              />
             </>
           )}
         </div>
@@ -300,6 +339,8 @@ function App() {
             snapshot={snapshot}
             onOpen={openWorkspace}
             onFavorite={favorite}
+            onRename={window.codexos.renameWorkspace}
+            onDelete={deleteApp}
           />
         )}
         <section
