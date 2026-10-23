@@ -30,6 +30,8 @@ try {
       canvasWidth: number;
       chatWidth: number;
       centerError: number;
+      sidebarWidth: number;
+      workspaceRowHeight: number;
     }>(`(() => {
       const chat = document.querySelector('.conversation-main').getBoundingClientRect();
       const canvas = document.querySelector('.canvas').getBoundingClientRect();
@@ -37,6 +39,8 @@ try {
       return {composerBottom:input.bottom, toolbarTop:document.querySelector('.toolbar').getBoundingClientRect().top,
         documentHeight:document.documentElement.scrollHeight, height:innerHeight,
         canvasWidth:canvas.width,chatWidth:chat.width,
+        sidebarWidth:document.querySelector('.sidebar').getBoundingClientRect().width,
+        workspaceRowHeight:document.querySelector('.workspace-link').getBoundingClientRect().height,
         centerError:Math.abs(chat.x+chat.width/2-input.x-input.width/2)};
     })()`);
     assert.ok(
@@ -57,6 +61,14 @@ try {
       "The canvas must be larger than chat",
     );
     assert.ok(layout.centerError < 2, "The input must be centered within chat");
+    assert.ok(
+      layout.sidebarWidth >= 208,
+      "Workspace navigation must remain readable at the minimum window width",
+    );
+    assert.ok(
+      layout.workspaceRowHeight >= 40,
+      "Workspace rows need breathing room",
+    );
     console.log("LAYOUT_VERIFIED", width, height, JSON.stringify(layout));
   }
   const canvasFrame = await client.evaluate(`(() => {

@@ -113,7 +113,7 @@ h3 {
 }
 .sidebar {
   min-width: 0;
-  flex: 0 0 208px;
+  flex: 0 0 248px;
   display: flex;
   flex-direction: column;
   padding: 0 var(--space-3);
@@ -182,9 +182,9 @@ h3 {
 .workspace-link {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   width: 100%;
-  min-height: 36px;
+  min-height: 40px;
   margin-bottom: 2px;
   padding: var(--space-2) var(--space-3);
   border-radius: 7px;
@@ -1007,7 +1007,7 @@ td {
 }
 @media (max-width: 1200px) {
   .sidebar {
-    flex-basis: 184px;
+    flex-basis: 224px;
   }
   .connection-label {
     max-width: 120px;
@@ -1020,7 +1020,7 @@ td {
 }
 @media (max-width: 1000px) {
   .sidebar {
-    flex-basis: 160px;
+    flex-basis: 208px;
   }
   .toolbar {
     padding: 0 var(--space-4);
