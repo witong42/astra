@@ -88,6 +88,8 @@ export function CanvasSurface({
               pending.reject(error);
             }
           });
+      } else if (message?.type === "canvas:open-link") {
+        window.codexos.openExternal(message.url).catch(onError);
       } else if (message?.type === "canvas:error") {
         onError(message.error);
         const pending = waiting.get(message.requestId);

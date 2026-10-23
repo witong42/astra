@@ -1,4 +1,6 @@
 // DOM mutation and script activation adapted from Substrate's public/shell.js.
+
+import { externalWebUrl } from "./navigation";
 import type { MutationOp } from "./substrate-protocol";
 
 (() => {
@@ -175,6 +177,27 @@ import type { MutationOp } from "./substrate-protocol";
   );
   document.addEventListener("input", scheduleSave);
   document.addEventListener("change", scheduleSave);
+  function openLink(event: MouseEvent) {
+    if (
+      event.defaultPrevented ||
+      (event.type === "auxclick" && event.button !== 1)
+    )
+      return;
+    const link =
+      event.target instanceof Element
+        ? event.target.closest<HTMLAnchorElement>("a[href]")
+        : null;
+    if (!link || link.getAttribute("href")?.startsWith("#")) return;
+    event.preventDefault();
+    if (!event.isTrusted) return;
+    try {
+      post({ type: "canvas:open-link", url: externalWebUrl(link.href) });
+    } catch (error) {
+      post({ type: "canvas:error", error: errorText(error) });
+    }
+  }
+  document.addEventListener("click", openLink);
+  document.addEventListener("auxclick", openLink);
   new MutationObserver(scheduleSave).observe(document.body, {
     subtree: true,
     attributes: true,

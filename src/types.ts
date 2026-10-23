@@ -80,6 +80,7 @@ export type Bridge = {
   restoreCanvas: (index: number) => Promise<void>;
   answer: (allow: boolean, answers?: Record<string, string>) => Promise<void>;
   reconnect: () => Promise<void>;
+  openExternal: (url: string) => Promise<void>;
 };
 
 declare global {

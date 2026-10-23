@@ -25,5 +25,6 @@ const bridge: Bridge = {
   restoreCanvas: (index) => invoke("restoreCanvas", index),
   answer: (allow, answers) => invoke("answer", allow, answers),
   reconnect: () => invoke("reconnect"),
+  openExternal: (url) => invoke("openExternal", url),
 };
 contextBridge.exposeInMainWorld("codexos", bridge);

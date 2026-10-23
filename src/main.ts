@@ -9,10 +9,12 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  shell,
 } from "electron";
 import { z } from "zod";
 import { CodexBackend } from "./backend";
 import { canvasAckSchema } from "./canvas";
+import { externalWebUrl } from "./navigation";
 import { loadState, saveState } from "./storage";
 import type { SavedState, Snapshot } from "./types";
 
@@ -119,6 +121,7 @@ function installHandlers() {
     ),
   );
   handle("reconnect", () => backend.connect());
+  handle("openExternal", (url) => shell.openExternal(externalWebUrl(url)));
   handle("chooseFolder", async () => {
     if (!window) return;
     const selected = await dialog.showOpenDialog(window, {
