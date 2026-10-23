@@ -27,6 +27,9 @@ export type MutationOp =
 // Fragments legitimately carry inline <script> now (games, widgets), so the
 // budget is sized for code, not just markup.
 export const MAX_HTML_LENGTH = 100_000;
+export const MAX_CANVAS_BYTES = 2 * 1024 * 1024;
+export const CANVAS_SIZE_ERROR =
+  "The canvas exceeds its 2 MB save limit. Chat is still available; ask Codex to reduce the canvas.";
 export const MAX_CSS_LENGTH = 20_000;
 export const MAX_SELECTOR_LENGTH = 300;
 export const MAX_NOTE_LENGTH = 500;

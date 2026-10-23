@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MAX_CANVAS_BYTES } from "../src/canvas";
 import { loadState, saveState } from "../src/storage";
 
 const directories: string[] = [];
@@ -19,6 +20,21 @@ function file() {
 afterEach(() => {
   for (const directory of directories.splice(0))
     rmSync(directory, { recursive: true });
+});
+
+test("large canvases and their eight saved versions survive saving and reopening", () => {
+  const path = file();
+  const state = loadState(path, "/tmp");
+  const canvas = state.workspaces[0].canvas;
+  if (!canvas) throw new Error("Missing test canvas");
+  canvas.html = `<main id="substrate">${"x".repeat(MAX_CANVAS_BYTES - 100)}</main>`;
+  canvas.history = Array.from({ length: 8 }, (_, generation) => ({
+    html: canvas.html,
+    css: "",
+    generation,
+  }));
+  saveState(path, state);
+  expect(loadState(path, "/tmp")).toEqual(state);
 });
 
 describe("saved workspaces", () => {

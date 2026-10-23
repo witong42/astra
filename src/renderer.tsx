@@ -69,19 +69,38 @@ function App() {
     (value: unknown) => onWorkspaceError(snapshot?.activeId ?? "", value),
     [snapshot?.activeId, onWorkspaceError],
   );
-  const afterCapture = useCallback(async (action: () => Promise<void>) => {
-    const id = snapshotRef.current?.activeId;
-    if (id) await surfaceHandles.current.get(id)?.current?.flush();
-    await action();
-  }, []);
-  const onSend = useCallback(async (text: string, id: string) => {
-    const status = snapshotRef.current?.status;
-    if (status === "connecting" || status === "offline" || !status)
-      throw new Error("Reconnect to Codex before sending a message.");
-    setErrors((previous) => ({ ...previous, [id]: null }));
-    await surfaceHandles.current.get(id)?.current?.flush();
-    await window.codexos.send(text, id);
-  }, []);
+  const captureWorkspace = useCallback(
+    async (id: string) => {
+      try {
+        await surfaceHandles.current.get(id)?.current?.flush();
+      } catch (error) {
+        onWorkspaceError(
+          id,
+          `Canvas changes could not be saved: ${error instanceof Error ? error.message : String(error)} Chat remains available using the last saved canvas.`,
+        );
+      }
+    },
+    [onWorkspaceError],
+  );
+  const afterCapture = useCallback(
+    async (action: () => Promise<void>) => {
+      const id = snapshotRef.current?.activeId;
+      if (id) await captureWorkspace(id);
+      await action();
+    },
+    [captureWorkspace],
+  );
+  const onSend = useCallback(
+    async (text: string, id: string) => {
+      const status = snapshotRef.current?.status;
+      if (status === "connecting" || status === "offline" || !status)
+        throw new Error("Reconnect to Codex before sending a message.");
+      setErrors((previous) => ({ ...previous, [id]: null }));
+      await captureWorkspace(id);
+      await window.codexos.send(text, id);
+    },
+    [captureWorkspace],
+  );
   useEffect(() => {
     window.codexosFlush = async () => {
       await Promise.all(

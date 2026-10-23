@@ -5,10 +5,17 @@ import {
   openuiSchema,
   validateOpenUIState,
 } from "./openui";
-import { type MutationOp, parseOpLine, validateOp } from "./substrate-protocol";
+import {
+  CANVAS_SIZE_ERROR,
+  MAX_CANVAS_BYTES,
+  type MutationOp,
+  parseOpLine,
+  validateOp,
+} from "./substrate-protocol";
 import { MAX_APP_NAME_LENGTH } from "./workspace-name";
 
-export const MAX_CANVAS_BYTES = 512 * 1024;
+export { MAX_CANVAS_BYTES } from "./substrate-protocol";
+
 const MAX_HISTORY = 8;
 const MAX_PENDING_OPS = 24;
 const documentSchema = z.object({
@@ -75,9 +82,7 @@ function checkSize(document: { html: string; css: string }) {
     new TextEncoder().encode(document.html + document.css).byteLength >
     MAX_CANVAS_BYTES
   )
-    throw new Error(
-      "The canvas exceeds its 512 KB limit. Ask Codex to simplify it.",
-    );
+    throw new Error(CANVAS_SIZE_ERROR);
 }
 function currentDocument(canvas: CanvasState): CanvasDocument {
   return structuredClone({

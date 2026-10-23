@@ -14,7 +14,7 @@ import { emptySurface, validateSurface } from "./surface";
 import type { SavedState, Workspace } from "./types";
 import { shortAppName } from "./workspace-name";
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const messageSchema = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant"]),
@@ -88,7 +88,7 @@ export function saveState(path: string, state: SavedState) {
   const content = JSON.stringify(state);
   if (Buffer.byteLength(content) > MAX_FILE_BYTES)
     throw new Error(
-      "CodexOS history reached its 10 MB limit. Create a fresh local data store before continuing.",
+      "Saved apps exceed the 64 MB limit. Delete unused apps or restore a smaller canvas.",
     );
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.tmp`;

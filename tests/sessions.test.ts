@@ -234,6 +234,34 @@ test("CodexOS grants full access to new and saved sessions without changing mode
       });
   }));
 
+test("oversized surface context does not block chat or mid-turn guidance", () =>
+  withBackend(async ({ backend, a, workspace, requests }) => {
+    const canvas = workspace(a).canvas;
+    if (!canvas) throw new Error("Missing test canvas");
+    canvas.html =
+      '<main id="substrate"><section id="keep-me">' +
+      "x".repeat(700_000) +
+      "</section></main>";
+    const original = structuredClone(canvas);
+    await backend.send("Explain the app", a);
+    await backend.send("Keep the current layout", a);
+    for (const method of ["turn/start", "turn/steer"]) {
+      const input = requests(method)[0]?.params?.input as { text: string }[];
+      const text = input[0].text;
+      const data = text
+        .split("<codexos_current_surface_data>\n")[1]
+        .split("\n</codexos_current_surface_data>")[0];
+      const context = JSON.parse(data);
+      expect(context.truncated).toBe(true);
+      expect(context.preview).toContain("keep-me");
+      expect(data.length).toBeLessThan(600_000);
+    }
+    expect(
+      workspace(a).messages.filter((message) => message.role === "user"),
+    ).toHaveLength(2);
+    expect(canvas).toEqual(original);
+  }));
+
 test("creating and switching workspaces stays available while another session runs", () =>
   withBackend(async ({ backend, a, b, session }) => {
     await backend.send("Keep working in A", a);

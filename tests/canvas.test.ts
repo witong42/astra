@@ -4,9 +4,26 @@ import {
   beginCanvasGeneration,
   CanvasStream,
   emptyCanvas,
+  MAX_CANVAS_BYTES,
   queueCanvasOp,
   restoreCanvas,
+  validateCanvas,
 } from "../src/canvas";
+
+test("canvases accept 2 MB, enforce UTF-8 bytes, and retain the last good snapshot on overflow", () => {
+  expect(MAX_CANVAS_BYTES).toBe(2 * 1024 * 1024);
+  const canvas = emptyCanvas();
+  const html = `<main id="substrate">${"é".repeat(350_000)}</main>`;
+  acknowledgeCanvas(canvas, { revision: 0, html, css: "" });
+  expect(validateCanvas(canvas).html).toBe(html);
+  const css = " ".repeat(MAX_CANVAS_BYTES - Buffer.byteLength(html));
+  acknowledgeCanvas(canvas, { revision: 0, html, css });
+  expect(() =>
+    acknowledgeCanvas(canvas, { revision: 0, html, css: `${css} ` }),
+  ).toThrow("2 MB");
+  expect(canvas.css).toBe(css);
+  expect(canvas.html).toBe(html);
+});
 
 test("streamed Substrate patches survive reload until acknowledged and preserve local edits", () => {
   const canvas = emptyCanvas();

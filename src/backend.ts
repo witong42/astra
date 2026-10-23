@@ -36,6 +36,7 @@ const MAX_MESSAGES = 80;
 const MAX_WORKSPACES = 20;
 const PROMPT_LIMIT = 24_000;
 const UI_CONTEXT_LIMIT = 600_000;
+const UI_CONTEXT_PREVIEW_LENGTH = 80_000;
 const APPROVAL_POLICY = "never";
 const SANDBOX_MODE = "danger-full-access";
 const SANDBOX_POLICY = { type: "dangerFullAccess" } as const;
@@ -350,7 +351,7 @@ export class CodexBackend {
   }
 
   private surfaceInput(text: string, workspace: Workspace) {
-    const context = JSON.stringify(
+    let context = JSON.stringify(
       workspace.canvas
         ? {
             html: workspace.canvas.html,
@@ -363,9 +364,11 @@ export class CodexBackend {
         : { legacySurface: workspace.spec },
     );
     if (context.length > UI_CONTEXT_LIMIT)
-      throw new Error(
-        "This workspace is too large for live UI editing. Start a new workspace to keep generation fast.",
-      );
+      context = JSON.stringify({
+        truncated: true,
+        totalCharacters: context.length,
+        preview: context.slice(0, UI_CONTEXT_PREVIEW_LENGTH),
+      });
     return [
       {
         type: "text",

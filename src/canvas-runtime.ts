@@ -1,14 +1,18 @@
 // DOM mutation and script activation adapted from Substrate's public/shell.js.
 
 import { externalWebUrl } from "./navigation";
-import type { MutationOp } from "./substrate-protocol";
+import {
+  CANVAS_SIZE_ERROR,
+  MAX_CANVAS_BYTES,
+  type MutationOp,
+} from "./substrate-protocol";
 
 (() => {
   const SAVE_INTERVAL_MS = 300;
-  const MAX_DOCUMENT_BYTES = 512 * 1024;
   const sheet = document.getElementById("mutations") as HTMLStyleElement;
   let revision = 0;
   let initialized = false;
+  let lastValidDocument = { html: '<main id="substrate"></main>', css: "" };
   let timer: ReturnType<typeof setTimeout> | null = null;
   const root = () => document.getElementById("substrate");
   const post = (value: unknown) => parent.postMessage(value, "*");
@@ -43,10 +47,9 @@ import type { MutationOp } from "./substrate-protocol";
     });
     const html = clone.outerHTML;
     const css = sheet.textContent ?? "";
-    if (new TextEncoder().encode(html + css).byteLength > MAX_DOCUMENT_BYTES)
-      throw new Error(
-        "The canvas exceeds its 512 KB limit. Ask Codex to simplify it.",
-      );
+    if (new TextEncoder().encode(html + css).byteLength > MAX_CANVAS_BYTES)
+      throw new Error(CANVAS_SIZE_ERROR);
+    lastValidDocument = { html, css };
     return { html, css };
   }
   function snapshot(requestId?: string, error?: string) {
@@ -138,6 +141,7 @@ import type { MutationOp } from "./substrate-protocol";
     if (message?.type === "canvas:init") {
       try {
         revision = message.revision;
+        lastValidDocument = { html: message.html, css: message.css };
         inputTarget.canvasInputs = message.inputs ?? {};
         hydrate(message.html, message.css);
         updateInputs(message.inputs);
@@ -149,7 +153,12 @@ import type { MutationOp } from "./substrate-protocol";
     } else if (message?.type === "canvas:ops" && initialized) {
       for (const entry of message.entries) {
         if (entry.id <= revision) continue;
-        const previous = serializeDocument();
+        let previous = lastValidDocument;
+        try {
+          previous = serializeDocument();
+        } catch (error) {
+          post({ type: "canvas:error", error: errorText(error) });
+        }
         let failure: string | undefined;
         try {
           apply(entry.op);
