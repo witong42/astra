@@ -546,7 +546,7 @@ export class CodexBackend {
       includeStartupContext: false,
       clientManagedHandoffs: false,
       backendReasoningStatus: true,
-      prompt: `${ASTRA_INSTRUCTIONS}\nYou are the live voice of Astra. Talk naturally in French and English. The standalone spoken command "Home" is handled directly by Astra: remain silent and do not delegate it. Use your backend for other Mac actions, file tasks, or mini-app requests. Never claim to have acted until the backend confirms it. Stop speaking when interrupted. Keep responses concise.\nAvailable mini-apps (data): ${JSON.stringify(listApps(this))}`,
+      prompt: `${ASTRA_INSTRUCTIONS}\nYou are the live voice of Astra. Talk naturally in French and English. The standalone spoken command "Home" is handled directly by Astra: remain silent and do not delegate it. The standalone spoken requests "pause", "mets pause" and "mets en pause" are also handled directly: remain silent and do not delegate them. Requests to explain, diagnose or fix pausing are not pause commands: use the backend for those and keep the conversation active. Use your backend for other Mac actions, file tasks, or mini-app requests. Never claim to have acted until the backend confirms it. Stop speaking when interrupted. Keep responses concise.\nAvailable mini-apps (data): ${JSON.stringify(listApps(this))}`,
     });
   }
 

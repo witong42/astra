@@ -1077,6 +1077,12 @@ test("voice negotiates through Codex and delegated turns retain the Home app too
     expect(started?.prompt).toContain(
       'The standalone spoken command "Home" is handled directly by Astra',
     );
+    expect(started?.prompt).toContain(
+      'The standalone spoken requests "pause", "mets pause" and "mets en pause" are also handled directly',
+    );
+    expect(started?.prompt).toContain(
+      "Requests to explain, diagnose or fix pausing are not pause commands",
+    );
     await event({
       method: "thread/realtime/sdp",
       params: { threadId: assistant.threadId, sdp: "voice-answer" },

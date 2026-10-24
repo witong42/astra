@@ -144,6 +144,50 @@ async function tick() {
   await Bun.sleep(0);
 }
 
+test("spoken pause requests stop the live call directly without a backend handoff", async () => {
+  for (const text of [
+    "Pause.",
+    "Mets pause",
+    "Astra, mets en pause s’il te plaît",
+    "Could you pause, please?",
+  ]) {
+    const f = fixture();
+    try {
+      await f.voice.start();
+      f.realtime("transcript/done", { role: "user", text });
+      expect(f.mediaStops()).toBe(1);
+      await tick();
+      expect(f.voice.snapshot().status).toBe("standby");
+      expect(f.sent).toEqual([]);
+      expect(f.calls.some((call) => call.startsWith("say:"))).toBe(false);
+    } finally {
+      f.voice.stop();
+    }
+  }
+});
+
+test("discussing pause, negating it, partial speech and assistant speech do not pause", async () => {
+  const f = fixture();
+  try {
+    await f.voice.start();
+    for (const text of [
+      "Je ne te demande pas de mettre en pause maintenant",
+      "Pourquoi mets pause ne fonctionne pas tout de suite ?",
+      "Pause is too slow",
+      "Don't pause",
+      "On fait une pause café ?",
+    ])
+      f.realtime("transcript/done", { role: "user", text });
+    f.realtime("transcript/delta", { role: "user", delta: "Pause" });
+    f.realtime("transcript/done", { role: "assistant", text: "Mets pause" });
+    await tick();
+    expect(f.mediaStops()).toBe(0);
+    expect(f.voice.snapshot().status).toBe("listening");
+  } finally {
+    f.voice.stop();
+  }
+});
+
 test("pause closes the conversation, keeps wake listening and ignores late speech", async () => {
   const f = fixture();
   try {

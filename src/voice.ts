@@ -93,6 +93,27 @@ function isHomeShortcut(text: string) {
   if (words[0] === "astra") words.shift();
   return words.length > 0 && words.every((word) => word === "home");
 }
+const PAUSE_REQUESTS = new Set([
+  "pause",
+  "mets pause",
+  "met pause",
+  "mets en pause",
+  "mets toi en pause",
+  "can you pause",
+  "could you pause",
+]);
+function isPauseRequest(text: string) {
+  const request = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/^astra\s+/, "")
+    .replace(/^please\s+/, "")
+    .replace(/\s+(?:please|s il te plait|s il vous plait)$/, "");
+  return PAUSE_REQUESTS.has(request);
+}
 export class VoiceSession {
   private input: VoiceInput | null = null;
   private homeObservations: {
@@ -550,6 +571,12 @@ export class VoiceSession {
       typeof params.text === "string"
     ) {
       if (params.role === "user") {
+        if (isPauseRequest(params.text)) {
+          void this.pause().catch((error) =>
+            console.error("Voice pause failed:", error),
+          );
+          return;
+        }
         this.state.task = params.text;
         this.state.transcript = "";
         this.userStreaming = false;
