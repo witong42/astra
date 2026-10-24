@@ -34,7 +34,7 @@ import {
 } from "./journal";
 import { applyOpenUI, inspectOpenUI, updateOpenUIState } from "./openui";
 import { type RpcMessage, RpcPeer } from "./rpc";
-import { newWorkspace } from "./storage";
+import { DEFAULT_WORKSPACE_DIRECTORY, newWorkspace } from "./storage";
 import { applySurfacePatch, hasWorkspaceSurface } from "./surface";
 import type {
   Approval,
@@ -486,6 +486,7 @@ export class CodexBackend {
         await rpc.request("thread/resume", {
           ...settings,
           threadId,
+          cwd: workspace.cwd,
           excludeTurns: true,
         });
       } catch (error) {
@@ -707,6 +708,7 @@ export class CodexBackend {
           "turn/start",
           {
             threadId: workspace.threadId,
+            cwd: workspace.cwd,
             ...settings,
             approvalPolicy: APPROVAL_POLICY,
             sandboxPolicy: SANDBOX_POLICY,
@@ -1106,7 +1108,7 @@ export class CodexBackend {
       });
   }
 
-  createWorkspace(cwd = this.workspace.cwd, activate = true) {
+  createWorkspace(cwd = DEFAULT_WORKSPACE_DIRECTORY, activate = true) {
     if (this.state.workspaces.length >= MAX_WORKSPACES)
       throw new Error("Astra currently supports 20 saved workspaces.");
     const workspace = newWorkspace(cwd);
@@ -1123,7 +1125,7 @@ export class CodexBackend {
 
   ensureAssistantWorkspace() {
     if (!this.state.assistant) {
-      this.state.assistant = newWorkspace(this.workspace.cwd);
+      this.state.assistant = newWorkspace(DEFAULT_WORKSPACE_DIRECTORY);
       this.state.assistant.name = "Astra";
       this.changed();
     }

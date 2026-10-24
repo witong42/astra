@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexBackend } from "../src/backend";
 import type { RpcMessage } from "../src/rpc";
@@ -241,6 +241,47 @@ test("CodexOS grants full access to new and saved sessions without changing mode
         serviceTierForTurn: backend.state.serviceTier,
       });
   }));
+
+test("new mini-apps and the Home assistant use .astra while an explicitly chosen folder is preserved", () =>
+  withBackend(async ({ backend, workspace, directory }) => {
+    const created = backend.createWorkspace();
+    expect(workspace(created).cwd).toBe(join(homedir(), ".astra"));
+    const assistant = backend.ensureAssistantWorkspace();
+    expect(backend.state.assistant?.id).toBe(assistant);
+    expect(backend.state.assistant?.cwd).toBe(join(homedir(), ".astra"));
+    const chosen = backend.createWorkspace(directory);
+    expect(workspace(chosen).cwd).toBe(directory);
+  }));
+
+test("saved threads resume and start turns in their migrated working directory without changing identity or history", () =>
+  withBackend(
+    async ({ backend, a, workspace, requests, directory, command }) => {
+      const app = workspace(a);
+      const migrated = join(directory, "migrated");
+      app.cwd = migrated;
+      app.threadId = "retained-thread";
+      app.messages = [
+        { id: "retained", role: "user", text: "Keep this history" },
+      ];
+      await backend.send("Continue after migration", a);
+      expect(requests("thread/resume")[0]?.params).toMatchObject({
+        threadId: "retained-thread",
+        cwd: migrated,
+      });
+      expect(requests("turn/start")[0]?.params?.cwd).toBe(migrated);
+      expect(app.threadId).toBe("retained-thread");
+      expect(app.messages[0]?.text).toBe("Keep this history");
+      await command({ kind: "complete", threadId: app.threadId });
+      await waitFor(
+        () => !backend.snapshot().sessions[a]?.busy,
+        "the first turn to finish",
+      );
+      app.cwd = directory;
+      await backend.send("Continue in the chosen folder", a);
+      expect(requests("thread/resume")).toHaveLength(1);
+      expect(requests("turn/start").at(-1)?.params?.cwd).toBe(directory);
+    },
+  ));
 
 test("oversized surface context does not block chat or mid-turn guidance", () =>
   withBackend(async ({ backend, a, workspace, requests }) => {

@@ -47,7 +47,6 @@ const main = await Bun.build({
   format: "cjs",
   naming: "[name].cjs",
   external: ["electron"],
-  define: { __PROJECT_ROOT__: JSON.stringify(root) },
   minify: false,
 });
 const renderer = await Bun.build({

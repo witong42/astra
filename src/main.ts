@@ -30,13 +30,12 @@ import { externalWebUrl } from "./navigation";
 import { PhoneInput } from "./phone-input";
 import { readRemoteConfig } from "./remote-config";
 import { type RemoteMethod, startRemoteServer } from "./remote-server";
-import { loadState, saveState } from "./storage";
+import { DEFAULT_WORKSPACE_DIRECTORY, loadState, saveState } from "./storage";
 import type { SavedState, Snapshot } from "./types";
 import { APP_BUILD, APP_VERSION } from "./version";
 import { VoiceSession, type VoiceState } from "./voice";
 import { appNameSchema } from "./workspace-name";
 
-declare const __PROJECT_ROOT__: string;
 const DATA_DIRECTORY =
   process.env.CODEXOS_DATA_DIR ??
   join(homedir(), "Library/Application Support/CodexOS");
@@ -574,8 +573,8 @@ app
   .then(async () => {
     if (HIDDEN_TEST_WINDOW) app.dock?.hide();
     mkdirSync(DATA_DIRECTORY, { recursive: true, mode: 0o700 });
-    const cwd = existsSync(__PROJECT_ROOT__) ? __PROJECT_ROOT__ : homedir();
-    const state = loadState(join(DATA_DIRECTORY, "workspace.json"), cwd);
+    mkdirSync(DEFAULT_WORKSPACE_DIRECTORY, { recursive: true, mode: 0o700 });
+    const state = loadState(join(DATA_DIRECTORY, "workspace.json"));
     backend = new CodexBackend(state, broadcast, persist, controlInterface);
     voice = new VoiceSession(
       backend,

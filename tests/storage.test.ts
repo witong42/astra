@@ -6,7 +6,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_CANVAS_BYTES } from "../src/canvas";
 import { loadState, newWorkspace, saveState } from "../src/storage";
@@ -35,6 +35,11 @@ test("large canvases and their eight saved versions survive saving and reopening
   }));
   saveState(path, state);
   expect(loadState(path, "/tmp")).toEqual(state);
+});
+
+test("new installations use the personal .astra directory rather than the source repository", () => {
+  const state = loadState(file());
+  expect(state.workspaces[0].cwd).toBe(join(homedir(), ".astra"));
 });
 
 describe("saved workspaces", () => {

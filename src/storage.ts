@@ -7,7 +7,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import { emptyCanvas, validateCanvas } from "./canvas";
 import { journalEntrySchema, MAX_JOURNAL_ENTRIES } from "./journal";
@@ -16,6 +17,7 @@ import type { SavedState, Workspace } from "./types";
 import { shortAppName } from "./workspace-name";
 
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
+export const DEFAULT_WORKSPACE_DIRECTORY = join(homedir(), ".astra");
 const messageSchema = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant"]),
@@ -56,7 +58,10 @@ export function newWorkspace(cwd: string): Workspace {
   };
 }
 
-export function loadState(path: string, cwd: string): SavedState {
+export function loadState(
+  path: string,
+  cwd = DEFAULT_WORKSPACE_DIRECTORY,
+): SavedState {
   if (!existsSync(path)) {
     const workspace = newWorkspace(cwd);
     return {
