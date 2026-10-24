@@ -21,6 +21,7 @@ import { Journal } from "./JournalView";
 import { Surface } from "./SurfaceView";
 import { hasWorkspaceSurface } from "./surface";
 import type { Snapshot, Workspace } from "./types";
+import { APP_RELEASE } from "./version";
 import { INITIAL_VOICE, type VoiceState } from "./voice";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 
@@ -584,7 +585,10 @@ function App() {
                     ))}
                   </select>
                 )}
-              <span className="journal-connection" title={connection}>
+              <span
+                className="journal-connection"
+                title={`${connection} · ${APP_RELEASE}`}
+              >
                 <span className={`status-dot ${snapshot.status}`} />
               </span>
             </div>
@@ -607,6 +611,7 @@ function App() {
             )}
             <p className="journal-compose-context">
               {home ? "Parler à Astra" : workspace.name}
+              <small className="app-release">{APP_RELEASE}</small>
             </p>
             <Composer
               key={draftId}

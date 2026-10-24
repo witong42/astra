@@ -24,6 +24,7 @@ import { NativeSpeech } from "./native-speech";
 import { externalWebUrl } from "./navigation";
 import { loadState, saveState } from "./storage";
 import type { SavedState, Snapshot } from "./types";
+import { APP_BUILD, APP_VERSION } from "./version";
 import { VoiceSession, type VoiceState } from "./voice";
 import { appNameSchema } from "./workspace-name";
 
@@ -426,6 +427,8 @@ app
     );
     app.setAboutPanelOptions({
       applicationName: "Astra",
+      applicationVersion: APP_VERSION,
+      version: String(APP_BUILD),
       credits:
         "Mini-app icons: Solar by 480 Design. Colors and presentation adapted for Astra. CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/\nSource: https://www.figma.com/community/file/1166831539721848736",
     });

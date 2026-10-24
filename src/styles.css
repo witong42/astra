@@ -2116,9 +2116,18 @@ td {
   padding: 8px;
 }
 .journal-compose-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px 12px;
   margin: 5px 0 10px;
   font-size: 11px;
   color: #8fa8ba;
+}
+.app-release {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
 }
 .journal-drawer .composer {
   border-color: #ffffff16;

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -18,7 +19,7 @@ afterEach(() => {
 });
 
 test.skipIf(process.platform !== "darwin")(
-  "packaged app declares why it needs Apple Events before signing",
+  "packaging preserves older releases and signs the selected version with its native permissions",
   () => {
     const root = mkdtempSync(join(tmpdir(), "codexos package-test-"));
     temporary.push(root);
@@ -45,12 +46,33 @@ test.skipIf(process.platform !== "darwin")(
     );
     writeFileSync(join(root, "dist/icon.icns"), "fixture");
     writeFileSync(join(root, "dist/main.cjs"), "// fixture");
-    writeFileSync(join(root, "package.json"), '{"version":"0.1.0"}');
+    writeFileSync(
+      join(root, "package.json"),
+      JSON.stringify({ version: "9.8.7", astraBuild: 42 }),
+    );
+    const previous = join(root, "release/v9.8.6/Astra.app");
+    mkdirSync(previous, { recursive: true });
+    writeFileSync(join(previous, "preserve"), "previous release");
     const packageScript = join(root, "scripts/package.ts");
     cpSync(join(import.meta.dir, "../scripts/package.ts"), packageScript);
     execFileSync(process.execPath, [packageScript], { cwd: root });
-    const app = join(root, "release/Astra.app");
+    const app = join(root, "release/v9.8.7/Astra.app");
     const plist = join(app, "Contents/Info.plist");
+    const metadata = JSON.parse(
+      execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", plist], {
+        encoding: "utf8",
+      }),
+    );
+    expect(metadata.CFBundleShortVersionString).toBe("9.8.7");
+    expect(metadata.CFBundleVersion).toBe("42");
+    expect(readFileSync(join(previous, "preserve"), "utf8")).toBe(
+      "previous release",
+    );
+    expect(
+      JSON.parse(
+        readFileSync(join(app, "Contents/Resources/app/package.json"), "utf8"),
+      ),
+    ).toMatchObject({ version: "9.8.7", astraBuild: 42 });
     const usage = execFileSync(
       "/usr/libexec/PlistBuddy",
       ["-c", "Print :NSAppleEventsUsageDescription", plist],
@@ -83,3 +105,22 @@ test.skipIf(process.platform !== "darwin")(
     execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", app]);
   },
 );
+
+test("packaging rejects missing or invalid release identity before creating output", () => {
+  for (const identity of [
+    { version: "1.2.3" },
+    { version: "../../other", astraBuild: 2 },
+    { version: "1.2.3", astraBuild: 0 },
+  ]) {
+    const root = mkdtempSync(join(tmpdir(), "astra-invalid-release-"));
+    temporary.push(root);
+    mkdirSync(join(root, "scripts"));
+    writeFileSync(join(root, "package.json"), JSON.stringify(identity));
+    const script = join(root, "scripts/package.ts");
+    cpSync(join(import.meta.dir, "../scripts/package.ts"), script);
+    const result = Bun.spawnSync([process.execPath, script], { cwd: root });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain("valid version and astraBuild");
+    expect(existsSync(join(root, "release"))).toBe(false);
+  }
+});

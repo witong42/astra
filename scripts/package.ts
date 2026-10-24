@@ -4,17 +4,30 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
-const output = join(root, "release/Astra.app");
+const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+if (
+  typeof source.version !== "string" ||
+  !RELEASE_VERSION.test(source.version) ||
+  !Number.isSafeInteger(source.astraBuild) ||
+  source.astraBuild < 1
+)
+  throw new Error(
+    "package.json requires a valid version and astraBuild greater than zero.",
+  );
+const release = join(root, "release", `v${source.version}`);
+const output = join(release, "Astra.app");
 if (existsSync(output))
   throw new Error(
-    "release/Astra.app already exists. Move the previous package before packaging a new one.",
+    `${output} already exists. Increase the release version before packaging again.`,
   );
-mkdirSync(join(root, "release"), { recursive: true });
+mkdirSync(release, { recursive: true });
 execFileSync("/usr/bin/ditto", [
   join(root, "node_modules/electron/dist/Electron.app"),
   output,
@@ -22,13 +35,13 @@ execFileSync("/usr/bin/ditto", [
 const resources = join(output, "Contents/Resources");
 cpSync(join(root, "dist/icon.icns"), join(resources, "icon.icns"));
 cpSync(join(root, "dist"), join(resources, "app/dist"), { recursive: true });
-const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 writeFileSync(
   join(resources, "app/package.json"),
   JSON.stringify({
     name: "astra",
     productName: "Astra",
     version: source.version,
+    astraBuild: source.astraBuild,
     main: "dist/main.cjs",
   }),
 );
@@ -43,7 +56,7 @@ for (const [key, value] of Object.entries({
   CFBundleDisplayName: "Astra",
   CFBundleIdentifier: "local.codexos.desktop",
   CFBundleShortVersionString: source.version,
-  CFBundleVersion: "1",
+  CFBundleVersion: String(source.astraBuild),
   CFBundleIconFile: "icon.icns",
   NSAppleEventsUsageDescription:
     "Astra mini-apps use AppleScript to automate Mac applications when you request an action.",
@@ -63,4 +76,6 @@ execFileSync(
   { stdio: "inherit" },
 );
 execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", output]);
+const packagedAt = new Date();
+utimesSync(output, packagedAt, packagedAt);
 console.log(output);

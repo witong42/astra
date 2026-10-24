@@ -46,6 +46,7 @@ import type {
   Snapshot,
   Workspace,
 } from "./types";
+import { APP_VERSION } from "./version";
 import { appNameSchema, shortAppName } from "./workspace-name";
 
 const MAX_MESSAGES = 80;
@@ -364,7 +365,7 @@ export class CodexBackend {
         this.disconnected(new Error("Codex stopped. Reconnect to continue."));
     });
     await rpc.request("initialize", {
-      clientInfo: { name: "codexos", title: "Astra", version: "0.1.0" },
+      clientInfo: { name: "codexos", title: "Astra", version: APP_VERSION },
       capabilities: { experimentalApi: true },
     });
     rpc.write({ method: "initialized", params: {} });
