@@ -4,7 +4,34 @@ import Speech
 
 @main
 struct VoiceTests {
+    @MainActor
+    static func verifyHomeConversation() async throws {
+        let pause = Duration.milliseconds(Int(silenceDelay * 1000) + 200)
+        var homes = 0
+        var resets = 0
+        var transcript = ""
+        let shortcut = HomeShortcutRecognition(onHome: { homes += 1 }, onReset: { resets += 1; transcript = "" })
+        transcript = "Tell me about the dashboard"
+        shortcut.received(language: "en", text: transcript)
+        try await Task.sleep(for: pause)
+        guard resets == 1 else { throw NSError(domain: "AstraVoiceTest", code: 4, userInfo: [NSLocalizedDescriptionKey: "Ordinary conversation was not cleared before the next Home shortcut"]) }
+        transcript += " Home Home"
+        shortcut.received(language: "en", text: transcript)
+        shortcut.received(language: "fr", text: "Homme homme")
+        try await Task.sleep(for: pause)
+        precondition(homes == 1 && resets == 2, "Home after conversation was lost or a French result canceled it")
+        shortcut.received(language: "en", text: "Home")
+        shortcut.received(language: "en", text: "Home Assistant")
+        try await Task.sleep(for: pause)
+        precondition(homes == 1 && resets == 3, "A longer phrase triggered Home or remained in the recognition buffer")
+        shortcut.received(language: "en", text: "Home")
+        shortcut.cancel()
+        try await Task.sleep(for: pause)
+        precondition(homes == 1 && resets == 3, "A stopped listener navigated Home")
+        print("HOME_CONVERSATION_VERIFIED")
+    }
     static func main() async throws {
+        try await verifyHomeConversation()
         for text in ["Home", " home! ", "HOME.", "Home Home"] { precondition(isHomeShortcut(text)) }
         for text in ["Home Assistant", "Je dis home", "homepage", ""] { precondition(!isHomeShortcut(text)) }
         print("HOME_SHORTCUT_VERIFIED")

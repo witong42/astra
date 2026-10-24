@@ -20,6 +20,25 @@ func isHomeShortcut(_ text: String) -> Bool {
     let words = normalized(text).split(separator: " ")
     return !words.isEmpty && words.allSatisfy { $0 == "home" }
 }
+final class HomeShortcutRecognition {
+    private var silence: DispatchWorkItem?
+    private let onHome: () -> Void
+    private let onReset: () -> Void
+    init(onHome: @escaping () -> Void, onReset: @escaping () -> Void) {
+        self.onHome = onHome; self.onReset = onReset
+    }
+    func received(language: String, text: String) {
+        guard language == "en", !normalized(text).isEmpty else { return }
+        silence?.cancel()
+        let finish = DispatchWorkItem { [onHome, onReset] in
+            if isHomeShortcut(text) { onHome() }
+            onReset()
+        }
+        silence = finish
+        DispatchQueue.main.asyncAfter(deadline: .now() + silenceDelay, execute: finish)
+    }
+    func cancel() { silence?.cancel(); silence = nil }
+}
 final class RecognitionLane {
     let language: String
     var text = ""
@@ -50,6 +69,7 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     private var utteranceIds: [ObjectIdentifier: Int] = [:]
     private var lastLevel: TimeInterval = 0
     private var lastPartial = ""
+    private lazy var homeShortcut = HomeShortcutRecognition(onHome: { event("voice/home") }, onReset: { [weak self] in self?.startRecognition() })
     override init() { super.init(); synthesizer.delegate = self }
     func start(id: Any, standby: Bool, homeOnly: Bool = false) {
         AVCaptureDevice.requestAccess(for: .audio) { allowed in
@@ -109,6 +129,7 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     }
     private func prepareRecognition() async throws {
         guard enabled else { return }
+        homeShortcut.cancel()
         silence?.cancel(); rotation?.cancel()
         cycle = UUID()
         let current = cycle
@@ -138,19 +159,11 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         guard !plain.isEmpty else { if final { startRecognition() }; return }
         if wakeOnly {
             silence?.cancel()
-            if isHomeShortcut(plain) {
-                let current = cycle
-                let home = DispatchWorkItem {
-                    guard self.enabled, self.wakeOnly, self.cycle == current, isHomeShortcut(self.bestText().0) else { return }
-                    event("voice/home")
-                    self.startRecognition()
-                }
-                silence = home
-                DispatchQueue.main.asyncAfter(deadline: .now() + silenceDelay, execute: home)
-                return
-            }
+            homeShortcut.received(language: lane.language, text: lane.text)
             if homeOnly { return }
+            if isHomeShortcut(plain) { return }
             if plain.split(separator: " ").contains("astra") {
+                homeShortcut.cancel()
                 wakeOnly = false
                 event("voice/wake")
                 lastPartial = ""
@@ -194,6 +207,7 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     func interrupt() { synthesizer.stopSpeaking(at: .immediate); spokenText = "" }
     func stop() {
         enabled = false
+        homeShortcut.cancel()
         silence?.cancel(); rotation?.cancel()
         cycle = UUID()
         lanes = []

@@ -52,6 +52,7 @@ test.skipIf(process.platform !== "darwin")(
         expect(output).toContain("MONO_CHANNEL_VERIFIED");
         expect(output).toContain("BILINGUAL_REPLAY_VERIFIED");
         expect(output).toContain("HOME_SHORTCUT_VERIFIED");
+        expect(output).toContain("HOME_CONVERSATION_VERIFIED");
         console.log(output.trim());
       }
     } finally {
