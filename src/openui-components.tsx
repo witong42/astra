@@ -11,12 +11,18 @@ import {
   type ReactNode,
   useContext,
   useId,
+  useState,
 } from "react";
 import { type CanvasInputs, uiComponents as ui } from "./openui";
 
 export const OpenUICanvasContext = createContext<
   (inputs: CanvasInputs, height: number) => ReactNode
 >(() => null);
+export const AppleScriptContext = createContext<
+  (script: string, args: string[]) => Promise<string>
+>(async () => {
+  throw new Error("AppleScript is unavailable outside a mini-app.");
+});
 
 export const openuiLibrary = createLibrary({
   root: "Stack",
@@ -181,6 +187,51 @@ export const openuiLibrary = createLibrary({
           >
             {props.label}
           </button>
+        );
+      },
+    }),
+    defineComponent({
+      ...ui.AppleScriptButton,
+      component: function AppleScriptButton({ props }) {
+        const run = useContext(AppleScriptContext);
+        const streaming = useIsStreaming();
+        const [running, setRunning] = useState(false);
+        const [result, setResult] = useState("");
+        const [error, setError] = useState(false);
+        return (
+          <div>
+            <button
+              data-astra-native=""
+              type="button"
+              className="secondary-button openui-button"
+              disabled={streaming || running}
+              aria-busy={running}
+              onClick={async () => {
+                setRunning(true);
+                setError(false);
+                try {
+                  setResult(await run(props.script, props.args ?? []));
+                } catch (error) {
+                  setError(true);
+                  setResult(
+                    error instanceof Error ? error.message : String(error),
+                  );
+                } finally {
+                  setRunning(false);
+                }
+              }}
+            >
+              {props.label}
+            </button>
+            {result && (
+              <pre
+                role={error ? "alert" : "status"}
+                style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+              >
+                {result}
+              </pre>
+            )}
+          </div>
         );
       },
     }),

@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
+import { CANVAS_CONTROL_PREFIX, type SurfaceControl } from "./app-control";
 import type { CanvasAck, CanvasState } from "./canvas";
 import type { CanvasInputs } from "./openui";
 
-export type CanvasHandle = { flush: () => Promise<void> };
+export type CanvasHandle = {
+  flush: () => Promise<void>;
+  isReady?: () => boolean;
+  control?: (request: SurfaceControl) => Promise<unknown>;
+};
 const CAPTURE_TIMEOUT_MS = 5000;
 export function CanvasSurface({
   id,
@@ -24,6 +29,7 @@ export function CanvasSurface({
   inputRef.current = inputs;
   const sent = useRef(-1);
   const ready = useRef(false);
+  const nativePort = useRef<MessagePort | null>(null);
   const captures = useRef(
     new Map<
       string,
@@ -35,33 +41,85 @@ export function CanvasSurface({
     >(),
   );
   const lastSaved = useRef("");
+  const controls = useRef(
+    new Map<
+      string,
+      {
+        resolve: (value: unknown) => void;
+        reject: (error: Error) => void;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    >(),
+  );
   const saving = useRef(Promise.resolve());
   const post = useCallback((message: unknown) => {
     frame.current?.contentWindow?.postMessage(message, "*");
   }, []);
+  const connect = useCallback(() => {
+    ready.current = false;
+    nativePort.current?.close();
+    const channel = new MessageChannel();
+    const port = channel.port1;
+    nativePort.current = port;
+    port.onmessage = (event) => {
+      const message = event.data;
+      if (message?.type === "canvas:native-ready" && !ready.current) {
+        ready.current = true;
+        const current = state.current;
+        sent.current = current.revision;
+        post({
+          type: "canvas:init",
+          html: current.html,
+          css: current.css,
+          revision: current.revision,
+          inputs: inputRef.current,
+        });
+        if (current.pending.length) {
+          post({ type: "canvas:ops", entries: current.pending });
+          sent.current = current.pending.at(-1)?.id ?? sent.current;
+        }
+        return;
+      }
+      if (
+        message?.type !== "canvas:applescript" ||
+        typeof message.requestId !== "string" ||
+        message.requestId.length > 100
+      )
+        return;
+      const requestId = message.requestId;
+      if (frame.current?.closest("[inert]")) {
+        port.postMessage({
+          requestId,
+          error: "Open this mini-app before running its native actions.",
+        });
+        return;
+      }
+      window.codexos.runAppleScript(id, message.request).then(
+        (stdout) => port.postMessage({ requestId, stdout }),
+        (error) =>
+          port.postMessage({
+            requestId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      );
+    };
+    frame.current?.contentWindow?.postMessage({ type: "canvas:connect" }, "*", [
+      channel.port2,
+    ]);
+  }, [id, post]);
   useEffect(() => {
     const waiting = captures.current;
-    const sendInitial = () => {
-      const current = state.current;
-      sent.current = current.revision;
-      post({
-        type: "canvas:init",
-        html: current.html,
-        css: current.css,
-        revision: current.revision,
-        inputs: inputRef.current,
-      });
-      if (current.pending.length) {
-        post({ type: "canvas:ops", entries: current.pending });
-        sent.current = current.pending.at(-1)?.id ?? sent.current;
-      }
-    };
+    const pendingControls = controls.current;
     const listener = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return;
       const message = event.data;
-      if (message?.type === "canvas:ready") {
-        ready.current = true;
-        sendInitial();
+      if (message?.type === "canvas:control-result") {
+        const pending = pendingControls.get(message.requestId);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        pendingControls.delete(message.requestId);
+        if (message.error) pending.reject(new Error(message.error));
+        else pending.resolve(message.result);
       } else if (message?.type === "canvas:snapshot") {
         const ack: CanvasAck = {
           revision: message.revision,
@@ -108,6 +166,31 @@ export function CanvasSurface({
     };
     addEventListener("message", listener);
     handle.current = {
+      isReady: () => ready.current,
+      control: (request) =>
+        new Promise((resolve, reject) => {
+          if (!ready.current) {
+            reject(new Error("The app is still opening. Retry the command."));
+            return;
+          }
+          const requestId = crypto.randomUUID();
+          const timer = setTimeout(() => {
+            pendingControls.delete(requestId);
+            reject(new Error("The app did not confirm the control action."));
+          }, CAPTURE_TIMEOUT_MS);
+          pendingControls.set(requestId, { resolve, reject, timer });
+          const action =
+            request.action !== "inspect" &&
+            request.selector.startsWith(CANVAS_CONTROL_PREFIX)
+              ? {
+                  ...request,
+                  selector: request.selector.slice(
+                    CANVAS_CONTROL_PREFIX.length,
+                  ),
+                }
+              : request;
+          post({ type: "canvas:control", request: action, requestId });
+        }),
       flush: () =>
         new Promise((resolve, reject) => {
           if (!ready.current) {
@@ -131,12 +214,20 @@ export function CanvasSurface({
     };
     return () => {
       removeEventListener("message", listener);
+      nativePort.current?.close();
       handle.current = null;
       for (const entry of waiting.values()) {
         clearTimeout(entry.timer);
         entry.reject(new Error("The workspace changed."));
       }
       waiting.clear();
+      for (const pending of pendingControls.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(
+          new Error("The app changed before confirming the control action."),
+        );
+      }
+      pendingControls.clear();
     };
   }, [id, onError, handle, post]);
   useEffect(() => {
@@ -163,6 +254,7 @@ export function CanvasSurface({
   return (
     <iframe
       ref={frame}
+      onLoad={connect}
       name={id}
       src="./canvas.html"
       sandbox="allow-scripts"

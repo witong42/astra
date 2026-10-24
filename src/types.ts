@@ -1,4 +1,5 @@
 import type { Spec } from "@json-render/core";
+import type { AppleScriptRequest } from "./applescript";
 import type { CanvasAck, CanvasState } from "./canvas";
 import type { VoiceState } from "./voice";
 
@@ -83,6 +84,10 @@ export type Bridge = {
   startVoice: () => Promise<void>;
   stopVoice: () => Promise<void>;
   interruptVoice: () => Promise<void>;
+  runAppleScript: (
+    workspaceId: string,
+    request: AppleScriptRequest,
+  ) => Promise<string>;
   snapshot: () => Promise<Snapshot>;
   subscribe: (listener: (snapshot: Snapshot) => void) => () => void;
   send: (text: string, workspaceId?: string) => Promise<void>;

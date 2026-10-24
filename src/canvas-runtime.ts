@@ -1,5 +1,6 @@
 // DOM mutation and script activation adapted from Substrate's public/shell.js.
 
+import { controlSurface } from "./app-control";
 import { externalWebUrl } from "./navigation";
 import {
   CANVAS_SIZE_ERROR,
@@ -19,6 +20,9 @@ import {
   const errorText = (error: unknown) =>
     error instanceof Error ? error.message : String(error);
   const inputTarget = window as unknown as { canvasInputs: unknown };
+  const nativeRequests = new Map<string, HTMLElement>();
+  let nativePort: MessagePort | null = null;
+  let sendNative: ((message: unknown) => void) | null = null;
   function updateInputs(inputs: unknown) {
     inputTarget.canvasInputs = inputs ?? {};
     dispatchEvent(
@@ -30,6 +34,9 @@ import {
     const host = root();
     if (!host) throw new Error("The canvas root #substrate is missing.");
     const clone = host.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("[data-applescript][aria-busy]").forEach((node) => {
+      node.removeAttribute("aria-busy");
+    });
     const fields = host.querySelectorAll("input,textarea,select");
     const clones = clone.querySelectorAll("input,textarea,select");
     fields.forEach((field, index) => {
@@ -84,6 +91,7 @@ import {
     }
   }
   function hydrate(html: string, css: string) {
+    nativeRequests.clear();
     const template = document.createElement("template");
     template.innerHTML = html;
     const host = template.content.querySelector("#substrate");
@@ -136,9 +144,33 @@ import {
     if (!root()) throw new Error("The update removed the canvas root.");
   }
   addEventListener("message", (event) => {
-    if (event.source !== parent) return;
+    if (event.source !== parent || !event.isTrusted) return;
     const message = event.data;
-    if (message?.type === "canvas:init") {
+    if (message?.type === "canvas:connect" && !nativePort && event.ports[0]) {
+      nativePort = event.ports[0];
+      sendNative = nativePort.postMessage.bind(nativePort);
+      nativePort.onmessage = (response) => {
+        const result = response.data;
+        const pending = nativeRequests.get(result.requestId);
+        if (!pending) return;
+        nativeRequests.delete(result.requestId);
+        const target = pending;
+        target.removeAttribute("aria-busy");
+        const detail = {
+          stdout: result.stdout ?? "",
+          error: result.error ?? null,
+        };
+        const output = target.dataset.applescriptOutput;
+        if (output) {
+          const node = root()?.querySelector(output);
+          if (node) node.textContent = detail.error ?? detail.stdout;
+        }
+        target.dispatchEvent(
+          new CustomEvent("codexos:applescript", { bubbles: true, detail }),
+        );
+      };
+      sendNative({ type: "canvas:native-ready" });
+    } else if (message?.type === "canvas:init") {
       try {
         revision = message.revision;
         lastValidDocument = { html: message.html, css: message.css };
@@ -173,6 +205,27 @@ import {
         } catch (error) {
           post({ type: "canvas:error", error: errorText(error) });
         }
+      }
+    } else if (
+      message?.type === "canvas:control" &&
+      initialized &&
+      typeof message.requestId === "string"
+    ) {
+      try {
+        const host = root();
+        if (!host) throw new Error("The app canvas is missing.");
+        const result = controlSurface(host, message.request);
+        post({
+          type: "canvas:control-result",
+          requestId: message.requestId,
+          result,
+        });
+      } catch (error) {
+        post({
+          type: "canvas:control-result",
+          requestId: message.requestId,
+          error: errorText(error),
+        });
       }
     } else if (message?.type === "canvas:inputs") {
       updateInputs(message.inputs);
@@ -220,6 +273,86 @@ import {
   }
   document.addEventListener("click", openLink);
   document.addEventListener("auxclick", openLink);
+  function runNativeAction(event: Event) {
+    if (!event.isTrusted || event.defaultPrevented || !initialized) return;
+    const target =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>("[data-applescript]")
+        : null;
+    if (
+      !target ||
+      !root()?.contains(target) ||
+      target.getAttribute("aria-busy") === "true"
+    )
+      return;
+    if (
+      event.type === "change" &&
+      !(
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLSelectElement
+      )
+    )
+      return;
+    if (event.type === "click" && !(target instanceof HTMLButtonElement))
+      return;
+    event.preventDefault();
+    try {
+      const script = document.getElementById(target.dataset.applescript ?? "");
+      if (
+        !script ||
+        !root()?.contains(script) ||
+        script.getAttribute("type") !== "text/applescript"
+      )
+        throw new Error(
+          "The AppleScript action is missing its text/applescript script element.",
+        );
+      const args: unknown = JSON.parse(target.dataset.applescriptArgs ?? "[]");
+      const selectors: unknown = JSON.parse(
+        target.dataset.applescriptInputs ?? "[]",
+      );
+      if (
+        !Array.isArray(args) ||
+        !args.every((value) => typeof value === "string") ||
+        !Array.isArray(selectors) ||
+        !selectors.every((value) => typeof value === "string")
+      )
+        throw new Error(
+          "AppleScript arguments and input selectors must be arrays of strings.",
+        );
+      const values = selectors.map((selector) => {
+        const input = root()?.querySelector(selector);
+        if (
+          !(
+            input instanceof HTMLInputElement ||
+            input instanceof HTMLSelectElement ||
+            input instanceof HTMLTextAreaElement
+          )
+        )
+          throw new Error(`AppleScript input ${selector} is missing.`);
+        return input.value;
+      });
+      if (!sendNative)
+        throw new Error("The native action connection is still opening.");
+      const requestId = crypto.randomUUID();
+      nativeRequests.set(requestId, target);
+      target.setAttribute("aria-busy", "true");
+      sendNative({
+        type: "canvas:applescript",
+        requestId,
+        request: { script: script.textContent, args: [...args, ...values] },
+      });
+    } catch (error) {
+      target.dispatchEvent(
+        new CustomEvent("codexos:applescript", {
+          bubbles: true,
+          detail: { stdout: "", error: errorText(error) },
+        }),
+      );
+      post({ type: "canvas:error", error: errorText(error) });
+    }
+  }
+  document.addEventListener("click", runNativeAction);
+  document.addEventListener("change", runNativeAction);
   new MutationObserver(scheduleSave).observe(document.body, {
     subtree: true,
     attributes: true,

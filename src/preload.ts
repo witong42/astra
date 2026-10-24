@@ -15,6 +15,8 @@ const bridge: Bridge = {
     ipcRenderer.on("codexos:voice", listener);
     return () => ipcRenderer.removeListener("codexos:voice", listener);
   },
+  runAppleScript: (workspaceId, request) =>
+    invoke("runAppleScript", workspaceId, request),
   snapshot: () => invoke("snapshot"),
   subscribe: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: Snapshot) =>

@@ -45,6 +45,8 @@ for (const [key, value] of Object.entries({
   CFBundleShortVersionString: source.version,
   CFBundleVersion: "1",
   CFBundleIconFile: "icon.icns",
+  NSAppleEventsUsageDescription:
+    "Astra mini-apps use AppleScript to automate Mac applications when you request an action.",
   NSMicrophoneUsageDescription:
     "Listen locally for Astra while voice is enabled, including in the background. Pause the microphone at any time.",
   NSSpeechRecognitionUsageDescription:

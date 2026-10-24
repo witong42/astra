@@ -27,7 +27,6 @@ export const openuiSchema = z
     state: z.record(z.string(), z.unknown()),
   })
   .strict();
-export type OpenUIState = z.infer<typeof openuiSchema>;
 const label = z.string().max(500);
 const name = z.string().regex(/^[a-zA-Z][\w-]{0,63}$/);
 function reactive<T extends z.ZodType>(schema: T): T {
@@ -129,6 +128,20 @@ export const uiComponents = {
     description:
       "An explicit action. Use @Set for local changes or @ToAssistant to ask Codex.",
     props: z.object({ label, action: action() }),
+    component: null,
+  }),
+  AppleScriptButton: defineComponent({
+    name: "AppleScriptButton",
+    description:
+      "Runs AppleScript directly on macOS without an assistant turn. Arguments are passed to on run argv; stdout or an error appears below the button.",
+    props: z.object({
+      label,
+      script: z
+        .string()
+        .min(1)
+        .max(64 * 1024),
+      args: z.array(z.string().max(4000)).max(32).optional(),
+    }),
     component: null,
   }),
   Table: defineComponent({

@@ -13,6 +13,7 @@ import {
   Tray,
 } from "electron";
 import { z } from "zod";
+import { runAppleScript } from "./applescript";
 import { CodexBackend } from "./backend";
 import { canvasAckSchema } from "./canvas";
 import { NativeSpeech } from "./native-speech";
@@ -107,6 +108,17 @@ function installHandlers() {
   });
   handle("interruptVoice", () => voice.interrupt());
   handle("snapshot", () => backend.snapshot());
+  handle("runAppleScript", (workspaceId, request) => {
+    const id = z.string().uuid().parse(workspaceId);
+    if (
+      id !== backend.state.activeId ||
+      !backend.state.workspaces.some((entry) => entry.id === id)
+    )
+      throw new Error(
+        "AppleScript actions must come from the active mini-app.",
+      );
+    return runAppleScript(request);
+  });
   handle("send", (text, workspaceId) =>
     backend.send(
       z.string().max(24_000).parse(text),

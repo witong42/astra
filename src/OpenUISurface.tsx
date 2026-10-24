@@ -1,9 +1,18 @@
 import { type OpenUIError, Renderer } from "@openuidev/react-lang";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CANVAS_CONTROL_PREFIX,
+  controlSurface,
+  type SurfaceControl,
+} from "./app-control";
 import { type CanvasHandle, CanvasSurface } from "./CanvasSurface";
 import type { CanvasState } from "./canvas";
 import { type CanvasInputs, inspectOpenUI } from "./openui";
-import { OpenUICanvasContext, openuiLibrary } from "./openui-components";
+import {
+  AppleScriptContext,
+  OpenUICanvasContext,
+  openuiLibrary,
+} from "./openui-components";
 
 export function OpenUISurface({
   id,
@@ -23,6 +32,7 @@ export function OpenUISurface({
   const ui = canvas.openui;
   if (!ui) throw new Error("This workspace has no OpenUI layout.");
   const innerHandle = useRef<CanvasHandle | null>(null);
+  const root = useRef<HTMLDivElement>(null);
   const pending = useRef(Promise.resolve());
   const generation = useRef(canvas.generation);
   generation.current = canvas.generation;
@@ -59,6 +69,26 @@ export function OpenUISurface({
   );
   useEffect(() => {
     handle.current = {
+      isReady: () => !hasCanvas || innerHandle.current?.isReady?.() === true,
+      control: async (request: SurfaceControl) => {
+        if (!root.current) throw new Error("The app is still opening.");
+        if (request.action === "inspect") {
+          const ui = controlSurface(root.current, request);
+          const canvas = hasCanvas
+            ? await innerHandle.current?.control?.(request)
+            : undefined;
+          return { ...ui, ...(canvas ? { canvas } : {}) };
+        }
+        if (request.selector.startsWith(CANVAS_CONTROL_PREFIX)) {
+          if (!innerHandle.current?.control)
+            throw new Error("This app has no live canvas.");
+          return innerHandle.current.control({
+            ...request,
+            selector: request.selector.slice(CANVAS_CONTROL_PREFIX.length),
+          });
+        }
+        return controlSurface(root.current, request);
+      },
       flush: async () => {
         await pending.current;
         await innerHandle.current?.flush();
@@ -67,7 +97,7 @@ export function OpenUISurface({
     return () => {
       handle.current = null;
     };
-  }, [handle]);
+  }, [handle, hasCanvas]);
   const renderCanvas = useCallback(
     (inputs: CanvasInputs, height: number) => (
       <section
@@ -87,7 +117,7 @@ export function OpenUISurface({
     [id, canvas, onError],
   );
   return (
-    <div className="openui-surface">
+    <div className="openui-surface" ref={root}>
       {errors.length > 0 && (
         <div className="surface-error" role="alert">
           This layout needs a correction. Ask Codex to repair it.
@@ -98,25 +128,31 @@ export function OpenUISurface({
         </div>
       )}
       <OpenUICanvasContext value={renderCanvas}>
-        <Renderer
-          response={ui.source}
-          library={openuiLibrary}
-          initialState={ui.state}
-          isStreaming={busy}
-          publishObservability={false}
-          onStateUpdate={persist}
-          onError={reportErrors}
-          onAction={(event) => {
-            if (event.type === "open_url")
-              window.codexos
-                .openExternal(String(event.params.url))
-                .catch(onError);
-            else if (event.type === "continue_conversation")
-              onAsk(
-                `${event.humanFriendlyMessage}${event.formState ? `\nControl values: ${JSON.stringify(event.formState)}` : ""}`,
-              );
-          }}
-        />
+        <AppleScriptContext
+          value={(script, args) =>
+            window.codexos.runAppleScript(id, { script, args })
+          }
+        >
+          <Renderer
+            response={ui.source}
+            library={openuiLibrary}
+            initialState={ui.state}
+            isStreaming={busy}
+            publishObservability={false}
+            onStateUpdate={persist}
+            onError={reportErrors}
+            onAction={(event) => {
+              if (event.type === "open_url")
+                window.codexos
+                  .openExternal(String(event.params.url))
+                  .catch(onError);
+              else if (event.type === "continue_conversation")
+                onAsk(
+                  `${event.humanFriendlyMessage}${event.formState ? `\nControl values: ${JSON.stringify(event.formState)}` : ""}`,
+                );
+            }}
+          />
+        </AppleScriptContext>
       </OpenUICanvasContext>
       {!hasCanvas && (
         <div className="openui-standby" aria-hidden="true">
