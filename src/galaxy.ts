@@ -7,6 +7,10 @@ const STAR_COUNT_PER_PATH = 650;
 const DUST_START = 470;
 const FRAME_INTERVAL_MS = 1000 / 30;
 const MAX_PIXEL_RATIO = 2;
+const HOME_FRAME_SIZE = 325;
+const HOME_CENTER_Y = 162;
+const COMPACT_FRAME_SIZE = 250;
+const COMPACT_CENTER_Y = 210;
 const COLORS = ["125,198,244", "225,241,252", "244,167,104"];
 const TRAJECTORIES = [
   [
@@ -46,35 +50,61 @@ const TRAJECTORIES = [
     [119, 293, 82, 297, 54, 269],
   ],
 ];
-const paths = TRAJECTORIES.map((segments) => {
-  let start = segments[0];
-  let distance = 0;
-  const points: Sample[] = [{ x: start[0], y: start[1], distance }];
-  for (const segment of segments.slice(1)) {
-    for (let step = 1; step <= PATH_STEPS; step++) {
-      const t = step / PATH_STEPS;
-      const u = 1 - t;
-      const x =
-        u ** 3 * start[0] +
-        3 * u * u * t * segment[0] +
-        3 * u * t * t * segment[2] +
-        t ** 3 * segment[4];
-      const y =
-        u ** 3 * start[1] +
-        3 * u * u * t * segment[1] +
-        3 * u * t * t * segment[3] +
-        t ** 3 * segment[5];
-      const previous = points[points.length - 1];
-      distance += Math.hypot(x - previous.x, y - previous.y);
-      points.push({ x, y, distance });
-    }
-    start = segment.slice(-2);
-  }
-  return { points, distance };
+const TOP_BRANCH_SOURCE_SEGMENTS = 3;
+const COMPACT_TOP_BRANCH_FOLDS = [
+  [
+    [227, 174],
+    [211, 123.886662, 166, 92, 115, 92],
+    [55, 92, -5.813346, 136.133789, 15.591376, 202.228488],
+    [32.2236, 253.5864, 80.62, 263, 88, 263],
+  ],
+  [
+    [213, 190],
+    [204, 142.4447, 163, 110, 115, 110],
+    [67, 110, 16.457736, 142.4447, 35.979744, 200.436064],
+    [53.184, 251.5424, 103.04, 257.84, 126, 248],
+  ],
+];
+const COMPACT_TRAJECTORIES = TRAJECTORIES.map((segments, index) => {
+  const fold = COMPACT_TOP_BRANCH_FOLDS[index];
+  return fold
+    ? [...fold, ...segments.slice(TOP_BRANCH_SOURCE_SEGMENTS)]
+    : segments;
 });
 
-export function galaxyPoint(index: number, progress: number) {
-  const path = paths[index];
+function samplePaths(trajectories: number[][][]) {
+  return trajectories.map((segments) => {
+    let start = segments[0];
+    let distance = 0;
+    const points: Sample[] = [{ x: start[0], y: start[1], distance }];
+    for (const segment of segments.slice(1)) {
+      for (let step = 1; step <= PATH_STEPS; step++) {
+        const t = step / PATH_STEPS;
+        const u = 1 - t;
+        const x =
+          u ** 3 * start[0] +
+          3 * u * u * t * segment[0] +
+          3 * u * t * t * segment[2] +
+          t ** 3 * segment[4];
+        const y =
+          u ** 3 * start[1] +
+          3 * u * u * t * segment[1] +
+          3 * u * t * t * segment[3] +
+          t ** 3 * segment[5];
+        const previous = points[points.length - 1];
+        distance += Math.hypot(x - previous.x, y - previous.y);
+        points.push({ x, y, distance });
+      }
+      start = segment.slice(-2);
+    }
+    return { points, distance };
+  });
+}
+const paths = samplePaths(TRAJECTORIES);
+const compactPaths = samplePaths(COMPACT_TRAJECTORIES);
+
+export function galaxyPoint(index: number, progress: number, compact = false) {
+  const path = (compact ? compactPaths : paths)[index];
   if (!path || !Number.isFinite(progress))
     throw new Error("Invalid galaxy path.");
   const target = Math.max(0, Math.min(1, progress)) * path.distance;
@@ -118,11 +148,14 @@ function glowSprites() {
 export function mountGalaxy(
   surface: HTMLCanvasElement,
   readVoice: () => VoiceState,
+  compact = false,
 ) {
   const context = surface.getContext("2d");
   if (!context) throw new Error("Astra could not create its galaxy surface.");
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
   const glows = glowSprites();
+  const frameSize = compact ? COMPACT_FRAME_SIZE : HOME_FRAME_SIZE;
+  const centerY = compact ? COMPACT_CENTER_Y : HOME_CENTER_Y;
   let seed = 7408;
   const random = () => {
     seed = (seed * 1664525 + 1013904223) >>> 0;
@@ -196,7 +229,7 @@ export function mountGalaxy(
     pointerX += (targetX - pointerX) * 0.045;
     pointerY += (targetY - pointerY) * 0.045;
     const scale =
-      ((Math.min(width, height) * 0.94) / 325) * (1 + energy * 0.035);
+      ((Math.min(width, height) * 0.94) / frameSize) * (1 + energy * 0.035);
     const project = (x: number, y: number, z = 0): Point => ({
       x:
         width * 0.5 +
@@ -204,7 +237,7 @@ export function mountGalaxy(
         z * pointerX * 12,
       y:
         height * 0.49 +
-        (y - 162) * scale * (1 + pointerY * 0.08) +
+        (y - centerY) * scale * (1 + pointerY * 0.08) +
         z * pointerY * 7,
     });
     context.clearRect(0, 0, width, height);
@@ -236,7 +269,7 @@ export function mountGalaxy(
     for (const star of stars) {
       const progress =
         (star.progress + (star.index % 2 === 0 ? 1 : -1) * travel + 1) % 1;
-      const point = galaxyPoint(star.index, progress);
+      const point = galaxyPoint(star.index, progress, compact);
       const length = Math.hypot(point.dx, point.dy) || 1;
       const depth =
         Math.sin(progress * Math.PI * 2 + star.index * 0.8) * 0.6 +

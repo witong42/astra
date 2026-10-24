@@ -145,6 +145,8 @@ test("a discreet Astra remains available in an app even with voice disabled", ()
   expect(html).toContain("astra-home-orb");
   expect(html).not.toContain("astra-task");
   expect(html).not.toContain('disabled=""');
+  expect(html).toContain("<canvas");
+  expect(html).not.toContain("<img");
 });
 
 test("the mini-app orb exposes voice state while remaining a Home button", () => {

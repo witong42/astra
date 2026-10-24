@@ -1831,8 +1831,8 @@ td {
   position: relative;
   isolation: isolate;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   padding: 0;
   border-radius: 50%;
   overflow: visible;
@@ -1870,12 +1870,11 @@ td {
   opacity: calc(var(--halo-ring) + var(--astra-voice-level) * 0.16);
   animation-direction: reverse;
 }
-.astra-home-orb img {
+.astra-home-orb .astra-galaxy {
   position: relative;
   z-index: 1;
   width: 100%;
   height: 100%;
-  object-fit: cover;
   border-radius: 50%;
   clip-path: circle(50%);
 }
@@ -1883,7 +1882,7 @@ td {
   background: #08131f;
   filter: none;
 }
-.astra-home-orb:hover img {
+.astra-home-orb:hover .astra-galaxy {
   filter: brightness(1.14);
 }
 .astra-home-orb:focus-visible {

@@ -22,7 +22,13 @@ const VOICE_LABELS = {
     error: "Voice unavailable",
   },
 };
-function Galaxy({ voice }: { voice: VoiceState }) {
+function Galaxy({
+  voice,
+  compact = false,
+}: {
+  voice: VoiceState;
+  compact?: boolean;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const current = useRef(voice);
   current.current = voice;
@@ -30,12 +36,12 @@ function Galaxy({ voice }: { voice: VoiceState }) {
   useEffect(() => {
     const surface = canvas.current;
     if (!surface) return;
-    scene.current = mountGalaxy(surface, () => current.current);
+    scene.current = mountGalaxy(surface, () => current.current, compact);
     return () => {
       scene.current?.dispose();
       scene.current = null;
     };
-  }, []);
+  }, [compact]);
   useEffect(() => scene.current?.redraw());
   return (
     <canvas
@@ -74,7 +80,7 @@ export function Astra({
         aria-description={label}
         title={`Astra · ${label}`}
       >
-        <img src="./icon.png" alt="" />
+        <Galaxy voice={{ ...voice, level }} compact />
       </button>
     );
   }
