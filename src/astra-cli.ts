@@ -6,6 +6,7 @@ const HELP = `Astra — control your running desktop app
 
 astra status
 astra home
+astra pause
 astra apps list
 astra apps open|read|inspect <app name or id>
 astra apps create <short name>
@@ -27,7 +28,7 @@ async function main(args: string[]) {
   }
   let request: unknown;
   const [group, action, target, selector, value] = args;
-  if (args.length === 1 && ["status", "home"].includes(group))
+  if (args.length === 1 && ["status", "home", "pause"].includes(group))
     request = { action: group };
   else if (group === "call" && action === "--stdin" && args.length === 2)
     request = JSON.parse(readFileSync(0, "utf8"));

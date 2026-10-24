@@ -575,7 +575,16 @@ app
     mkdirSync(DATA_DIRECTORY, { recursive: true, mode: 0o700 });
     mkdirSync(DEFAULT_WORKSPACE_DIRECTORY, { recursive: true, mode: 0o700 });
     const state = loadState(join(DATA_DIRECTORY, "workspace.json"));
-    backend = new CodexBackend(state, broadcast, persist, controlInterface);
+    backend = new CodexBackend(
+      state,
+      broadcast,
+      persist,
+      controlInterface,
+      async () => {
+        await voice.pause();
+        return { voice: voice.snapshot().status };
+      },
+    );
     voice = new VoiceSession(
       backend,
       (onEvent) =>

@@ -144,6 +144,53 @@ async function tick() {
   await Bun.sleep(0);
 }
 
+test("pause closes the conversation, keeps wake listening and ignores late speech", async () => {
+  const f = fixture();
+  try {
+    await f.voice.start();
+    f.realtime("transcript/delta", { role: "assistant", delta: "Hello" });
+    await f.voice.pause();
+    expect(f.voice.snapshot()).toMatchObject({
+      active: true,
+      status: "standby",
+    });
+    expect(f.mediaStops()).toBe(1);
+    expect(f.shortcutStops()).toBe(1);
+    expect(f.wakeStarts()).toBe(1);
+    f.realtime("transcript/done", { role: "assistant", text: "Late speech" });
+    expect(f.voice.snapshot().status).toBe("standby");
+    await f.voice.pause();
+    expect(f.wakeStarts()).toBe(1);
+    f.wake({ method: "voice/wake" });
+    f.wake({ method: "voice/final", text: "Astra" });
+    await tick();
+    expect(f.voice.snapshot().status).toBe("listening");
+    expect(f.homeRequests()).toBe(0);
+  } finally {
+    f.voice.stop();
+  }
+});
+
+test("pause never enables an off microphone and cancels a connecting call", async () => {
+  const f = fixture({ autoSdp: false });
+  try {
+    await f.voice.pause();
+    expect(f.voice.snapshot().status).toBe("off");
+    expect(f.wakeStarts()).toBe(0);
+    const starting = f.voice.start();
+    await tick();
+    await f.voice.pause();
+    await starting;
+    expect(f.voice.snapshot()).toMatchObject({
+      active: true,
+      status: "standby",
+    });
+    expect(f.wakeStarts()).toBe(1);
+  } finally {
+    f.voice.stop();
+  }
+});
+
 test("Home diagnostics distinguish recognition, detection and navigation without dispatching speech", async () => {
   const f = fixture();
   try {

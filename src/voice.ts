@@ -418,6 +418,16 @@ export class VoiceSession {
     }
   }
 
+  async pause() {
+    if (!this.state.active || this.state.status === "standby") return;
+    try {
+      await this.standby();
+    } catch (error) {
+      if (this.state.active) this.fail(error);
+      throw error;
+    }
+  }
+
   stop() {
     const epoch = ++this.epoch;
     clearTimeout(this.idle);
@@ -478,7 +488,7 @@ export class VoiceSession {
   }
 
   private realtime(message: RpcMessage) {
-    if (!this.state.active) return;
+    if (!this.state.active || this.state.status === "standby") return;
     const params = message.params ?? {};
     if (
       message.method === "thread/realtime/sdp" &&

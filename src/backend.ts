@@ -147,6 +147,7 @@ export class CodexBackend {
     private publish: (snapshot: Snapshot) => void,
     private persist: (saved: SavedState, immediate?: boolean) => void,
     private control?: AppController,
+    private pauseVoice?: () => Promise<unknown>,
   ) {
     this.state = {
       ...saved,
@@ -174,7 +175,12 @@ export class CodexBackend {
 
   async appAction(input: unknown) {
     try {
-      const result = await runAppTool(this, input, this.control);
+      const result = await runAppTool(
+        this,
+        input,
+        this.control,
+        this.pauseVoice,
+      );
       const entry = appJournalEntry(input, result, this.state.workspaces);
       if (entry) {
         this.record(entry);

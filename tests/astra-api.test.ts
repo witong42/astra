@@ -89,7 +89,13 @@ test("the astra CLI resolves app names, passes values as data and reports failur
     const help = await cli(["--help"]);
     expect(help.code).toBe(0);
     expect(help.stdout).toContain("astra apps open");
+    expect(help.stdout).toContain("astra pause");
     expect(calls).toHaveLength(0);
+    const paused = await cli(["pause"]);
+    expect(paused.code).toBe(0);
+    expect(JSON.parse(paused.stdout)).toEqual({
+      confirmed: { action: "pause" },
+    });
     const opened = await cli(["apps", "open", "lune bleue"]);
     expect(opened.code).toBe(0);
     expect(JSON.parse(opened.stdout)).toEqual({

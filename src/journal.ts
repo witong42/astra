@@ -123,6 +123,7 @@ export function appJournalEntry(
   const request = input as { action?: string; id?: string; name?: string };
   const labels: Record<string, string> = {
     home: "Retour à l’accueil",
+    pause: "Conversation en pause",
     create: "Mini-app créée",
     update: "Modification envoyée",
     open: "Mini-app ouverte",
