@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { newWorkspace } from "../src/storage";
 import type { Snapshot } from "../src/types";
+import { INITIAL_VOICE } from "../src/voice";
 import { WebBridge } from "../src/web-bridge";
 
 const originalWindow = globalThis.window;
@@ -68,6 +69,49 @@ function fixture() {
   };
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("a mobile voice error survives the server's stop notification and remains inspectable", async () => {
+  const f = fixture();
+  await f.bridge.bridge.snapshot();
+  const owner = f.calls.at(-1)?.body.clientId;
+  f.emit({
+    type: "voice",
+    owner,
+    state: {
+      ...INITIAL_VOICE,
+      status: "error",
+      error: "Microphone upload failed",
+    },
+  });
+  await tick();
+  f.emit({ type: "voice", owner: null, state: INITIAL_VOICE });
+  await tick();
+  expect(await f.bridge.bridge.voiceSnapshot()).toMatchObject({
+    status: "error",
+    error: "Microphone upload failed",
+  });
+  expect((await f.bridge.bridge.audioStatus?.())?.lastError).toMatchObject({
+    message: "Microphone upload failed",
+    at: expect.any(Number),
+  });
+  await f.bridge.bridge.stopVoice();
+  f.emit({ type: "voice", owner: null, state: INITIAL_VOICE });
+  await tick();
+  expect((await f.bridge.bridge.voiceSnapshot()).status).toBe("off");
+  expect((await f.bridge.bridge.audioStatus?.())?.lastError).toBeUndefined();
+});
+
+test("a mobile connection failure remains readable after automatic reconnection", async () => {
+  const f = fixture();
+  f.disconnect();
+  const failure = await f.bridge.bridge.voiceSnapshot();
+  expect(failure.status).toBe("error");
+  expect(failure.error).toBeTruthy();
+  f.emit({ type: "ready", clientId: "unused" });
+  f.emit({ type: "voice", owner: null, state: INITIAL_VOICE });
+  await tick();
+  expect((await f.bridge.bridge.voiceSnapshot()).error).toBe(failure.error);
+});
 
 test("pausing phone voice preserves capture and sends only the pause action", async () => {
   const f = fixture();

@@ -21,6 +21,7 @@ export class WebBridge {
   private connected = false;
   private latest: Snapshot | null = null;
   private voice: VoiceState = structuredClone(INITIAL_VOICE);
+  private lastVoiceError: { message: string; at: number } | null = null;
   private captureId: string | null = null;
   private starting = false;
   private listeners = new Set<(snapshot: Snapshot) => void>();
@@ -70,7 +71,11 @@ export class WebBridge {
       this.connected = false;
       this.captureId = null;
       this.audio.stop();
-      this.publishVoice(structuredClone(INITIAL_VOICE));
+      this.publishVoice({
+        ...INITIAL_VOICE,
+        status: "error",
+        error: getCopy().macDisconnected,
+      });
       this.connection(false, getCopy().macDisconnected);
       if (this.latest)
         this.publish({
@@ -83,7 +88,12 @@ export class WebBridge {
     const call = <T = void>(method: RemoteMethod, ...args: unknown[]) =>
       this.call<T>(method, args);
     this.bridge = {
-      audioStatus: () => this.audio.diagnostics(),
+      audioStatus: async () => ({
+        ...(await this.audio.diagnostics()),
+        ...(this.lastVoiceError
+          ? { lastError: { ...this.lastVoiceError } }
+          : {}),
+      }),
       snapshot: async () => this.call<Snapshot>("snapshot", []),
       subscribe: (listener) => {
         this.listeners.add(listener);
@@ -99,6 +109,7 @@ export class WebBridge {
         };
       },
       startVoice: async (standby = false) => {
+        this.lastVoiceError = null;
         this.starting = true;
         let captureId: string | null = null;
         try {
@@ -108,6 +119,11 @@ export class WebBridge {
           await call("startVoice", { captureId, standby });
           this.audio.enable(captureId);
         } catch (error) {
+          this.publishVoice({
+            ...INITIAL_VOICE,
+            status: "error",
+            error: error instanceof Error ? error.message : String(error),
+          });
           if (captureId) {
             this.audio.stop(captureId);
             if (this.captureId === captureId) this.captureId = null;
@@ -121,6 +137,7 @@ export class WebBridge {
         }
       },
       stopVoice: async () => {
+        this.lastVoiceError = null;
         const captureId = this.captureId;
         this.captureId = null;
         this.audio.stop();
@@ -186,6 +203,10 @@ export class WebBridge {
     for (const listener of this.listeners) listener(snapshot);
   }
   private publishVoice(state: VoiceState) {
+    if (state.error && state.error !== this.lastVoiceError?.message)
+      this.lastVoiceError = { message: state.error, at: Date.now() };
+    if (!state.active && this.lastVoiceError)
+      state = { ...state, status: "error", error: this.lastVoiceError.message };
     this.voice = state;
     for (const listener of this.voiceListeners) listener(state);
   }
@@ -195,6 +216,9 @@ export class WebBridge {
       this.connection(true);
     } else if (event.type === "snapshot") this.publish(event.snapshot);
     else if (event.type === "voice") {
+      const ownsVoice = event.owner === this.clientId;
+      const failedCapture =
+        event.state.status === "error" && this.captureId !== null;
       if (
         !this.starting &&
         (event.owner !== this.clientId || !event.state.active)
@@ -203,7 +227,7 @@ export class WebBridge {
         this.captureId = null;
       }
       this.publishVoice(
-        event.owner === this.clientId
+        ownsVoice || failedCapture
           ? event.state
           : structuredClone(INITIAL_VOICE),
       );

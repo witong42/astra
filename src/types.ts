@@ -81,6 +81,7 @@ export type Snapshot = SavedState & {
   metrics: Metrics | null;
 };
 export type AudioStatus = {
+  lastError?: { message: string; at: number };
   active: boolean;
   context: string;
   connection: string;
