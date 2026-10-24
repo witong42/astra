@@ -16,7 +16,10 @@ func normalized(_ text: String) -> String {
     text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
         .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
 }
-func isHomeShortcut(_ text: String) -> Bool { normalized(text) == "home" }
+func isHomeShortcut(_ text: String) -> Bool {
+    let words = normalized(text).split(separator: " ")
+    return !words.isEmpty && words.allSatisfy { $0 == "home" }
+}
 final class RecognitionLane {
     let language: String
     var text = ""
@@ -39,6 +42,7 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     private var cycle = UUID()
     private var enabled = false
     private var wakeOnly = false
+    private var homeOnly = false
     private var tapInstalled = false
     private var silence: DispatchWorkItem?
     private var rotation: DispatchWorkItem?
@@ -47,19 +51,19 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     private var lastLevel: TimeInterval = 0
     private var lastPartial = ""
     override init() { super.init(); synthesizer.delegate = self }
-    func start(id: Any, standby: Bool) {
+    func start(id: Any, standby: Bool, homeOnly: Bool = false) {
         AVCaptureDevice.requestAccess(for: .audio) { allowed in
             guard allowed else { self.failure(id, "Enable Microphone for Astra in System Settings > Privacy & Security."); return }
             Task { @MainActor in
                 do {
-                    try await self.beginListening(standby: standby)
+                    try await self.beginListening(standby: standby, homeOnly: homeOnly)
                     emit(["id": id, "result": ["locales": ["en-GB", "fr-FR"], "onDevice": true]])
                 } catch { self.stop(); self.failure(id, error.localizedDescription) }
             }
         }
     }
     private func failure(_ id: Any, _ text: String) { emit(["id": id, "error": ["code": -32000, "message": text]]) }
-    private func beginListening(standby: Bool) async throws {
+    private func beginListening(standby: Bool, homeOnly: Bool) async throws {
         guard !enabled else { return }
         let input = engine.inputNode
         try input.setVoiceProcessingEnabled(true)
@@ -69,6 +73,7 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         }
         enabled = true
         wakeOnly = standby
+        self.homeOnly = homeOnly
         try await prepareRecognition()
         input.installTap(onBus: 0, bufferSize: microphoneBufferFrames, format: format) { buffer, _ in
             guard let mono = monoMicrophoneBuffer(buffer) else { return }
@@ -144,6 +149,7 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
                 DispatchQueue.main.asyncAfter(deadline: .now() + silenceDelay, execute: home)
                 return
             }
+            if homeOnly { return }
             if plain.split(separator: " ").contains("astra") {
                 wakeOnly = false
                 event("voice/wake")
@@ -219,7 +225,7 @@ DispatchQueue.global(qos: .userInitiated).async {
         let params = message["params"] as? [String: Any] ?? [:]
         DispatchQueue.main.async {
             switch method {
-            case "start": voice.start(id: id, standby: params["standby"] as? Bool ?? false)
+            case "start": voice.start(id: id, standby: params["standby"] as? Bool ?? false, homeOnly: params["homeOnly"] as? Bool ?? false)
             case "listen": voice.listen(); emit(["id": id, "result": [:]])
             case "standby": voice.standby(); emit(["id": id, "result": [:]])
             case "speak":

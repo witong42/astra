@@ -5,7 +5,7 @@ import Speech
 @main
 struct VoiceTests {
     static func main() async throws {
-        for text in ["Home", " home! ", "HOME."] { precondition(isHomeShortcut(text)) }
+        for text in ["Home", " home! ", "HOME.", "Home Home"] { precondition(isHomeShortcut(text)) }
         for text in ["Home Assistant", "Je dis home", "homepage", ""] { precondition(!isHomeShortcut(text)) }
         print("HOME_SHORTCUT_VERIFIED")
         let layout = AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | 9)!

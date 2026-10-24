@@ -8,6 +8,7 @@ function fixture(
   options: {
     mediaError?: Error;
     wakeError?: Error;
+    shortcutError?: Error;
     homeError?: Error;
     autoSdp?: boolean;
   } = {},
@@ -34,6 +35,7 @@ function fixture(
   };
   let realtime: (message: RpcMessage) => void = () => {};
   let wakeEvent: (event: SpeechEvent) => void = () => {};
+  let shortcutEvent: (event: SpeechEvent) => void = () => {};
   let mediaEvent: (event: SpeechEvent) => void = () => {};
   const calls: string[] = [];
   const muted: boolean[] = [];
@@ -42,6 +44,8 @@ function fixture(
   let wakeStarts = 0;
   let wakeStops = 0;
   let homeRequests = 0;
+  let shortcutStarts = 0;
+  let shortcutStops = 0;
   const voice = new VoiceSession(
     {
       ensureAssistantWorkspace: () => assistant.id,
@@ -70,15 +74,24 @@ function fixture(
       },
     },
     (listener) => {
-      wakeEvent = listener;
+      let homeOnly = false;
       return {
-        start: async (standby) => {
+        start: async (standby, shortcutsOnly) => {
+          homeOnly = Boolean(shortcutsOnly);
+          if (homeOnly) {
+            shortcutEvent = listener;
+            if (options.shortcutError) throw options.shortcutError;
+            shortcutStarts++;
+            return;
+          }
+          wakeEvent = listener;
           if (options.wakeError) throw options.wakeError;
           expect(standby).toBe(true);
           wakeStarts++;
         },
         stop: () => {
-          wakeStops++;
+          if (homeOnly) shortcutStops++;
+          else wakeStops++;
         },
       };
     },
@@ -116,11 +129,14 @@ function fixture(
     realtime: (method: string, params: Record<string, unknown> = {}) =>
       realtime({ method: `thread/realtime/${method}`, params }),
     wake: (event: SpeechEvent) => wakeEvent(event),
+    shortcut: (event: SpeechEvent) => shortcutEvent(event),
     media: (event: SpeechEvent) => mediaEvent(event),
     mediaStops: () => mediaStops,
     wakeStarts: () => wakeStarts,
     wakeStops: () => wakeStops,
     homeRequests: () => homeRequests,
+    shortcutStarts: () => shortcutStarts,
+    shortcutStops: () => shortcutStops,
   };
 }
 
@@ -250,6 +266,62 @@ test("mentions of Home and assistant speech do not trigger navigation", async ()
   f.realtime("transcript/done", { role: "assistant", text: "Home" });
   await tick();
   expect(f.homeRequests()).toBe(0);
+  f.voice.stop();
+});
+
+test("local Home works while speaking even when the live transcript merges the command with a follow-up", async () => {
+  const f = fixture();
+  await f.voice.start();
+  await tick();
+  expect(f.shortcutStarts()).toBe(1);
+  expect(f.voice.snapshot().homeShortcutReady).toBe(true);
+  f.realtime("transcript/delta", {
+    role: "assistant",
+    delta: "Le dashboard s’affiche.",
+  });
+  f.shortcut({ method: "voice/home" });
+  await tick();
+  expect(f.homeRequests()).toBe(1);
+  f.realtime("transcript/done", {
+    role: "user",
+    text: "Home Home Maintenant, du coup, ça marche pas quand je suis en conversation avec toi",
+  });
+  await tick();
+  expect(f.homeRequests()).toBe(1);
+  expect(f.sent).toEqual([]);
+  expect(f.mediaStops()).toBe(0);
+  f.voice.stop();
+  expect(f.shortcutStops()).toBe(1);
+  expect(f.voice.snapshot().homeShortcutReady).toBe(false);
+  f.shortcut({ method: "voice/home" });
+  await tick();
+  expect(f.homeRequests()).toBe(1);
+});
+
+test("the local detector and live transcription perform one Home navigation", async () => {
+  const f = fixture();
+  await f.voice.start();
+  await tick();
+  f.shortcut({ method: "voice/home" });
+  f.realtime("transcript/delta", { role: "user", delta: "Home" });
+  f.realtime("transcript/done", { role: "user", text: "Home." });
+  await tick();
+  expect(f.homeRequests()).toBe(1);
+  expect(f.muted).toEqual([true]);
+  f.realtime("transcript/delta", { role: "user", delta: "Ouvre le dashboard" });
+  expect(f.muted).toEqual([true, false]);
+  f.shortcut({ method: "voice/wake" });
+  expect(f.calls).toEqual(["offer", "answer"]);
+  f.voice.stop();
+});
+
+test("an unavailable local shortcut reports its failure and keeps the live conversation connected", async () => {
+  const f = fixture({ shortcutError: new Error("Microphone unavailable") });
+  await f.voice.start();
+  await tick();
+  expect(f.voice.snapshot().error).toContain("Home shortcut unavailable");
+  expect(f.voice.snapshot().active).toBe(true);
+  expect(f.mediaStops()).toBe(0);
   f.voice.stop();
 });
 

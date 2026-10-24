@@ -22,6 +22,7 @@ export type VoiceState = {
   level: number;
   error: string | null;
   workspaceId: string | null;
+  homeShortcutReady: boolean;
 };
 export const INITIAL_VOICE: VoiceState = {
   active: false,
@@ -33,6 +34,7 @@ export const INITIAL_VOICE: VoiceState = {
   level: 0,
   error: null,
   workspaceId: null,
+  homeShortcutReady: false,
 };
 export type SpeechEvent =
   | {
@@ -45,7 +47,7 @@ export type SpeechEvent =
   | { method: "voice/level"; level: number }
   | { method: "voice/error"; message: string };
 export type Speech = {
-  start: (standby?: boolean) => Promise<void>;
+  start: (standby?: boolean, homeOnly?: boolean) => Promise<void>;
   listen: () => Promise<void>;
   standby: () => Promise<void>;
   speak: (
@@ -77,12 +79,16 @@ function isHomeShortcut(text: string) {
   const words = text
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-  return words === "home" || words === "astra home";
+    .trim()
+    .split(" ");
+  if (words[0] === "astra") words.shift();
+  return words.length > 0 && words.every((word) => word === "home");
 }
 export class VoiceSession {
   private state = structuredClone(INITIAL_VOICE);
   private wake: Pick<Speech, "start" | "stop"> | null = null;
+  private homeListener: Pick<Speech, "start" | "stop"> | null = null;
+  private localHomePending = false;
   private media: LiveMedia | null = null;
   private epoch = 0;
   private opening: Promise<void> | null = null;
@@ -136,6 +142,11 @@ export class VoiceSession {
     }
   }
   private closeCall() {
+    const homeListener = this.homeListener;
+    this.homeListener = null;
+    homeListener?.stop();
+    this.state.homeShortcutReady = false;
+    this.localHomePending = false;
     this.media?.stop();
     this.media = null;
     this.clearSdp(new Error("Astra voice stopped."));
@@ -191,6 +202,10 @@ export class VoiceSession {
     });
     this.wake = wake;
     await wake.start(true);
+    if (this.wake === wake && this.state.active) {
+      this.state.homeShortcutReady = true;
+      this.changed();
+    }
     if (this.epoch !== epoch && this.snapshot().status !== "starting")
       wake.stop();
   }
@@ -283,6 +298,7 @@ export class VoiceSession {
     this.outputMuted = false;
     this.armIdle();
     this.changed();
+    void this.listenForHome(epoch);
     const command = this.wakeCommand;
     this.wakeCommand = "";
     if (isHomeShortcut(command)) await this.home();
@@ -295,6 +311,48 @@ export class VoiceSession {
       await this.agent.speakRealtime(
         this.state.language === "fr" ? "Oui, je t’écoute." : "Yes, I’m here.",
       );
+  }
+
+  private async listenForHome(epoch: number) {
+    const listener = this.createWake((event) => {
+      if (
+        this.homeListener !== listener ||
+        !this.state.active ||
+        epoch !== this.epoch
+      )
+        return;
+      if (event.method === "voice/home") {
+        this.localHomePending = true;
+        void this.home();
+      } else if (event.method === "voice/error") {
+        this.homeListener = null;
+        listener.stop();
+        this.state.homeShortcutReady = false;
+        this.state.error = `Home shortcut unavailable: ${event.message}`;
+        this.changed();
+      }
+    });
+    this.homeListener = listener;
+    try {
+      await listener.start(true, true);
+      if (
+        this.homeListener !== listener ||
+        !this.state.active ||
+        epoch !== this.epoch
+      ) {
+        listener.stop();
+        return;
+      }
+      this.state.homeShortcutReady = true;
+      this.changed();
+    } catch (error) {
+      if (this.homeListener !== listener || epoch !== this.epoch) return;
+      this.homeListener = null;
+      listener.stop();
+      this.state.homeShortcutReady = false;
+      this.state.error = `Home shortcut unavailable: ${error instanceof Error ? error.message : String(error)}`;
+      this.changed();
+    }
   }
 
   stop() {
@@ -391,7 +449,11 @@ export class VoiceSession {
         }
         this.state.transcript += params.delta;
         this.state.status = "listening";
-        if (this.outputMuted) {
+        if (
+          this.outputMuted &&
+          this.state.transcript.trim() &&
+          (!this.localHomePending || !isHomeShortcut(this.state.transcript))
+        ) {
           this.outputMuted = false;
           void this.media?.muteOutput(false).catch((error) => this.fail(error));
         }
@@ -416,7 +478,9 @@ export class VoiceSession {
         this.state.task = params.text;
         this.state.transcript = "";
         this.userStreaming = false;
-        if (isHomeShortcut(params.text)) void this.home();
+        if (isHomeShortcut(params.text) && !this.localHomePending)
+          void this.home();
+        this.localHomePending = false;
       } else if (params.role === "assistant" && !this.outputMuted) {
         let prefix = this.replyPrefix;
         if (!this.assistantStreaming)

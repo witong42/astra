@@ -26,7 +26,7 @@ export class NativeSpeech implements Speech {
     private executable: string,
     private onEvent: (event: SpeechEvent) => void,
   ) {}
-  async start(standby = false) {
+  async start(standby = false, homeOnly = false) {
     if (!existsSync(this.executable))
       throw new Error(
         "The voice helper is missing. Rebuild Astra to enable voice.",
@@ -65,7 +65,7 @@ export class NativeSpeech implements Speech {
     child.stderr.on("data", () => {});
     child.on("error", (error) => rpc.close(error));
     child.on("exit", () => rpc.close());
-    await rpc.request("start", { standby });
+    await rpc.request("start", { standby, homeOnly });
   }
   async listen() {
     await this.rpc?.request("listen", {});
