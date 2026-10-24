@@ -7,7 +7,14 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { APP_TOOL, ASTRA_INSTRUCTIONS, runAppTool } from "./app-tools";
+import type { AppController } from "./app-control";
+import {
+  APP_TOOL,
+  ASTRA_CONTROL_INSTRUCTIONS,
+  ASTRA_INSTRUCTIONS,
+  listApps,
+  runAppTool,
+} from "./app-tools";
 import {
   acknowledgeCanvas,
   beginCanvasGeneration,
@@ -17,6 +24,14 @@ import {
   restoreCanvas,
 } from "./canvas";
 import { CANVAS_INSTRUCTIONS } from "./canvas-prompt";
+import {
+  appJournalEntry,
+  initialJournal,
+  type JournalEntry,
+  MAX_JOURNAL_TEXT,
+  recordJournal,
+  toolJournalEntry,
+} from "./journal";
 import { applyOpenUI, inspectOpenUI, updateOpenUIState } from "./openui";
 import { type RpcMessage, RpcPeer } from "./rpc";
 import { newWorkspace } from "./storage";
@@ -41,6 +56,11 @@ const UI_CONTEXT_PREVIEW_LENGTH = 80_000;
 const APPROVAL_POLICY = "never";
 const SANDBOX_MODE = "danger-full-access";
 const SANDBOX_POLICY = { type: "dangerFullAccess" } as const;
+const LIVE_MODEL = "gpt-live-1.1-codex";
+const LIVE_VOICE = "aube";
+const LIVE_CALL_BASE_URL = "https://chatgpt.com/backend-api/codex";
+const THREAD_WRITER_CONFLICT = "already has an active writer";
+const LEGACY_APP_TOOL = "codexos_app";
 const questionsSchema = z.array(
   z.object({
     id: z.string(),
@@ -111,19 +131,25 @@ export class CodexBackend {
   private child: ChildProcessWithoutNullStreams | null = null;
   private rpc: RpcPeer | null = null;
   private loaded = new Set<string>();
+  private loading = new Map<string, Promise<string>>();
   private sessions = new Map<string, Session>();
   private deleting = new Set<string>();
   private connectionError: string | null = null;
   private starting: Promise<void> | null = null;
   private stopping = false;
+  private voiceThreadId: string | null = null;
+  private realtimeListeners = new Set<(message: RpcMessage) => void>();
+  private voiceEntries = new Map<string, string>();
 
   constructor(
     saved: SavedState,
     private publish: (snapshot: Snapshot) => void,
     private persist: (saved: SavedState, immediate?: boolean) => void,
+    private control?: AppController,
   ) {
     this.state = {
       ...saved,
+      journal: initialJournal(saved),
       sessions: {},
       status: "connecting",
       activity: "Connecting to Codex",
@@ -143,6 +169,40 @@ export class CodexBackend {
   }
   snapshot(): Snapshot {
     return structuredClone(this.state);
+  }
+
+  async appAction(input: unknown) {
+    try {
+      const result = await runAppTool(this, input, this.control);
+      const entry = appJournalEntry(input, result, this.state.workspaces);
+      if (entry) {
+        this.record(entry);
+        this.changed();
+      }
+      return result;
+    } catch (error) {
+      const entry = appJournalEntry(
+        input,
+        undefined,
+        this.state.workspaces,
+        error,
+      );
+      if (entry) {
+        this.record(entry);
+        this.changed();
+      }
+      throw error;
+    }
+  }
+
+  private record(entry: Omit<JournalEntry, "at">) {
+    this.state.journal ??= [];
+    recordJournal(this.state.journal, entry);
+  }
+
+  async sendAssistant(text: string) {
+    const workspaceId = await this.ensureAssistantWorkspace();
+    await this.send(text, workspaceId);
   }
 
   private findWorkspace(id: string): Workspace {
@@ -214,6 +274,7 @@ export class CodexBackend {
       reasoningEffort,
       serviceTier,
       workspaces,
+      journal: this.state.journal,
       ...(this.state.assistant ? { assistant: this.state.assistant } : {}),
       ...(this.state.voiceEnabled !== undefined
         ? { voiceEnabled: this.state.voiceEnabled }
@@ -253,13 +314,15 @@ export class CodexBackend {
         `approval_policy="${APPROVAL_POLICY}"`,
         "-c",
         `sandbox_mode="${SANDBOX_MODE}"`,
+        "-c",
+        `experimental_realtime_webrtc_call_base_url="${LIVE_CALL_BASE_URL}"`,
       ],
       {
         cwd: this.workspace.cwd,
         env: {
           ...process.env,
           CODEX_HOME: join(homedir(), ".codex"),
-          PATH: `${join(homedir(), ".local/bin")}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+          PATH: `${join(homedir(), ".local/bin")}:${join(homedir(), ".bun/bin")}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ""}`,
         },
         stdio: ["pipe", "pipe", "pipe"],
       },
@@ -355,7 +418,145 @@ export class CodexBackend {
     this.state.activity = "Disconnected";
     this.resetSessions();
     this.loaded.clear();
+    this.loading.clear();
+    this.emitRealtime({
+      method: "thread/realtime/error",
+      params: { message: error.message },
+    });
+    this.voiceThreadId = null;
     this.changed();
+  }
+
+  subscribeRealtime(listener: (message: RpcMessage) => void) {
+    this.realtimeListeners.add(listener);
+    return () => {
+      this.realtimeListeners.delete(listener);
+    };
+  }
+
+  private emitRealtime(message: RpcMessage) {
+    for (const listener of this.realtimeListeners) listener(message);
+  }
+
+  private async loadWorkspace(workspace: Workspace) {
+    const rpc = this.rpc;
+    if (!rpc) throw new Error("Reconnect to Codex before starting voice.");
+    if (workspace.threadId && this.loaded.has(workspace.threadId))
+      return workspace.threadId;
+    let loading = this.loading.get(workspace.id);
+    if (!loading) {
+      loading = this.openWorkspace(workspace, rpc);
+      this.loading.set(workspace.id, loading);
+    }
+    try {
+      return await loading;
+    } finally {
+      if (this.loading.get(workspace.id) === loading)
+        this.loading.delete(workspace.id);
+    }
+  }
+
+  private async openWorkspace(workspace: Workspace, rpc: RpcPeer) {
+    const developerInstructions =
+      workspace.id === this.state.assistant?.id
+        ? `${CANVAS_INSTRUCTIONS}\n${ASTRA_INSTRUCTIONS}`
+        : `${CANVAS_INSTRUCTIONS}\n${ASTRA_CONTROL_INSTRUCTIONS}`;
+    const settings = {
+      approvalPolicy: APPROVAL_POLICY,
+      sandbox: SANDBOX_MODE,
+      developerInstructions,
+    };
+    let threadId = workspace.threadId;
+    if (!threadId) {
+      const result = await rpc.request<{ thread: { id: string } }>(
+        "thread/start",
+        {
+          ...settings,
+          cwd: workspace.cwd,
+          model: this.state.model,
+          ...(workspace.id === this.state.assistant?.id
+            ? { dynamicTools: [APP_TOOL] }
+            : {}),
+        },
+      );
+      threadId = result.thread.id;
+    } else {
+      try {
+        await rpc.request("thread/resume", {
+          ...settings,
+          threadId,
+          excludeTurns: true,
+        });
+      } catch (error) {
+        if (
+          workspace.id !== this.state.assistant?.id ||
+          !(error instanceof Error) ||
+          error.message !== `thread ${threadId} ${THREAD_WRITER_CONFLICT}`
+        )
+          throw error;
+        const result = await rpc.request<{ thread: { id: string } }>(
+          "thread/fork",
+          {
+            ...settings,
+            threadId,
+            cwd: workspace.cwd,
+            model: this.state.model,
+            excludeTurns: true,
+          },
+        );
+        threadId = result.thread.id;
+      }
+    }
+    if (this.rpc !== rpc)
+      throw new Error("Codex disconnected before the thread could load.");
+    this.loaded.add(threadId);
+    if (workspace.threadId !== threadId) {
+      workspace.threadId = threadId;
+      this.changed();
+    }
+    return threadId;
+  }
+
+  async startRealtimeVoice(sdp: string) {
+    if (
+      !this.rpc ||
+      this.state.status === "offline" ||
+      this.state.status === "connecting"
+    )
+      throw new Error("Reconnect to Codex before starting voice.");
+    const workspace = this.findWorkspace(this.ensureAssistantWorkspace());
+    const threadId = await this.loadWorkspace(workspace);
+    this.voiceThreadId = threadId;
+    this.voiceEntries.clear();
+    await this.rpc.request("thread/realtime/start", {
+      threadId,
+      outputModality: "audio",
+      transport: { type: "webrtc", sdp },
+      version: "v3",
+      model: LIVE_MODEL,
+      voice: LIVE_VOICE,
+      includeStartupContext: false,
+      clientManagedHandoffs: false,
+      backendReasoningStatus: true,
+      prompt: `${ASTRA_INSTRUCTIONS}\nYou are the live voice of Astra. Talk naturally in French and English. The standalone spoken command "Home" is handled directly by Astra: remain silent and do not delegate it. Use your backend for other Mac actions, file tasks, or mini-app requests. Never claim to have acted until the backend confirms it. Stop speaking when interrupted. Keep responses concise.\nAvailable mini-apps (data): ${JSON.stringify(listApps(this))}`,
+    });
+  }
+
+  async stopRealtimeVoice() {
+    const threadId = this.voiceThreadId;
+    this.voiceThreadId = null;
+    this.voiceEntries.clear();
+    if (threadId && this.rpc)
+      await this.rpc.request("thread/realtime/stop", { threadId });
+  }
+
+  async speakRealtime(text: string) {
+    if (!this.voiceThreadId || !this.rpc)
+      throw new Error("Astra voice is not connected.");
+    await this.rpc.request("thread/realtime/appendSpeech", {
+      threadId: this.voiceThreadId,
+      text,
+    });
   }
 
   private surfaceInput(text: string, workspace: Workspace) {
@@ -363,7 +564,7 @@ export class CodexBackend {
       return [
         {
           type: "text",
-          text: `${text}\n\n<codexos_apps_data>\n${JSON.stringify(runAppTool(this, { action: "list" }))}\n</codexos_apps_data>`,
+          text: `${text}\n\n<astra_apps_data>\n${JSON.stringify(listApps(this))}\n</astra_apps_data>`,
         },
       ];
     let context = JSON.stringify(
@@ -415,6 +616,13 @@ export class CodexBackend {
       const message = { id: crypto.randomUUID(), role: "user" as const, text };
       const input = this.surfaceInput(text, workspace);
       workspace.messages.push(message);
+      this.record({
+        id: message.id,
+        text: message.text,
+        kind: "user",
+        source: "text",
+        workspaceId,
+      });
       current.error = null;
       this.changed();
       try {
@@ -428,6 +636,9 @@ export class CodexBackend {
         this.changed();
       } catch (error) {
         workspace.messages = workspace.messages.filter(
+          (entry) => entry.id !== message.id,
+        );
+        this.state.journal = this.state.journal?.filter(
           (entry) => entry.id !== message.id,
         );
         current.error = `Guidance was not sent: ${String(error)}`;
@@ -451,7 +662,19 @@ export class CodexBackend {
       workspace.id !== this.state.assistant?.id &&
       workspace.messages.length === 0;
     if (session.canName) workspace.name = shortAppName(text);
-    workspace.messages.push({ id: crypto.randomUUID(), role: "user", text });
+    const userMessage = {
+      id: crypto.randomUUID(),
+      role: "user" as const,
+      text,
+    };
+    workspace.messages.push(userMessage);
+    this.record({
+      id: userMessage.id,
+      text: userMessage.text,
+      kind: "user",
+      source: "text",
+      workspaceId,
+    });
     session.initialReplyId = crypto.randomUUID();
     workspace.messages.push({
       id: session.initialReplyId,
@@ -474,38 +697,7 @@ export class CodexBackend {
     this.changed();
     session.starting = (async () => {
       try {
-        if (!workspace.threadId) {
-          const result = await rpc.request<{ thread: { id: string } }>(
-            "thread/start",
-            {
-              cwd: workspace.cwd,
-              model: settings.model,
-              approvalPolicy: APPROVAL_POLICY,
-              sandbox: SANDBOX_MODE,
-              developerInstructions:
-                workspace.id === this.state.assistant?.id
-                  ? `${CANVAS_INSTRUCTIONS}\n${ASTRA_INSTRUCTIONS}`
-                  : CANVAS_INSTRUCTIONS,
-              ...(workspace.id === this.state.assistant?.id
-                ? { dynamicTools: [APP_TOOL] }
-                : {}),
-            },
-          );
-          workspace.threadId = result.thread.id;
-          this.loaded.add(workspace.threadId);
-        } else if (!this.loaded.has(workspace.threadId)) {
-          await rpc.request("thread/resume", {
-            threadId: workspace.threadId,
-            excludeTurns: true,
-            approvalPolicy: APPROVAL_POLICY,
-            sandbox: SANDBOX_MODE,
-            developerInstructions:
-              workspace.id === this.state.assistant?.id
-                ? `${CANVAS_INSTRUCTIONS}\n${ASTRA_INSTRUCTIONS}`
-                : CANVAS_INSTRUCTIONS,
-          });
-          this.loaded.add(workspace.threadId);
-        }
+        await this.loadWorkspace(workspace);
         if (!session.busy || this.rpc !== rpc)
           throw new Error(
             "The connection changed before the turn could start.",
@@ -548,6 +740,13 @@ export class CodexBackend {
 
   private handleEvent(message: RpcMessage) {
     const params = message.params ?? {};
+    if (message.method?.startsWith("thread/realtime/")) {
+      if (this.voiceThreadId && params.threadId === this.voiceThreadId) {
+        this.recordVoice(message);
+        this.emitRealtime(message);
+      }
+      return;
+    }
     const workspace =
       typeof params.threadId === "string"
         ? [
@@ -555,6 +754,27 @@ export class CodexBackend {
             ...(this.state.assistant ? [this.state.assistant] : []),
           ].find((entry) => entry.threadId === params.threadId)
         : undefined;
+    if (
+      message.method === "turn/started" &&
+      workspace?.threadId === this.voiceThreadId &&
+      !this.sessions.get(workspace.id)?.busy
+    ) {
+      const session = newSession();
+      session.busy = true;
+      session.activity = "Working";
+      session.metrics = {
+        startedAt: Date.now(),
+        firstUI: null,
+        total: null,
+        patches: 0,
+      };
+      session.settings = {
+        model: this.state.model,
+        reasoningEffort: this.state.reasoningEffort,
+        serviceTier: this.state.serviceTier,
+      };
+      this.sessions.set(workspace.id, session);
+    }
     const session = workspace ? this.sessions.get(workspace.id) : undefined;
     const incomingTurn = String(
       params.turnId ?? (params.turn as { id?: string } | undefined)?.id ?? "",
@@ -586,28 +806,32 @@ export class CodexBackend {
         message.method === "item/tool/call" &&
         workspace.id === this.state.assistant?.id
       ) {
-        try {
-          if (params.tool !== APP_TOOL.name)
-            throw new Error("Unknown Home tool.");
-          const result = runAppTool(this, params.arguments);
-          this.rpc?.write({
+        const rpc = this.rpc;
+        const respond = (success: boolean, text: string) => {
+          if (!rpc || this.rpc !== rpc || this.state.status === "offline")
+            return;
+          rpc.write({
             id: message.id,
             result: {
-              success: true,
-              contentItems: [
-                { type: "inputText", text: JSON.stringify(result) },
-              ],
+              success,
+              contentItems: [{ type: "inputText", text }],
             },
           });
-        } catch (error) {
-          this.rpc?.write({
-            id: message.id,
-            result: {
-              success: false,
-              contentItems: [{ type: "inputText", text: String(error) }],
-            },
-          });
-        }
+        };
+        // Older saved threads retain their original tool declaration.
+        void Promise.resolve()
+          .then(() => {
+            if (
+              params.tool !== APP_TOOL.name &&
+              params.tool !== LEGACY_APP_TOOL
+            )
+              throw new Error("Unknown Astra tool.");
+            return this.appAction(params.arguments);
+          })
+          .then(
+            (result) => respond(true, JSON.stringify(result)),
+            (error) => respond(false, String(error)),
+          );
         return;
       }
       this.serverRequest(message, session);
@@ -626,7 +850,7 @@ export class CodexBackend {
             try {
               if (workspace.id === this.state.assistant?.id)
                 throw new Error(
-                  "Use codexos_app to update a mini-app, then describe the result here.",
+                  "Use astra to update a mini-app, then describe the result here.",
                 );
               workspace.canvas ??= emptyCanvas();
               if (!session.canvasMutated) {
@@ -647,7 +871,16 @@ export class CodexBackend {
             const reply = workspace.messages.find(
               (entry) => entry.id === replyId,
             );
-            if (reply) reply.text = `${reply.text}${text}`.slice(-100_000);
+            if (reply) {
+              reply.text = `${reply.text}${text}`.slice(-100_000);
+              this.record({
+                id: reply.id,
+                kind: "assistant",
+                source: "text",
+                text: reply.text,
+                workspaceId: workspace.id,
+              });
+            }
           },
           (error) => {
             session.error = `A canvas update was rejected: ${error}`;
@@ -655,7 +888,7 @@ export class CodexBackend {
           (source, complete) => {
             if (workspace.id === this.state.assistant?.id) {
               session.error =
-                "Use codexos_app to update a mini-app, then describe the result here.";
+                "Use astra to update a mini-app, then describe the result here.";
               return;
             }
             if (workspace.canvas?.openui?.source === source) return;
@@ -687,10 +920,18 @@ export class CodexBackend {
       this.changed();
     } else if (message.method === "turn/started") {
       session.turnId = String((params.turn as { id?: string })?.id ?? "");
+      this.changed();
     } else if (message.method === "turn/completed") {
       const turn = params.turn as
         | { status?: string; error?: { message?: string } }
         | undefined;
+      for (const entry of this.state.journal ?? []) {
+        if (entry.workspaceId === workspace.id && entry.status === "running")
+          entry.status =
+            turn?.status === "failed" || turn?.status === "interrupted"
+              ? "failed"
+              : "completed";
+      }
       this.finish(
         workspace,
         session,
@@ -699,8 +940,10 @@ export class CodexBackend {
           : undefined,
       );
     } else if (message.method === "item/completed") {
-      const item = params.item as { id?: string } | undefined;
-      if (item?.id) session.streams.get(item.id)?.flush();
+      const item = params.item as Record<string, unknown> | undefined;
+      if (typeof item?.id === "string") session.streams.get(item.id)?.flush();
+      const entry = item && toolJournalEntry(item, workspace.id, true);
+      if (entry) this.record(entry);
       this.changed();
     } else if (message.method === "item/started") {
       const item = params.item as
@@ -709,6 +952,8 @@ export class CodexBackend {
       if (item?.type === "fileChange" && item.id && item.changes)
         session.fileChanges.set(item.id, JSON.stringify(item.changes, null, 2));
       if (item?.type && item.type !== "agentMessage") {
+        const entry = toolJournalEntry(item, workspace.id, false);
+        if (entry) this.record(entry);
         session.activity =
           item.type === "commandExecution"
             ? "Running a command"
@@ -724,6 +969,28 @@ export class CodexBackend {
         this.changed();
       }
     }
+  }
+
+  private recordVoice(message: RpcMessage) {
+    const params = message.params ?? {};
+    const done = message.method === "thread/realtime/transcript/done";
+    if (!done && message.method !== "thread/realtime/transcript/delta") return;
+    if (params.role !== "user" && params.role !== "assistant") return;
+    const text = done ? params.text : params.delta;
+    if (typeof text !== "string") return;
+    const id = this.voiceEntries.get(params.role) ?? crypto.randomUUID();
+    const previous =
+      this.state.journal?.find((entry) => entry.id === id)?.text ?? "";
+    this.record({
+      id,
+      kind: params.role,
+      source: "voice",
+      text: (done ? text : previous + text).slice(-MAX_JOURNAL_TEXT),
+      workspaceId: this.state.assistant?.id,
+    });
+    if (done) this.voiceEntries.delete(params.role);
+    else this.voiceEntries.set(params.role, id);
+    this.changed();
   }
 
   private finish(workspace: Workspace, session: Session, error?: string) {
@@ -954,12 +1221,16 @@ export class CodexBackend {
       if (!remaining.length) remaining.push(newWorkspace(workspace.cwd));
       const activeId =
         this.state.activeId === id ? remaining[0].id : this.state.activeId;
+      const journal = this.state.journal?.filter(
+        (entry) => entry.workspaceId !== id,
+      );
       this.persist(
-        { ...this.savedState(), workspaces: remaining, activeId },
+        { ...this.savedState(), workspaces: remaining, activeId, journal },
         true,
       );
       this.state.workspaces = remaining;
       this.state.activeId = activeId;
+      this.state.journal = journal;
       this.sessions.delete(id);
       if (workspace.threadId) this.loaded.delete(workspace.threadId);
       this.projectSessions();
@@ -1079,6 +1350,17 @@ export class CodexBackend {
 
   async stop() {
     this.stopping = true;
+    if (this.voiceThreadId) {
+      const threadId = this.voiceThreadId;
+      this.voiceThreadId = null;
+      this.emitRealtime({
+        method: "thread/realtime/closed",
+        params: {
+          threadId,
+          reason: "Codex disconnected. Start Astra voice again.",
+        },
+      });
+    }
     this.resetSessions();
     this.state.status = "offline";
     this.state.activity = "Disconnected";
@@ -1088,6 +1370,7 @@ export class CodexBackend {
     this.child = null;
     this.rpc = null;
     this.loaded.clear();
+    this.loading.clear();
     if (child && child.exitCode === null) {
       child.stdin.end();
       child.kill("SIGTERM");

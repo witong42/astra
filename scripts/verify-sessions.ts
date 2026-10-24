@@ -52,11 +52,18 @@ async function goHome() {
 async function createWorkspace() {
   const previous = (await snapshot()).activeId;
   await goHome();
+  await client.evaluate(
+    "if(document.querySelector('.chat-drawer').inert) document.getElementById('chat-toggle').click()",
+  );
   assert.equal(
-    await client.evaluate("document.querySelector('.new-app-button').disabled"),
+    await client.evaluate(
+      "document.querySelector('.journal-tools [aria-label=\"Créer une mini-app\"]').disabled",
+    ),
     false,
   );
-  await client.evaluate("document.querySelector('.new-app-button').click()");
+  await client.evaluate(
+    "document.querySelector('.journal-tools [aria-label=\"Créer une mini-app\"]').click()",
+  );
   const state = await waitFor(
     (state) => state.activeId !== previous,
     "new workspace",

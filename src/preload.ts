@@ -6,7 +6,7 @@ const invoke = (name: string, ...args: unknown[]) =>
   ipcRenderer.invoke(`codexos:${name}`, ...args);
 const bridge: Bridge = {
   voiceSnapshot: () => invoke("voiceSnapshot"),
-  startVoice: () => invoke("startVoice"),
+  startVoice: (standby) => invoke("startVoice", standby),
   stopVoice: () => invoke("stopVoice"),
   interruptVoice: () => invoke("interruptVoice"),
   subscribeVoice: (callback) => {
@@ -25,6 +25,7 @@ const bridge: Bridge = {
     return () => ipcRenderer.removeListener("codexos:snapshot", listener);
   },
   send: (text, workspaceId) => invoke("send", text, workspaceId),
+  sendAssistant: (text) => invoke("sendAssistant", text),
   interrupt: (workspaceId) => invoke("interrupt", workspaceId),
   newWorkspace: () => invoke("newWorkspace"),
   selectWorkspace: (id) => invoke("selectWorkspace", id),

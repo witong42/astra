@@ -1,13 +1,23 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Chat } from "../src/Chat";
+import { Journal } from "../src/JournalView";
+import { initialJournal } from "../src/journal";
 import { newWorkspace } from "../src/storage";
 import type { Snapshot } from "../src/types";
 
 function snapshot(): Snapshot {
   const workspace = newWorkspace("/tmp/codexos-test");
   return {
-    sessions: {},
+    sessions: {
+      [workspace.id]: {
+        busy: false,
+        activity: "Ready",
+        approval: null,
+        error: null,
+        metrics: null,
+        settings: null,
+      },
+    },
     version: 1,
     activeId: workspace.id,
     workspaces: [workspace],
@@ -25,35 +35,37 @@ function snapshot(): Snapshot {
   };
 }
 
-const renderChat = (state: Snapshot) =>
+const renderJournal = (state: Snapshot) =>
   renderToStaticMarkup(
-    <Chat
-      snapshot={state}
-      workspace={state.workspaces[0]}
+    <Journal
+      snapshot={{ ...state, journal: initialJournal(state) }}
+      onClose={() => {}}
+      onOpen={() => {}}
       onError={(error) => {
         throw error;
       }}
     />,
   );
 
-test("conversation renders untrusted messages as text and retains the pending activity", () => {
+test("the journal renders untrusted messages as text and retains its working indicator", () => {
   const state = snapshot();
   state.status = "working";
   state.activity = "Searching the project";
+  state.sessions[state.activeId].busy = true;
   state.workspaces[0].messages = [
     { id: "user", role: "user", text: '<script>alert("hello")</script>' },
     { id: "assistant", role: "assistant", text: "" },
   ];
-  const html = renderChat(state);
+  const html = renderJournal(state);
   expect(html).toContain("&lt;script&gt;");
   expect(html).not.toContain("<script>");
-  expect(html).toContain("Searching the project");
+  expect(html).toContain("Astra travaille…");
   expect(html).not.toContain("What are we making?");
 });
 
-test("the empty conversation keeps approval questions and their answer controls accessible", () => {
+test("the empty journal keeps approval questions and their answer controls accessible", () => {
   const state = snapshot();
-  state.approval = {
+  state.sessions[state.activeId].approval = {
     id: "question",
     kind: "question",
     summary: "Choose a direction",
@@ -69,15 +81,15 @@ test("the empty conversation keeps approval questions and their answer controls 
       },
     ],
   };
-  const html = renderChat(state);
-  expect(html).toContain("What are we making?");
+  const html = renderJournal(state);
+  expect(html).toContain("Le fil de ce qu’on fait ensemble.");
   expect(html).toContain("Which approach?");
   expect(html).toContain("Keep it compact");
   expect(html).toContain('aria-label="Your answer: Direction"');
   expect(html).toContain("Send answer");
 });
 
-test("chat renders Markdown structure, GitHub tables and fenced code", () => {
+test("the journal renders Markdown structure, GitHub tables and fenced code", () => {
   const state = snapshot();
   state.workspaces[0].messages = [
     {
@@ -86,7 +98,7 @@ test("chat renders Markdown structure, GitHub tables and fenced code", () => {
       text: '# A useful answer\n\n**Bold** and *emphasis* with `inline code`.\n\n1. First\n2. Second\n\n- [x] Verified\n- [ ] Pending\n\n> A quotation\n\n| Name | Value |\n| --- | --- |\n| Speed | 2 |\n\n```ts\nconst value = "<safe>";\n```\n\n[Source](https://example.com/docs)',
     },
   ];
-  const html = renderChat(state);
+  const html = renderJournal(state);
   expect(html).toContain("<h1>A useful answer</h1>");
   expect(html).toContain("<strong>Bold</strong>");
   expect(html).toContain("<em>emphasis</em>");
@@ -110,7 +122,7 @@ test("Markdown never executes HTML, opens unsafe URLs or fetches inline images",
       text: '<script>alert(1)</script>\n\n<img src="x" onerror="alert(2)">\n\n[Bad](javascript:alert%281%29) [Local](file:///etc/passwd) [Data](data:text/html,hello) [Credentials](https://user:password@example.com/)\n\n![Diagram](https://example.com/diagram.png)',
     },
   ];
-  const html = renderChat(state);
+  const html = renderJournal(state);
   expect(html).toContain("&lt;script&gt;");
   expect(html).not.toContain("<script>");
   expect(html).not.toContain("<img ");
@@ -131,9 +143,52 @@ test("partial Markdown fences remain readable as the assistant streams", () => {
       text: "Working with **bold**.\n\n```js\nconst inProgress = 1;",
     },
   ];
-  const html = renderChat(state);
+  const html = renderJournal(state);
   expect(html).toContain("<strong>bold</strong>");
   expect(html).toContain(
     '<pre><code class="language-js">const inProgress = 1;',
   );
+});
+
+test("the journal keeps voice, tool results and app links in their recorded order", () => {
+  const state = snapshot();
+  const app = state.workspaces[0];
+  app.name = "Inner Atlas";
+  state.journal = [
+    {
+      id: "voice",
+      at: 0,
+      kind: "user",
+      source: "voice",
+      text: "Ouvre Inner Atlas",
+    },
+    {
+      id: "action",
+      at: 0,
+      kind: "action",
+      source: "tool",
+      text: "Mini-app ouverte",
+      detail: "Ouverture confirmée",
+      status: "completed",
+      workspaceId: app.id,
+    },
+    {
+      id: "reply",
+      at: 0,
+      kind: "assistant",
+      source: "voice",
+      text: "Ton espace est prêt.",
+    },
+  ];
+  const html = renderJournal(state);
+  expect(html.indexOf("Ouvre Inner Atlas")).toBeLessThan(
+    html.indexOf("Mini-app ouverte"),
+  );
+  expect(html.indexOf("Mini-app ouverte")).toBeLessThan(
+    html.indexOf("Ton espace est prêt."),
+  );
+  expect(html).toContain("· voix");
+  expect(html).toContain("Ouverture confirmée");
+  expect(html).toContain("Effectuée");
+  expect(html).toContain('class="journal-app">Inner Atlas</button>');
 });

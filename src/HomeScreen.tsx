@@ -1,4 +1,4 @@
-import { StarIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon, StarIcon } from "@phosphor-icons/react";
 import { BrainIcon } from "@solar-icons/react/line-duotone/brain";
 import { BranchingPathsUpIcon } from "@solar-icons/react/line-duotone/branching-paths-up";
 import { CalculatorIcon } from "@solar-icons/react/line-duotone/calculator";
@@ -16,80 +16,79 @@ import { PresentationGraphIcon } from "@solar-icons/react/line-duotone/presentat
 import { SoundwaveIcon } from "@solar-icons/react/line-duotone/soundwave";
 import { WalletMoneyIcon } from "@solar-icons/react/line-duotone/wallet-money";
 import { Widget4Icon } from "@solar-icons/react/line-duotone/widget-4";
-import type { CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Astra } from "./Astra";
-import { ApprovalPanel } from "./Chat";
 import { hasWorkspaceSurface } from "./surface";
 import type { Snapshot, Workspace } from "./types";
 import type { VoiceState } from "./voice";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 
-const APP_STYLES = [
-  { match: /memory|mémoire|brain/, icon: BrainIcon, color: "#bfb3ed" },
+const VISIBLE_APPS = 6;
+const WHEEL_STEP_PX = 40;
+const WHEEL_LINE_PX = 16;
+const WHEEL_STEP_INTERVAL_MS = 180;
+const CAROUSEL_ANIMATION_MS = 180;
+
+const APP_ICONS = [
+  { match: /memory|mémoire|brain/, icon: BrainIcon },
   {
     match: /inner|introspect|mind|wellbeing|confiance/,
     icon: CompassIcon,
-    color: "#a5c5dc",
   },
   {
     match: /chinese|chinois|language|langue|learn|appren/,
     icon: GlobalIcon,
-    color: "#d5b6c9",
   },
   {
     match: /decision|décision|choice|choix/,
     icon: BranchingPathsUpIcon,
-    color: "#c5b7e3",
   },
-  { match: /astra|jarvis|assistant/, icon: CpuBoltIcon, color: "#b8c5ec" },
-  { match: /present|slide/, icon: PresentationGraphIcon, color: "#d0bfdc" },
-  { match: /calculat/, icon: CalculatorIcon, color: "#afd0c7" },
+  { match: /astra|jarvis|assistant/, icon: CpuBoltIcon },
+  { match: /present|slide/, icon: PresentationGraphIcon },
+  { match: /calculat/, icon: CalculatorIcon },
   {
     match: /solar|solaire|orbit|planet|astronom|star/,
     icon: PlanetIcon,
-    color: "#aebeea",
   },
   {
     match: /game|jeu|threejs|adventure|story|arcade/,
     icon: GamepadIcon,
-    color: "#c6b9e5",
   },
   {
     match: /music|listen|musique|radio|spotify/,
     icon: SoundwaveIcon,
-    color: "#b0cecb",
   },
   {
     match: /money|argent|income|finance/,
     icon: WalletMoneyIcon,
-    color: "#afd0c7",
   },
-  { match: /video|vidéo|youtube/, icon: PlayCircleIcon, color: "#d5b6c9" },
+  { match: /video|vidéo|youtube/, icon: PlayCircleIcon },
   {
     match: /dashboard|business|tableau|life board/,
     icon: Chart2Icon,
-    color: "#afd0c7",
   },
   {
     match: /plan|week|semaine|calendar|calendrier/,
     icon: CalendarMinimalisticIcon,
-    color: "#c9c2a9",
   },
-  { match: /wiki|note|page|book|livre/, icon: NotebookIcon, color: "#b3c0df" },
-  { match: /idea|idée/, icon: LightbulbBoltIcon, color: "#cec5ad" },
+  { match: /wiki|note|page|book|livre/, icon: NotebookIcon },
+  { match: /idea|idée/, icon: LightbulbBoltIcon },
 ];
 function AppIcon({ workspace }: { workspace: Workspace }) {
   const topic =
     workspace.messages.find((message) => message.role === "user")?.text ?? "";
-  const style =
-    APP_STYLES.find(({ match }) => match.test(workspace.name.toLowerCase())) ??
-    APP_STYLES.find(({ match }) => match.test(topic.toLowerCase()));
-  const Icon = style?.icon ?? Widget4Icon;
+  const rule =
+    APP_ICONS.find(({ match }) => match.test(workspace.name.toLowerCase())) ??
+    APP_ICONS.find(({ match }) => match.test(topic.toLowerCase()));
+  const Icon = rule?.icon ?? Widget4Icon;
   return (
-    <span
-      className="app-icon"
-      style={{ "--app-accent": style?.color ?? "#afb7d9" } as CSSProperties}
-    >
+    <span className="app-icon">
       <Icon size={30} strokeWidth={1.35} secondaryOpacity={0.48} />
     </span>
   );
@@ -102,152 +101,216 @@ export function HomeScreen({
   onDelete,
   voice,
   onToggleVoice,
-  onInterruptVoice,
-  onPauseVoice,
-  onError = () => {},
 }: {
   snapshot: Snapshot;
   onOpen: (workspace: Workspace) => void;
-  onFavorite: (workspace: Workspace) => void;
+  onFavorite: (workspace: Workspace) => Promise<void>;
   onRename: (id: string, name: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   voice?: VoiceState;
   onToggleVoice?: () => void;
-  onInterruptVoice?: () => void;
-  onPauseVoice?: () => void;
-  onError?: (error: unknown) => void;
 }) {
-  const favorites = snapshot.workspaces.filter(
-    (workspace) => workspace.favorite,
-  );
-  const assistantApproval = snapshot.assistant
-    ? snapshot.sessions[snapshot.assistant.id]?.approval
-    : null;
+  const [startIndex, setStartIndex] = useState(0);
+  const library = useRef<HTMLElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const direction = useRef(1);
+  const previousIndex = useRef(0);
   const activity = (workspace: Workspace) => {
     const session = snapshot.sessions[workspace.id];
-    return session?.approval ? "Needs you" : session?.busy ? "Working" : "";
+    return session?.approval ? "À confirmer" : session?.busy ? "En cours" : "";
   };
+  const workspaces = [...snapshot.workspaces].sort(
+    (first, second) =>
+      Number(Boolean(second.favorite)) - Number(Boolean(first.favorite)),
+  );
+  const appCount = workspaces.length;
+  const currentIndex = Math.min(startIndex, Math.max(0, appCount - 1));
+  const visibleWorkspaces = Array.from(
+    { length: Math.min(VISIBLE_APPS, appCount) },
+    (_, offset) => workspaces[(currentIndex + offset) % appCount],
+  );
+  const move = useCallback(
+    (step: number) => {
+      if (appCount < 2) return;
+      direction.current = step;
+      setStartIndex(
+        (index) => (Math.min(index, appCount - 1) + step + appCount) % appCount,
+      );
+    },
+    [appCount],
+  );
+  useEffect(() => {
+    const element = library.current;
+    if (!element || appCount < 2) return;
+    let distance = 0;
+    let lastStep = -Infinity;
+    let lastEvent = -Infinity;
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || (event.target as Element).closest("[popover]"))
+        return;
+      const delta =
+        Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+          ? event.deltaY
+          : event.deltaX;
+      if (!delta) return;
+      event.preventDefault();
+      const now = performance.now();
+      if (
+        now - lastEvent > WHEEL_STEP_INTERVAL_MS ||
+        Math.sign(distance) !== Math.sign(delta)
+      )
+        distance = 0;
+      lastEvent = now;
+      if (now - lastStep < WHEEL_STEP_INTERVAL_MS) return;
+      const unit =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? WHEEL_LINE_PX
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? element.clientHeight
+            : 1;
+      distance += delta * unit;
+      if (Math.abs(distance) < WHEEL_STEP_PX) return;
+      move(Math.sign(distance));
+      distance = 0;
+      lastStep = now;
+    };
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, [appCount, move]);
+  useLayoutEffect(() => {
+    if (previousIndex.current === currentIndex) return;
+    previousIndex.current = currentIndex;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const element = list.current;
+    const row = element?.querySelector<HTMLElement>(".horizon-app");
+    if (!element || !row) return;
+    const offset = direction.current * row.getBoundingClientRect().height;
+    const animation = element.animate(
+      [
+        { transform: `translateY(${offset}px)` },
+        { transform: "translateY(0)" },
+      ],
+      { duration: CAROUSEL_ANIMATION_MS, easing: "ease-out" },
+    );
+    return () => animation.cancel();
+  }, [currentIndex]);
   return (
-    <main className="home-screen" aria-label="Home">
-      <div className="home-content">
-        <Astra
-          voice={voice}
-          onToggle={onToggleVoice}
-          onInterrupt={onInterruptVoice}
-          onPause={onPauseVoice}
-        />
-        {snapshot.assistant && assistantApproval && (
-          <ApprovalPanel
-            approval={assistantApproval}
-            workspaceId={snapshot.assistant.id}
-            onError={onError}
-          />
-        )}
-        <section className="home-favorites" aria-labelledby="favorites-heading">
-          <div className="home-section-heading">
-            <h2 id="favorites-heading" className="home-section-title">
-              Your apps
-            </h2>
-            <span>
-              {favorites.length
-                ? `${favorites.length} favorite${favorites.length === 1 ? "" : "s"}`
-                : "Favorites live here"}
-            </span>
-          </div>
-          {favorites.length ? (
-            <div className="app-grid">
-              {favorites.map((workspace) => (
-                <button
-                  type="button"
-                  className="app-tile"
-                  key={workspace.id}
-                  data-workspace-id={workspace.id}
-                  aria-label={`Open ${workspace.name}`}
-                  title={workspace.name}
-                  onClick={() => onOpen(workspace)}
-                >
-                  <AppIcon workspace={workspace} />
-                  <span className="app-tile-name">{workspace.name}</span>
-                  {activity(workspace) && (
-                    <span
-                      className={`app-activity ${snapshot.sessions[workspace.id]?.approval ? "needs-you" : ""}`}
-                    >
-                      {activity(workspace)}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="home-empty">
-              <span className="home-empty-star">
-                <StarIcon size={28} weight="duotone" />
-              </span>
-              <div>
-                <h3 className="home-empty-title">Keep a canvas here.</h3>
-                <p className="home-empty-copy">
-                  Star a workspace below to make it a full-screen app.
-                </p>
-              </div>
-            </div>
-          )}
-        </section>
-        <details className="home-library" open={!favorites.length}>
-          <summary className="home-library-toggle">
-            All apps <span>{snapshot.workspaces.length}</span>
-          </summary>
-          <section aria-label="App library">
-            <div className="workspace-library">
-              {snapshot.workspaces.map((workspace) => (
-                <div className="library-row" key={workspace.id}>
+    <main className="home-screen" aria-label="Home" data-layout="horizon">
+      <div className="home-content horizon-home">
+        <Astra voice={voice} onToggle={onToggleVoice} />
+        <section
+          ref={library}
+          className="horizon-library"
+          aria-label="Mini-apps"
+          aria-roledescription={appCount > 1 ? "carrousel" : undefined}
+          aria-description={
+            appCount > 1
+              ? "Défilez à la molette ou utilisez les flèches du clavier."
+              : undefined
+          }
+          tabIndex={appCount > 1 ? 0 : undefined}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (
+              ["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].includes(
+                event.key,
+              )
+            ) {
+              event.preventDefault();
+              move(
+                event.key === "ArrowDown" || event.key === "ArrowRight"
+                  ? 1
+                  : -1,
+              );
+            }
+          }}
+        >
+          <div className="home-carousel-viewport">
+            <div ref={list} className="workspace-library horizon-apps">
+              {visibleWorkspaces.map((workspace) => (
+                <div className="library-row horizon-app" key={workspace.id}>
                   <button
                     type="button"
-                    className="library-open"
+                    className="library-open app-tile"
                     data-workspace-id={workspace.id}
+                    aria-label={`Ouvrir ${workspace.name}`}
+                    aria-description={workspace.favorite ? "Favori" : undefined}
                     onClick={() => onOpen(workspace)}
                     title={workspace.name}
                   >
                     <AppIcon workspace={workspace} />
-                    <span className="library-name">
-                      {workspace.name}
-                      <small>
-                        {activity(workspace) ||
-                          (hasWorkspaceSurface(workspace)
-                            ? "Canvas"
-                            : "Conversation")}
-                      </small>
+                    <span className="library-name app-tile-name">
+                      <span className="home-app-title">
+                        <span className="home-app-name">{workspace.name}</span>
+                        {workspace.favorite && (
+                          <StarIcon
+                            className="home-favorite-star"
+                            size={13}
+                            weight="fill"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </span>
+                      {activity(workspace) && (
+                        <small
+                          className={
+                            snapshot.sessions[workspace.id]?.approval
+                              ? "needs-you"
+                              : ""
+                          }
+                        >
+                          {activity(workspace)}
+                        </small>
+                      )}
                     </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="favorite-toggle"
-                    aria-label={`${workspace.favorite ? "Remove" : "Add"} ${workspace.name} ${workspace.favorite ? "from" : "to"} Home`}
-                    aria-pressed={Boolean(workspace.favorite)}
-                    disabled={!hasWorkspaceSurface(workspace)}
-                    title={
-                      hasWorkspaceSurface(workspace)
-                        ? workspace.favorite
-                          ? "Remove from Home"
-                          : "Add to Home"
-                        : "Create a canvas first"
-                    }
-                    onClick={() => onFavorite(workspace)}
-                  >
-                    <StarIcon
-                      weight={workspace.favorite ? "fill" : "regular"}
-                    />
                   </button>
                   <WorkspaceMenu
                     workspace={workspace}
                     busy={Boolean(snapshot.sessions[workspace.id]?.busy)}
                     onRename={onRename}
                     onDelete={onDelete}
+                    onFavorite={
+                      hasWorkspaceSurface(workspace)
+                        ? async () => {
+                            await onFavorite(workspace);
+                            setStartIndex(0);
+                          }
+                        : undefined
+                    }
                   />
                 </div>
               ))}
             </div>
-          </section>
-        </details>
+          </div>
+          {appCount > 1 && (
+            <nav
+              className="home-carousel-controls"
+              aria-label="Parcourir les mini-apps"
+            >
+              <button
+                type="button"
+                aria-label="Mini-apps précédentes"
+                onClick={() => move(-1)}
+              >
+                <CaretLeftIcon size={16} aria-hidden="true" />
+              </button>
+              <span
+                className="home-carousel-position"
+                role="status"
+                aria-live="polite"
+              >
+                {currentIndex + 1} / {appCount}
+              </span>
+              <button
+                type="button"
+                aria-label="Mini-apps suivantes"
+                onClick={() => move(1)}
+              >
+                <CaretRightIcon size={16} aria-hidden="true" />
+              </button>
+            </nav>
+          )}
+        </section>
       </div>
     </main>
   );

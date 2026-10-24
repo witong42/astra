@@ -15,7 +15,7 @@ const eventSchema = z.discriminatedUnion("method", [
     method: z.enum(["voice/speaking", "voice/finished"]),
     speechId: z.number().int(),
   }),
-  z.object({ method: z.literal("voice/wake") }),
+  z.object({ method: z.enum(["voice/wake", "voice/home"]) }),
   z.object({ method: z.literal("voice/level"), level: z.number().finite() }),
   z.object({ method: z.literal("voice/error"), message: z.string().max(2000) }),
 ]);

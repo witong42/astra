@@ -1,6 +1,7 @@
 import type { Spec } from "@json-render/core";
 import type { AppleScriptRequest } from "./applescript";
 import type { CanvasAck, CanvasState } from "./canvas";
+import type { JournalEntry } from "./journal";
 import type { VoiceState } from "./voice";
 
 export type Message = { id: string; role: "user" | "assistant"; text: string };
@@ -23,6 +24,7 @@ export type SavedState = {
   workspaces: Workspace[];
   assistant?: Workspace;
   voiceEnabled?: boolean;
+  journal?: JournalEntry[];
 };
 export type Model = {
   id: string;
@@ -81,7 +83,7 @@ export type Snapshot = SavedState & {
 export type Bridge = {
   voiceSnapshot: () => Promise<VoiceState>;
   subscribeVoice: (listener: (state: VoiceState) => void) => () => void;
-  startVoice: () => Promise<void>;
+  startVoice: (standby?: boolean) => Promise<void>;
   stopVoice: () => Promise<void>;
   interruptVoice: () => Promise<void>;
   runAppleScript: (
@@ -91,6 +93,7 @@ export type Bridge = {
   snapshot: () => Promise<Snapshot>;
   subscribe: (listener: (snapshot: Snapshot) => void) => () => void;
   send: (text: string, workspaceId?: string) => Promise<void>;
+  sendAssistant: (text: string) => Promise<void>;
   interrupt: (workspaceId?: string) => Promise<void>;
   newWorkspace: () => Promise<void>;
   selectWorkspace: (id: string) => Promise<void>;
@@ -125,6 +128,7 @@ export type Bridge = {
 
 declare global {
   interface Window {
+    astraControl?: import("./app-control").AppController;
     codexos: Bridge;
     codexosFlush: () => Promise<void>;
   }

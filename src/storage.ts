@@ -10,6 +10,7 @@ import {
 import { dirname } from "node:path";
 import { z } from "zod";
 import { emptyCanvas, validateCanvas } from "./canvas";
+import { journalEntrySchema, MAX_JOURNAL_ENTRIES } from "./journal";
 import { emptySurface, validateSurface } from "./surface";
 import type { SavedState, Workspace } from "./types";
 import { shortAppName } from "./workspace-name";
@@ -39,6 +40,7 @@ const savedSchema = z.object({
   workspaces: z.array(workspaceSchema).min(1).max(20),
   assistant: workspaceSchema.optional(),
   voiceEnabled: z.boolean().optional(),
+  journal: z.array(journalEntrySchema).max(MAX_JOURNAL_ENTRIES).optional(),
 });
 
 export function newWorkspace(cwd: string): Workspace {

@@ -1,9 +1,17 @@
 import { expect, test } from "bun:test";
+import type { RpcMessage } from "../src/rpc";
 import { newWorkspace } from "../src/storage";
 import type { Snapshot } from "../src/types";
-import { type SpeechEvent, spokenReply, VoiceSession } from "../src/voice";
+import { type SpeechEvent, VoiceSession } from "../src/voice";
 
-function fixture(startError?: Error) {
+function fixture(
+  options: {
+    mediaError?: Error;
+    wakeError?: Error;
+    homeError?: Error;
+    autoSdp?: boolean;
+  } = {},
+) {
   const app = newWorkspace("/tmp");
   const assistant = newWorkspace("/tmp");
   const snapshot: Snapshot = {
@@ -24,208 +32,345 @@ function fixture(startError?: Error) {
     error: null,
     metrics: null,
   };
-  const sent: { text: string; id?: string }[] = [];
-  const spoken: { text: string; id: number; language: string }[] = [];
-  const interrupted: string[] = [];
-  let nativeStops = 0;
-  let speechInterrupts = 0;
-  let onEvent: (event: SpeechEvent) => void = () => {};
+  let realtime: (message: RpcMessage) => void = () => {};
+  let wakeEvent: (event: SpeechEvent) => void = () => {};
+  let mediaEvent: (event: SpeechEvent) => void = () => {};
+  const calls: string[] = [];
+  const muted: boolean[] = [];
+  const sent: string[] = [];
+  let mediaStops = 0;
+  let wakeStarts = 0;
+  let wakeStops = 0;
+  let homeRequests = 0;
   const voice = new VoiceSession(
     {
       ensureAssistantWorkspace: () => assistant.id,
-      send: async (text, id) => {
-        sent.push({ text, id });
+      subscribeRealtime: (listener) => {
+        realtime = listener;
+        return () => {};
+      },
+      startRealtimeVoice: async (offer) => {
+        calls.push(offer);
+        if (options.autoSdp !== false)
+          realtime({
+            method: "thread/realtime/sdp",
+            params: { sdp: "answer" },
+          });
+      },
+      stopRealtimeVoice: async () => {},
+      speakRealtime: async (text) => {
+        calls.push(`say:${text}`);
       },
       interrupt: async (id) => {
-        if (id) interrupted.push(id);
+        if (id) calls.push(`interrupt:${id}`);
       },
       snapshot: () => snapshot,
-      answer: () => {},
+      send: async (text) => {
+        sent.push(text);
+      },
     },
     (listener) => {
-      onEvent = listener;
+      wakeEvent = listener;
       return {
-        start: async () => {
-          if (startError) throw startError;
-        },
-        listen: async () => {},
-        standby: async () => {},
-        speak: async (text, id, language) => {
-          spoken.push({ text, id, language });
-        },
-        interrupt: async () => {
-          speechInterrupts++;
+        start: async (standby) => {
+          if (options.wakeError) throw options.wakeError;
+          expect(standby).toBe(true);
+          wakeStarts++;
         },
         stop: () => {
-          nativeStops++;
+          wakeStops++;
+        },
+      };
+    },
+    (listener) => {
+      mediaEvent = listener;
+      return {
+        offer: async () => {
+          if (options.mediaError) throw options.mediaError;
+          return "offer";
+        },
+        answer: async (sdp) => {
+          calls.push(sdp);
+        },
+        muteOutput: async (value) => {
+          muted.push(value);
+        },
+        stop: () => {
+          mediaStops++;
         },
       };
     },
     () => {},
+    async () => {
+      if (options.homeError) throw options.homeError;
+      homeRequests++;
+    },
   );
-  const working = (busy: boolean) => {
-    snapshot.sessions[assistant.id] = {
-      busy,
-      activity: busy ? "Working" : "Ready",
-      approval: null,
-      error: null,
-      metrics: null,
-      settings: null,
-    };
-    voice.observe(snapshot);
-  };
   return {
     voice,
+    calls,
     snapshot,
     assistant,
+    muted,
     sent,
-    spoken,
-    interrupted,
-    working,
-    event: (event: SpeechEvent) => onEvent(event),
-    stops: () => nativeStops,
-    speechInterrupts: () => speechInterrupts,
+    realtime: (method: string, params: Record<string, unknown> = {}) =>
+      realtime({ method: `thread/realtime/${method}`, params }),
+    wake: (event: SpeechEvent) => wakeEvent(event),
+    media: (event: SpeechEvent) => mediaEvent(event),
+    mediaStops: () => mediaStops,
+    wakeStarts: () => wakeStarts,
+    wakeStops: () => wakeStops,
+    homeRequests: () => homeRequests,
   };
 }
 
-test("voice uses the Home agent, speaks completed results, and returns to listening", async () => {
+async function tick() {
+  await Bun.sleep(0);
+}
+
+test("the galaxy starts GPT-Live and accepts SDP before the request acknowledgement", async () => {
   const f = fixture();
-  await f.voice.start();
-  expect(f.voice.snapshot().status).toBe("listening");
-  await f.voice.submit("Open Calculator");
-  expect(f.sent).toEqual([{ text: "Open Calculator", id: f.assistant.id }]);
-  f.working(true);
-  expect(f.spoken).toEqual([]);
-  f.assistant.messages.push({
-    id: "reply",
-    role: "assistant",
-    text: "**Calculator** is open.",
-  });
-  f.working(false);
-  expect(f.spoken[0].text).toBe("Calculator is open.");
-  f.event({ method: "voice/finished", speechId: f.spoken[0].id });
-  expect(f.voice.snapshot().status).toBe("listening");
+  try {
+    await f.voice.start();
+    expect(f.calls).toEqual(["offer", "answer"]);
+    expect(f.voice.snapshot().status).toBe("listening");
+    expect(f.wakeStarts()).toBe(0);
+  } finally {
+    f.voice.stop();
+  }
 });
 
-test("barge-in stops speech immediately and subsequent guidance uses the same agent", async () => {
-  const f = fixture();
-  await f.voice.start();
-  await f.voice.submit("Summarize the result");
-  f.working(true);
-  f.assistant.messages.push({
-    id: "reply",
-    role: "assistant",
-    text: "Here is the result.",
-  });
-  f.working(false);
-  const oldId = f.spoken[0].id;
-  const before = f.speechInterrupts();
-  f.event({ method: "voice/partial", text: "Actually" });
-  expect(f.speechInterrupts()).toBe(before + 1);
-  expect(f.voice.snapshot().transcript).toBe("Actually");
-  await f.voice.submit("Actually create a timer");
-  f.working(true);
-  f.event({ method: "voice/finished", speechId: oldId });
-  expect(f.voice.snapshot().status).toBe("thinking");
-  expect(f.sent.at(-1)?.id).toBe(f.assistant.id);
-});
-
-test("spoken stop interrupts work without creating another agent request", async () => {
-  const f = fixture();
-  await f.voice.start();
-  await f.voice.submit("Work on this");
-  f.working(true);
-  await f.voice.submit("Astra, stop.");
-  f.working(false);
-  expect(f.interrupted).toEqual([f.assistant.id]);
-  expect(f.sent).toHaveLength(1);
-  expect(f.spoken).toHaveLength(0);
+test("the galaxy waits for the SDP notification after the request acknowledgement", async () => {
+  const f = fixture({ autoSdp: false });
+  const starting = f.voice.start();
+  await tick();
+  expect(f.voice.snapshot().status).toBe("starting");
+  f.realtime("started");
+  expect(f.calls).toEqual(["offer"]);
+  f.realtime("sdp", { sdp: "answer" });
+  await starting;
   expect(f.voice.snapshot().status).toBe("listening");
-});
-
-test("ending a session releases the microphone and ignores stale recognition events", async () => {
-  const f = fixture();
-  await f.voice.start();
   f.voice.stop();
-  f.event({ method: "voice/final", text: "Open Calculator" });
-  expect(f.stops()).toBe(1);
-  expect(f.sent).toHaveLength(0);
-  expect(f.voice.snapshot().active).toBe(false);
 });
 
-test("denied microphone access stops the helper and reports an actionable error", async () => {
-  const f = fixture(
-    new Error("Enable Microphone for Astra in System Settings."),
-  );
-  await expect(f.voice.start()).rejects.toThrow("Enable Microphone");
-  expect(f.stops()).toBe(1);
-  expect(f.voice.snapshot().status).toBe("error");
-  expect(f.voice.snapshot().active).toBe(false);
-});
-
-test("spoken replies omit generated code, image URLs, and Markdown decoration", () => {
-  expect(
-    spokenReply(
-      'Done.\n```substrate\n{"op":"remove"}\n```\nSee [the result](https://example.com).',
-    ),
-  ).toBe("Done. See the result.");
-  expect(spokenReply("```substrate\npartial generated code")).toBe("");
-});
-
-test("background wake enables a command while standby ignores ambient speech", async () => {
+test("saying Astra starts the same live call while ambient local transcripts do not", async () => {
   const f = fixture();
   await f.voice.start(true);
   expect(f.voice.snapshot().status).toBe("standby");
-  f.event({ method: "voice/final", text: "ambient conversation" });
-  expect(f.sent).toHaveLength(0);
-  f.event({ method: "voice/wake" });
+  f.wake({ method: "voice/final", text: "ambient speech" });
+  expect(f.calls).toEqual([]);
+  f.wake({ method: "voice/wake" });
+  f.wake({ method: "voice/final", text: "" });
+  await tick();
+  expect(f.calls).toEqual(["offer", "answer", "say:Oui, je t’écoute."]);
   expect(f.voice.snapshot().status).toBe("listening");
-  f.event({
+  expect(f.wakeStops()).toBe(1);
+  f.voice.stop();
+});
+
+test("a command spoken with the wake word reaches the existing Home agent once", async () => {
+  const f = fixture({ autoSdp: false });
+  await f.voice.start(true);
+  f.wake({ method: "voice/wake" });
+  f.wake({
     method: "voice/final",
     text: "Astra, ouvre la calculatrice",
     language: "fr",
   });
-  await Bun.sleep(0);
-  expect(f.sent.at(-1)?.text).toBe("ouvre la calculatrice");
-  expect(f.voice.snapshot().language).toBe("fr");
-  f.working(true);
-  f.assistant.messages.push({
-    id: "french-reply",
-    role: "assistant",
-    text: "La calculatrice est ouverte.",
-  });
-  f.working(false);
-  expect(f.spoken.at(-1)?.language).toBe("fr");
+  await tick();
+  f.realtime("sdp", { sdp: "answer" });
+  await tick();
+  expect(f.sent).toEqual(["ouvre la calculatrice"]);
   f.voice.stop();
 });
 
-test("French stop cancels the current turn and does not send another request", async () => {
+test("wake recording keeps the whole command even when GPT-Live connects first", async () => {
   const f = fixture();
-  await f.voice.start();
-  await f.voice.submit("Fais ceci");
-  f.working(true);
-  await f.voice.submit("Astra, arrête.");
-  expect(f.interrupted).toEqual([f.assistant.id]);
-  expect(f.sent).toHaveLength(1);
+  await f.voice.start(true);
+  f.wake({ method: "voice/wake" });
+  await tick();
+  expect(f.voice.snapshot().status).toBe("starting");
+  expect(f.wakeStops()).toBe(0);
+  f.wake({ method: "voice/final", text: "Astra, create a timer" });
+  await tick();
+  expect(f.sent).toEqual(["create a timer"]);
+  expect(f.wakeStops()).toBe(1);
   f.voice.stop();
 });
 
-test("steering preserves the current assistant reply for speech", async () => {
+test("live transcripts mirror French and English without sending duplicate agent turns", async () => {
   const f = fixture();
   await f.voice.start();
-  await f.voice.submit("Create a timer");
-  f.working(true);
-  f.assistant.messages.push({
-    id: "streaming",
-    role: "assistant",
-    text: "Creating",
-  });
-  await f.voice.submit("Make it five minutes");
-  f.working(true);
-  const reply = f.assistant.messages.at(-1);
-  if (!reply) throw new Error("Missing streaming reply");
-  reply.text = "Your five-minute timer is ready.";
-  f.working(false);
-  expect(f.spoken.at(-1)?.text).toBe("Your five-minute timer is ready.");
+  f.realtime("transcript/delta", { role: "user", delta: "Bonjour Astra" });
+  expect(f.voice.snapshot().transcript).toBe("Bonjour Astra");
+  f.realtime("transcript/done", { role: "user", text: "Bonjour Astra" });
+  f.realtime("transcript/delta", { role: "assistant", delta: "Bonjour !" });
+  expect(f.voice.snapshot().status).toBe("speaking");
+  f.realtime("transcript/done", { role: "assistant", text: "Bonjour !" });
+  expect(f.voice.snapshot().reply).toBe("Bonjour !");
+  expect(f.voice.snapshot().status).toBe("listening");
+  f.realtime("transcript/delta", { role: "user", delta: "Hello again" });
+  expect(f.voice.snapshot().transcript).toBe("Hello again");
+  expect(f.voice.snapshot().reply).toBe("");
+  expect(f.sent).toEqual([]);
   f.voice.stop();
+});
+
+test("a completed Home command navigates directly and leaves background work running", async () => {
+  const f = fixture();
+  await f.voice.start();
+  f.realtime("transcript/delta", { role: "user", delta: "Home" });
+  expect(f.homeRequests()).toBe(0);
+  f.realtime("transcript/done", { role: "user", text: " Home! " });
+  await tick();
+  expect(f.homeRequests()).toBe(1);
+  expect(f.sent).toEqual([]);
+  expect(f.calls).toEqual(["offer", "answer"]);
+  expect(f.muted).toEqual([true]);
+  f.realtime("transcript/delta", { role: "assistant", delta: "stale reply" });
+  expect(f.voice.snapshot().reply).toBe("");
+  f.realtime("transcript/delta", { role: "user", delta: "Ouvre le dashboard" });
+  expect(f.muted).toEqual([true, false]);
+  f.realtime("transcript/done", { role: "user", text: "Home." });
+  await tick();
+  expect(f.homeRequests()).toBe(2);
+  f.voice.stop();
+});
+
+test("mentions of Home and assistant speech do not trigger navigation", async () => {
+  const f = fixture();
+  await f.voice.start();
+  for (const text of [
+    "Home Assistant",
+    "Je veux modifier Home",
+    "On dit Home alors",
+    "homepage",
+  ])
+    f.realtime("transcript/done", { role: "user", text });
+  f.realtime("transcript/done", { role: "assistant", text: "Home" });
+  await tick();
+  expect(f.homeRequests()).toBe(0);
+  f.voice.stop();
+});
+
+test("Home works during local standby without opening a live call", async () => {
+  const f = fixture();
+  await f.voice.start(true);
+  f.wake({ method: "voice/home" });
+  await tick();
+  expect(f.homeRequests()).toBe(1);
+  expect(f.calls).toEqual([]);
+  expect(f.sent).toEqual([]);
+  expect(f.voice.snapshot().status).toBe("standby");
+  f.voice.stop();
+  f.wake({ method: "voice/home" });
+  await tick();
+  expect(f.homeRequests()).toBe(1);
+});
+
+test("Astra Home uses the shortcut instead of sending a backend message", async () => {
+  const f = fixture();
+  await f.voice.start(true);
+  f.wake({ method: "voice/wake" });
+  f.wake({ method: "voice/final", text: "Astra, Home." });
+  await tick();
+  expect(f.homeRequests()).toBe(1);
+  expect(f.sent).toEqual([]);
+  f.voice.stop();
+});
+
+test("a failed Home navigation reports the error without ending voice", async () => {
+  const f = fixture({ homeError: new Error("Astra's window is unavailable.") });
+  await f.voice.start();
+  f.realtime("transcript/done", { role: "user", text: "Home" });
+  await tick();
+  expect(f.voice.snapshot().error).toContain("window is unavailable");
+  expect(f.voice.snapshot().active).toBe(true);
+  f.voice.stop();
+});
+
+test("interruption flushes speech and cancels work, then new speech restores output", async () => {
+  const f = fixture();
+  await f.voice.start();
+  f.realtime("transcript/delta", { role: "assistant", delta: "A long answer" });
+  await f.voice.interrupt();
+  expect(f.muted).toEqual([true]);
+  expect(f.calls).toContain(`interrupt:${f.assistant.id}`);
+  f.realtime("transcript/delta", { role: "assistant", delta: "stale audio" });
+  expect(f.voice.snapshot().reply).toBe("A long answer");
+  f.realtime("transcript/delta", { role: "user", delta: "Actually" });
+  expect(f.muted).toEqual([true, false]);
+  expect(f.voice.snapshot().status).toBe("listening");
+  f.voice.stop();
+});
+
+test("a follow-up spoken sentence keeps the useful completed result visible", async () => {
+  const f = fixture();
+  await f.voice.start();
+  f.realtime("transcript/delta", {
+    role: "assistant",
+    delta: "Mini Lune est ouverte.",
+  });
+  f.realtime("transcript/done", {
+    role: "assistant",
+    text: "Mini Lune est ouverte.",
+  });
+  f.realtime("transcript/delta", {
+    role: "assistant",
+    delta: "Tu peux utiliser le compteur.",
+  });
+  f.realtime("transcript/done", {
+    role: "assistant",
+    text: "Tu peux utiliser le compteur.",
+  });
+  expect(f.voice.snapshot().reply).toBe(
+    "Mini Lune est ouverte. Tu peux utiliser le compteur.",
+  );
+  f.voice.stop();
+});
+
+test("ending voice releases the microphone and ignores stale events", async () => {
+  const f = fixture();
+  await f.voice.start();
+  f.voice.stop();
+  f.realtime("transcript/delta", { role: "assistant", delta: "stale" });
+  f.media({ method: "voice/error", message: "late error" });
+  expect(f.mediaStops()).toBe(1);
+  expect(f.voice.snapshot().status).toBe("off");
+  expect(f.voice.snapshot().reply).toBe("");
+});
+
+test("failed audio startup reports the real error and releases the microphone", async () => {
+  const f = fixture({ mediaError: new Error("Enable Microphone for Astra.") });
+  await expect(f.voice.start()).rejects.toThrow("Enable Microphone");
+  expect(f.mediaStops()).toBe(1);
+  expect(f.voice.snapshot().status).toBe("error");
+  expect(f.voice.snapshot().active).toBe(false);
+});
+
+test("backend voice failures appear on the galaxy instead of leaving it listening", async () => {
+  const f = fixture();
+  await f.voice.start();
+  f.realtime("error", { message: "Live connection unavailable" });
+  expect(f.voice.snapshot().status).toBe("error");
+  expect(f.voice.snapshot().error).toBe("Live connection unavailable");
+  expect(f.mediaStops()).toBe(1);
+});
+
+test("stopping during negotiation cancels startup without a false failure", async () => {
+  const f = fixture({ autoSdp: false });
+  const starting = f.voice.start();
+  await tick();
+  f.voice.stop();
+  await starting;
+  expect(f.voice.snapshot().status).toBe("off");
+  expect(f.voice.snapshot().error).toBeNull();
+});
+
+test("wake permission failure releases the helper and reports an error", async () => {
+  const f = fixture({ wakeError: new Error("Enable Microphone for Astra.") });
+  await expect(f.voice.start(true)).rejects.toThrow("Enable Microphone");
+  expect(f.voice.snapshot().status).toBe("error");
+  expect(f.voice.snapshot().active).toBe(false);
+  expect(f.wakeStops()).toBe(1);
 });

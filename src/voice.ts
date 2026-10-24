@@ -1,8 +1,10 @@
 import type { CodexBackend } from "./backend";
+import type { RpcMessage } from "./rpc";
 import type { Snapshot } from "./types";
 
-const MAX_SPOKEN_LENGTH = 1800;
-const FOLLOW_UP_WINDOW_MS = 20_000;
+const IDLE_TIMEOUT_MS = 60_000;
+const CONNECTION_TIMEOUT_MS = 30_000;
+const WAKE_COMMAND_TIMEOUT_MS = 12_000;
 export type VoiceState = {
   active: boolean;
   status:
@@ -24,7 +26,7 @@ export type VoiceState = {
 export const INITIAL_VOICE: VoiceState = {
   active: false,
   status: "off",
-  language: "en",
+  language: "fr",
   transcript: "",
   task: "",
   reply: "",
@@ -39,7 +41,7 @@ export type SpeechEvent =
       language?: "en" | "fr";
     }
   | { method: "voice/speaking" | "voice/finished"; speechId: number }
-  | { method: "voice/wake" }
+  | { method: "voice/wake" | "voice/home" }
   | { method: "voice/level"; level: number }
   | { method: "voice/error"; message: string };
 export type Speech = {
@@ -54,35 +56,65 @@ export type Speech = {
   interrupt: () => Promise<void>;
   stop: () => void;
 };
-export function spokenReply(text: string) {
-  return text
-    .replace(/```[\s\S]*?(?:```|$)/g, "")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/[#*_`>|]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_SPOKEN_LENGTH);
-}
+export type LiveMedia = {
+  offer: () => Promise<string>;
+  answer: (sdp: string) => Promise<void>;
+  muteOutput: (muted: boolean) => Promise<void>;
+  stop: () => void;
+};
 type Agent = Pick<
   CodexBackend,
-  "ensureAssistantWorkspace" | "send" | "interrupt" | "snapshot" | "answer"
+  | "ensureAssistantWorkspace"
+  | "startRealtimeVoice"
+  | "stopRealtimeVoice"
+  | "subscribeRealtime"
+  | "speakRealtime"
+  | "interrupt"
+  | "snapshot"
+  | "send"
 >;
+function isHomeShortcut(text: string) {
+  const words = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  return words === "home" || words === "astra home";
+}
 export class VoiceSession {
   private state = structuredClone(INITIAL_VOICE);
-  private speech: Speech | null = null;
+  private wake: Pick<Speech, "start" | "stop"> | null = null;
+  private media: LiveMedia | null = null;
   private epoch = 0;
-  private speechId = 0;
-  private awaitingReply = false;
-  private wasWorking = false;
+  private opening: Promise<void> | null = null;
+  private closing = Promise.resolve();
   private idle: ReturnType<typeof setTimeout> | undefined;
-  private prompted: string | number | null = null;
-  private replyIds = new Set<string>();
+  private pendingSdp: {
+    resolve: (sdp: string) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  private userStreaming = false;
+  private assistantStreaming = false;
+  private replyPrefix = "";
+  private outputMuted = false;
+  private wakeCommand = "";
+  private wakeFinished: {
+    promise: Promise<void>;
+    resolve: () => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
   constructor(
     private agent: Agent,
-    private createSpeech: (onEvent: (event: SpeechEvent) => void) => Speech,
+    private createWake: (
+      onEvent: (event: SpeechEvent) => void,
+    ) => Pick<Speech, "start" | "stop">,
+    private createMedia: (onEvent: (event: SpeechEvent) => void) => LiveMedia,
     private publish: (state: VoiceState) => void,
-  ) {}
+    private navigateHome: () => Promise<unknown>,
+  ) {
+    agent.subscribeRealtime((message) => this.realtime(message));
+  }
+
   snapshot() {
     return structuredClone(this.state);
   }
@@ -90,260 +122,334 @@ export class VoiceSession {
     this.publish(this.snapshot());
   }
   private fail(error: unknown) {
-    this.epoch++;
-    clearTimeout(this.idle);
-    this.speech?.stop();
-    this.speech = null;
-    this.awaitingReply = false;
-    this.state.active = false;
+    this.stop();
     this.state.status = "error";
-    this.state.level = 0;
     this.state.error = error instanceof Error ? error.message : String(error);
     this.changed();
   }
-  private waitForFollowUp() {
+  private clearSdp(error: Error) {
+    const pending = this.pendingSdp;
+    this.pendingSdp = null;
+    if (pending) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+  }
+  private closeCall() {
+    this.media?.stop();
+    this.media = null;
+    this.clearSdp(new Error("Astra voice stopped."));
+    this.closing = this.closing.then(() => this.agent.stopRealtimeVoice());
+    // Keep the chain usable; the caller receives the actual shutdown failure.
+    const closing = this.closing;
+    this.closing = closing.catch(() => {});
+    return closing;
+  }
+  private armIdle() {
     clearTimeout(this.idle);
     const epoch = this.epoch;
     this.idle = setTimeout(() => {
       if (
-        epoch !== this.epoch ||
-        !this.state.active ||
-        this.awaitingReply ||
-        this.state.status !== "listening"
+        epoch === this.epoch &&
+        this.state.active &&
+        this.state.status === "listening"
       )
-        return;
-      this.state.status = "standby";
-      this.state.transcript = "";
-      this.changed();
-      this.speech?.standby().catch((error) => {
-        if (epoch === this.epoch) this.fail(error);
-      });
-    }, FOLLOW_UP_WINDOW_MS);
+        void this.standby().catch((error) => this.fail(error));
+    }, IDLE_TIMEOUT_MS);
     this.idle.unref?.();
   }
+  private async standby() {
+    const epoch = ++this.epoch;
+    clearTimeout(this.idle);
+    await this.closeCall();
+    if (!this.state.active || this.epoch !== epoch) return;
+    this.state.status = "standby";
+    this.state.transcript = "";
+    this.state.level = 0;
+    this.changed();
+    const wake = this.createWake((event) => {
+      if (this.wake !== wake || !this.state.active) return;
+      if (event.method === "voice/error") this.fail(event.message);
+      else if (event.method === "voice/home") void this.home();
+      else if (event.method === "voice/wake") {
+        this.wakeCommand = "";
+        let resolve = () => {};
+        const promise = new Promise<void>((done) => {
+          resolve = done;
+        });
+        const timer = setTimeout(resolve, WAKE_COMMAND_TIMEOUT_MS);
+        this.wakeFinished = { promise, resolve, timer };
+        void this.start().catch((error) => this.fail(error));
+      } else if (
+        event.method === "voice/final" &&
+        this.state.status === "starting"
+      ) {
+        this.wakeCommand = event.text.replace(/^astra\b[, .!?]*/i, "").trim();
+        if (event.language) this.state.language = event.language;
+        this.wakeFinished?.resolve();
+      }
+    });
+    this.wake = wake;
+    await wake.start(true);
+    if (this.epoch !== epoch && this.snapshot().status !== "starting")
+      wake.stop();
+  }
+
   async start(standby = false) {
-    if (this.state.active) {
-      if (this.state.status === "starting") return;
-      if (this.state.status === "thinking" || this.state.status === "speaking")
+    if (this.opening) return this.opening;
+    if (this.media && this.state.status !== "starting") {
+      if (this.state.status === "speaking" || this.state.status === "thinking")
         await this.interrupt();
-      await this.speech?.listen();
-      this.state.status = "listening";
-      this.waitForFollowUp();
-      this.changed();
       return;
     }
-    const epoch = ++this.epoch;
     this.state = {
       ...INITIAL_VOICE,
       active: true,
-      status: "starting",
       workspaceId: this.agent.ensureAssistantWorkspace(),
     };
+    if (standby) {
+      try {
+        await this.standby();
+      } catch (error) {
+        if (!this.state.active) return;
+        this.fail(error);
+        throw error;
+      }
+      return;
+    }
+    this.state.status = "starting";
     this.changed();
-    this.speech = this.createSpeech((event) => {
-      if (this.epoch === epoch && this.state.active) this.handle(event);
-    });
+    const epoch = ++this.epoch;
+    const opening = this.connect(epoch);
+    this.opening = opening;
     try {
-      await this.speech.start(standby);
-      if (this.epoch !== epoch) return;
-      this.state.status = standby ? "standby" : "listening";
-      if (!standby) this.waitForFollowUp();
-      this.changed();
+      await opening;
     } catch (error) {
-      if (this.epoch !== epoch) return;
-      this.fail(error);
+      if (this.epoch !== epoch && this.snapshot().status !== "error") return;
+      if (this.epoch === epoch) this.fail(error);
       throw error;
+    } finally {
+      if (this.opening === opening) this.opening = null;
     }
   }
+
+  private async connect(epoch: number) {
+    await this.closing;
+    if (epoch !== this.epoch) return;
+    const media = this.createMedia((event) => {
+      if (this.media !== media || epoch !== this.epoch) return;
+      if (event.method === "voice/error") this.fail(event.message);
+      else if (event.method === "voice/level") {
+        this.state.level = Math.max(0, Math.min(1, event.level));
+        this.changed();
+      }
+    });
+    this.media = media;
+    const offer = await media.offer();
+    if (epoch !== this.epoch) return;
+    const sdp = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          this.clearSdp(
+            new Error("GPT-Live did not answer. Start Astra again."),
+          ),
+        CONNECTION_TIMEOUT_MS,
+      );
+      this.pendingSdp = { resolve, reject, timer };
+    });
+    // Subscribe before starting: SDP arrives as a notification, independently of the request acknowledgement.
+    const answer = Promise.all([
+      sdp,
+      this.agent.startRealtimeVoice(offer),
+    ]).then(([value]) => value);
+    const remoteSdp = await answer;
+    if (epoch !== this.epoch) return;
+    const wakeFinished = this.wakeFinished;
+    if (wakeFinished) {
+      await wakeFinished.promise;
+      clearTimeout(wakeFinished.timer);
+      if (this.wakeFinished === wakeFinished) this.wakeFinished = null;
+    }
+    if (epoch !== this.epoch) return;
+    const wake = this.wake;
+    this.wake = null;
+    wake?.stop();
+    await media.answer(remoteSdp);
+    if (epoch !== this.epoch) return;
+    this.state.status = "listening";
+    this.state.error = null;
+    this.userStreaming = false;
+    this.assistantStreaming = false;
+    this.outputMuted = false;
+    this.armIdle();
+    this.changed();
+    const command = this.wakeCommand;
+    this.wakeCommand = "";
+    if (isHomeShortcut(command)) await this.home();
+    else if (command && this.state.workspaceId) {
+      this.state.task = command;
+      this.state.status = "thinking";
+      this.changed();
+      await this.agent.send(command, this.state.workspaceId);
+    } else if (wakeFinished)
+      await this.agent.speakRealtime(
+        this.state.language === "fr" ? "Oui, je t’écoute." : "Yes, I’m here.",
+      );
+  }
+
   stop() {
-    this.epoch++;
+    const epoch = ++this.epoch;
     clearTimeout(this.idle);
-    this.speech?.stop();
-    this.speech = null;
-    this.awaitingReply = false;
+    const wake = this.wake;
+    this.wake = null;
+    wake?.stop();
     this.state.active = false;
     this.state.status = "off";
     this.state.transcript = "";
     this.state.level = 0;
+    this.wakeCommand = "";
+    if (this.wakeFinished) {
+      clearTimeout(this.wakeFinished.timer);
+      this.wakeFinished.resolve();
+      this.wakeFinished = null;
+    }
+    void this.closeCall().catch((error) => {
+      if (this.epoch === epoch) {
+        this.state.error = String(error);
+        this.changed();
+      }
+    });
     this.changed();
   }
   async interrupt() {
-    const epoch = this.epoch;
-    this.speechId++;
-    this.awaitingReply = false;
-    await this.speech?.interrupt();
+    if (!this.state.active) return;
+    this.outputMuted = true;
+    await this.media?.muteOutput(true);
     if (this.state.workspaceId)
       await this.agent.interrupt(this.state.workspaceId);
-    if (epoch !== this.epoch) return;
-    this.state.status = this.state.active ? "listening" : "off";
+    this.state.status = "listening";
     this.state.transcript = "";
-    this.waitForFollowUp();
+    this.assistantStreaming = false;
+    this.armIdle();
     this.changed();
   }
-  private handle(event: SpeechEvent) {
-    if (event.method === "voice/error") return this.fail(event.message);
-    if (event.method === "voice/level")
-      this.state.level = Math.max(0, Math.min(1, event.level));
-    else if (event.method === "voice/wake") {
-      this.state.status = "listening";
-      this.state.transcript = "";
-      this.waitForFollowUp();
-    } else if (event.method === "voice/partial") {
-      if (this.state.status === "standby") return;
-      this.state.transcript = event.text;
-      if (event.language) this.state.language = event.language;
-      if (this.state.status === "speaking") {
-        this.speechId++;
-        this.speech?.interrupt().catch((error) => this.fail(error));
-        this.state.status = "listening";
-      }
-      this.waitForFollowUp();
-    } else if (event.method === "voice/final") {
-      if (this.state.status === "standby") return;
-      if (event.language) this.state.language = event.language;
-      const epoch = this.epoch;
-      void this.submit(event.text).catch((error) => {
-        if (epoch === this.epoch) this.fail(error);
-      });
-      return;
-    } else if ("speechId" in event && event.speechId === this.speechId) {
-      this.state.status =
-        event.method === "voice/speaking" ? "speaking" : "listening";
-      if (event.method === "voice/finished") this.waitForFollowUp();
-    }
-    this.changed();
-  }
-  private speak(text: string) {
-    this.state.reply = text;
-    this.state.status = text ? "speaking" : "listening";
-    this.changed();
-    if (text) {
-      const epoch = this.epoch;
-      this.speech
-        ?.speak(text, ++this.speechId, this.state.language)
-        .catch((error) => {
-          if (epoch === this.epoch) this.fail(error);
-        });
-    } else this.waitForFollowUp();
-  }
-  async submit(text: string) {
-    if (!this.state.active || !this.state.workspaceId) return;
-    const value = text.replace(/^astra\b[, .!?]*/i, "").trim();
-    if (!value) {
-      this.waitForFollowUp();
-      return;
-    }
-    if (
-      /^(?:stop|cancel|be quiet|stop talking|arrête|arrete|annule|silence|tais.toi)[.!?]*$/i.test(
-        value,
-      )
-    )
-      return this.interrupt();
-    clearTimeout(this.idle);
+
+  private async home() {
     const epoch = this.epoch;
-    this.speechId++;
-    await this.speech?.interrupt();
-    if (epoch !== this.epoch) return;
-    const snapshot = this.agent.snapshot();
-    const approval = snapshot.sessions[this.state.workspaceId]?.approval;
-    if (approval) {
-      if (approval.kind === "question" && approval.questions?.length === 1) {
-        this.agent.answer(
-          true,
-          { [approval.questions[0].id]: value },
-          this.state.workspaceId,
-          approval.id,
-        );
-      } else if (
-        /^(?:yes|oui|approve|approuve|allow|autorise|no|non|deny|refuse)[.!?]*$/i.test(
-          value,
-        ) &&
-        approval.kind !== "question"
-      ) {
-        this.agent.answer(
-          !/^(?:no|non|deny|refuse)/i.test(value),
-          undefined,
-          this.state.workspaceId,
-          approval.id,
-        );
-      } else {
-        this.speak(
-          this.state.language === "fr"
-            ? "J’ai besoin de votre réponse dans Astra pour continuer."
-            : "Please answer the question in Astra so I can continue.",
-        );
-        return;
-      }
-      this.state.status = "thinking";
-      this.changed();
-      return;
-    }
-    if (!this.awaitingReply || !snapshot.sessions[this.state.workspaceId]?.busy)
-      this.replyIds = new Set(
-        snapshot.assistant?.messages.map((message) => message.id),
-      );
-    this.state.task = value;
-    this.state.transcript = "";
+    this.outputMuted = Boolean(this.media);
+    this.state.task = "Home";
     this.state.reply = "";
-    this.state.error = null;
-    this.state.status = "thinking";
-    this.awaitingReply = true;
-    this.wasWorking = false;
-    this.prompted = null;
+    this.state.transcript = "";
+    this.assistantStreaming = false;
+    try {
+      await Promise.all([this.navigateHome(), this.media?.muteOutput(true)]);
+      if (epoch !== this.epoch) return;
+      this.state.error = null;
+      this.state.status = this.media ? "listening" : "standby";
+      if (this.media) this.armIdle();
+    } catch (error) {
+      if (epoch !== this.epoch) return;
+      this.state.error = error instanceof Error ? error.message : String(error);
+    }
     this.changed();
-    await this.agent.send(value, this.state.workspaceId);
   }
-  observe(snapshot: Snapshot) {
-    if (!this.state.active || !this.state.workspaceId || !this.awaitingReply)
-      return;
-    const session = snapshot.sessions[this.state.workspaceId];
-    if (session?.approval && session.approval.id !== this.prompted) {
-      this.prompted = session.approval.id;
-      this.speak(
-        spokenReply(
-          session.approval.questions
-            ?.map((question) => question.question)
-            .join(" ") || session.approval.summary,
+
+  private realtime(message: RpcMessage) {
+    if (!this.state.active) return;
+    const params = message.params ?? {};
+    if (
+      message.method === "thread/realtime/sdp" &&
+      typeof params.sdp === "string"
+    ) {
+      const pending = this.pendingSdp;
+      this.pendingSdp = null;
+      if (pending) {
+        clearTimeout(pending.timer);
+        pending.resolve(params.sdp);
+      }
+    } else if (message.method === "thread/realtime/error")
+      this.fail(
+        String(params.message ?? "GPT-Live stopped. Start Astra again."),
+      );
+    else if (message.method === "thread/realtime/closed" && this.media)
+      this.fail(
+        String(
+          params.reason ?? "The voice connection closed. Start Astra again.",
         ),
       );
-      return;
-    }
-    if (session?.busy) {
-      this.wasWorking = true;
-      if (session.approval || this.state.status === "speaking") return;
-      if (this.state.status !== "thinking") {
-        this.state.status = "thinking";
-        this.changed();
+    else if (
+      message.method === "thread/realtime/transcript/delta" &&
+      typeof params.delta === "string"
+    ) {
+      if (params.role === "user") {
+        if (!this.userStreaming) {
+          this.state.transcript = "";
+          this.state.reply = "";
+          this.replyPrefix = "";
+          this.userStreaming = true;
+          this.assistantStreaming = false;
+        }
+        this.state.transcript += params.delta;
+        this.state.status = "listening";
+        if (this.outputMuted) {
+          this.outputMuted = false;
+          void this.media?.muteOutput(false).catch((error) => this.fail(error));
+        }
+      } else if (params.role === "assistant" && !this.outputMuted) {
+        if (!this.assistantStreaming) {
+          this.replyPrefix = this.state.reply
+            ? `${this.state.reply.trimEnd()} `
+            : "";
+          this.state.reply = this.replyPrefix;
+          this.assistantStreaming = true;
+        }
+        this.state.reply += params.delta;
+        this.state.status = "speaking";
       }
-      return;
+      clearTimeout(this.idle);
+      this.changed();
+    } else if (
+      message.method === "thread/realtime/transcript/done" &&
+      typeof params.text === "string"
+    ) {
+      if (params.role === "user") {
+        this.state.task = params.text;
+        this.state.transcript = "";
+        this.userStreaming = false;
+        if (isHomeShortcut(params.text)) void this.home();
+      } else if (params.role === "assistant" && !this.outputMuted) {
+        let prefix = this.replyPrefix;
+        if (!this.assistantStreaming)
+          prefix = this.state.reply ? `${this.state.reply.trimEnd()} ` : "";
+        this.state.reply = `${prefix}${params.text}`;
+        this.assistantStreaming = false;
+        this.state.status =
+          this.state.workspaceId &&
+          this.agent.snapshot().sessions[this.state.workspaceId]?.busy
+            ? "thinking"
+            : "listening";
+        if (this.state.status === "listening") this.armIdle();
+      }
+      this.changed();
     }
-    if (!this.wasWorking) return;
-    this.awaitingReply = false;
-    const reply = snapshot.assistant?.messages
-      .slice()
-      .reverse()
-      .find(
-        (message) =>
-          message.role === "assistant" &&
-          message.text.trim() &&
-          !this.replyIds.has(message.id),
-      );
-    const error =
-      session?.error ||
-      (snapshot.status === "offline"
-        ? "The connection to Codex stopped."
-        : null);
-    this.state.error = error;
-    const fallback =
-      this.state.language === "fr"
-        ? "La demande est terminée."
-        : "The request finished.";
-    this.speak(
-      error
-        ? this.state.language === "fr"
-          ? `Je n’ai pas pu terminer. ${error}`
-          : `I couldn't finish that request. ${error}`
-        : spokenReply(reply?.text ?? fallback),
-    );
+  }
+  observe(snapshot: Snapshot) {
+    if (
+      !this.state.active ||
+      !this.state.workspaceId ||
+      this.state.status === "starting" ||
+      this.state.status === "standby"
+    )
+      return;
+    const session = snapshot.sessions[this.state.workspaceId];
+    if (session?.busy && this.state.status === "listening") {
+      this.state.status = "thinking";
+      clearTimeout(this.idle);
+      this.changed();
+    }
+    if (session?.error && session.error !== this.state.error) {
+      this.state.error = session.error;
+      this.changed();
+    }
   }
 }

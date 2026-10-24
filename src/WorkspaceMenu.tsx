@@ -1,6 +1,7 @@
 import {
   DotsThreeIcon,
   PencilSimpleIcon,
+  StarIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
@@ -16,11 +17,13 @@ export function WorkspaceMenu({
   busy,
   onRename,
   onDelete,
+  onFavorite,
 }: {
   workspace: Workspace;
   busy: boolean;
   onRename: (id: string, name: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onFavorite?: () => Promise<void>;
 }) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -138,6 +141,19 @@ export function WorkspaceMenu({
           </form>
         ) : (
           <>
+            {onFavorite && (
+              <button
+                type="button"
+                className="workspace-menu-item"
+                disabled={pending}
+                onClick={() => void run(onFavorite)}
+              >
+                <StarIcon weight={workspace.favorite ? "fill" : "regular"} />
+                {workspace.favorite
+                  ? "Retirer des favoris"
+                  : "Ajouter aux favoris"}
+              </button>
+            )}
             <button
               type="button"
               className="workspace-menu-item"

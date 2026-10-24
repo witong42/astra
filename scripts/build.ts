@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appIcon } from "./icon";
 
@@ -11,10 +11,12 @@ if (process.platform === "darwin") {
     "xcrun",
     [
       "swiftc",
+      "-parse-as-library",
       "-swift-version",
       "5",
       "-O",
       join(root, "native/Voice.swift"),
+      join(root, "native/SpeechRecognition.swift"),
       "-o",
       join(outdir, "voice-helper"),
       "-Xlinker",
@@ -56,6 +58,14 @@ const renderer = await Bun.build({
   minify: true,
   define: { "process.env.NODE_ENV": '"production"' },
 });
+const cli = await Bun.build({
+  entrypoints: [join(root, "src/astra-cli.ts")],
+  outdir,
+  target: "bun",
+  format: "cjs",
+  naming: "astra.cjs",
+  minify: false,
+});
 const canvas = await Bun.build({
   entrypoints: [join(root, "src/canvas-runtime.ts")],
   target: "browser",
@@ -75,9 +85,10 @@ await Bun.write(
     `<script>${runtime}</script>`,
   ),
 );
-for (const result of [main, renderer])
+for (const result of [main, renderer, cli])
   if (!result.success)
     throw new AggregateError(result.logs, "Astra build failed");
+chmodSync(join(outdir, "astra.cjs"), 0o755);
 for (const file of ["index.html", "styles.css"])
   copyFileSync(join(root, "src", file), join(outdir, file));
 console.log("Built Astra desktop and renderer.");

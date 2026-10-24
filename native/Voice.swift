@@ -1,5 +1,5 @@
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Speech
 import NaturalLanguage
 
@@ -7,7 +7,6 @@ let silenceDelay: TimeInterval = 1.05
 let recognitionRotation: TimeInterval = 48
 let microphoneBufferFrames: AVAudioFrameCount = 1024
 let preRollDuration: TimeInterval = 2.5
-let maximumRecognitionFailures = 3
 func emit(_ value: [String: Any]) {
     do { FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: value) + Data([10])) }
     catch { FileHandle.standardError.write(Data("Astra could not encode a voice event.\n".utf8)) }
@@ -17,10 +16,9 @@ func normalized(_ text: String) -> String {
     text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
         .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
 }
+func isHomeShortcut(_ text: String) -> Bool { normalized(text) == "home" }
 final class RecognitionLane {
     let language: String
-    let request = SFSpeechAudioBufferRecognitionRequest()
-    var task: SFSpeechRecognitionTask?
     var text = ""
     var confidence: Float = 0
     init(_ language: String) { self.language = language }
@@ -35,9 +33,8 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     private let engine = AVAudioEngine()
     private let synthesizer = AVSpeechSynthesizer()
     private let requestLock = NSLock()
-    private var requests: [SFSpeechAudioBufferRecognitionRequest] = []
+    private var recognition: SpeechRecognition?
     private var preRoll: [AVAudioPCMBuffer] = []
-    private var recognizers: [String: SFSpeechRecognizer] = [:]
     private var lanes: [RecognitionLane] = []
     private var cycle = UUID()
     private var enabled = false
@@ -48,32 +45,22 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     private var spokenText = ""
     private var utteranceIds: [ObjectIdentifier: Int] = [:]
     private var lastLevel: TimeInterval = 0
-    private var failures = 0
     private var lastPartial = ""
     override init() { super.init(); synthesizer.delegate = self }
     func start(id: Any, standby: Bool) {
         AVCaptureDevice.requestAccess(for: .audio) { allowed in
             guard allowed else { self.failure(id, "Enable Microphone for Astra in System Settings > Privacy & Security."); return }
-            SFSpeechRecognizer.requestAuthorization { authorization in
-                DispatchQueue.main.async {
-                    guard authorization == .authorized else { self.failure(id, "Enable Speech Recognition for Astra in System Settings > Privacy & Security."); return }
-                    do {
-                        try self.beginListening(standby: standby)
-                        emit(["id": id, "result": ["locales": ["en-GB", "fr-FR"], "onDevice": true]])
-                    } catch { self.stop(); self.failure(id, error.localizedDescription) }
-                }
+            Task { @MainActor in
+                do {
+                    try await self.beginListening(standby: standby)
+                    emit(["id": id, "result": ["locales": ["en-GB", "fr-FR"], "onDevice": true]])
+                } catch { self.stop(); self.failure(id, error.localizedDescription) }
             }
         }
     }
     private func failure(_ id: Any, _ text: String) { emit(["id": id, "error": ["code": -32000, "message": text]]) }
-    private func beginListening(standby: Bool) throws {
+    private func beginListening(standby: Bool) async throws {
         guard !enabled else { return }
-        for (language, locale) in [("en", "en-GB"), ("fr", "fr-FR")] {
-            guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: locale)), recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
-                throw NSError(domain: "AstraVoice", code: 1, userInfo: [NSLocalizedDescriptionKey: "Enable \(locale) dictation in System Settings > Keyboard > Dictation to download its on-device speech support, then retry Astra."])
-            }
-            recognizers[language] = recognizer
-        }
         let input = engine.inputNode
         try input.setVoiceProcessingEnabled(true)
         let format = input.outputFormat(forBus: 0)
@@ -82,22 +69,21 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         }
         enabled = true
         wakeOnly = standby
-        startRecognition()
+        try await prepareRecognition()
         input.installTap(onBus: 0, bufferSize: microphoneBufferFrames, format: format) { buffer, _ in
+            guard let mono = monoMicrophoneBuffer(buffer) else { return }
             self.requestLock.lock()
-            for request in self.requests { request.append(buffer) }
-            if let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength), let from = buffer.floatChannelData, let to = copy.floatChannelData {
-                copy.frameLength = buffer.frameLength
-                for channel in 0..<Int(buffer.format.channelCount) { to[channel].update(from: from[channel], count: Int(buffer.frameLength)) }
-                self.preRoll.append(copy)
+            if let recognition = self.recognition { recognition.append(mono) }
+            else {
+                self.preRoll.append(mono)
                 var frames = self.preRoll.reduce(0) { $0 + Int($1.frameLength) }
                 while frames > Int(format.sampleRate * preRollDuration), self.preRoll.count > 1 { frames -= Int(self.preRoll.removeFirst().frameLength) }
             }
             self.requestLock.unlock()
             let now = Date.timeIntervalSinceReferenceDate
-            if now - self.lastLevel > 0.1, let samples = buffer.floatChannelData?[0] {
+            if now - self.lastLevel > 0.1, let samples = mono.floatChannelData?[0] {
                 self.lastLevel = now
-                let count = Int(buffer.frameLength)
+                let count = Int(mono.frameLength)
                 var energy: Float = 0
                 for i in 0..<count { energy += samples[i] * samples[i] }
                 let level = min(1, sqrt(energy / Float(max(1, count))) * 8)
@@ -110,47 +96,33 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     }
     func listen() { guard enabled else { return }; if wakeOnly { wakeOnly = false; startRecognition() } }
     func standby() { guard enabled else { return }; interrupt(); wakeOnly = true; startRecognition() }
-    private func startRecognition(preRoll includePreRoll: Bool = false) {
+    private func startRecognition() {
+        Task { @MainActor in
+            do { try await self.prepareRecognition() }
+            catch { if self.enabled { event("voice/error", ["message": error.localizedDescription]); self.stop() } }
+        }
+    }
+    private func prepareRecognition() async throws {
         guard enabled else { return }
         silence?.cancel(); rotation?.cancel()
         cycle = UUID()
         let current = cycle
-        for lane in lanes { lane.task?.cancel() }
-        lanes = (wakeOnly ? ["en"] : ["en", "fr"]).map { RecognitionLane($0) }
+        requestLock.withLock { recognition?.stop(); recognition = nil; preRoll = [] }
+        lanes = recognitionLanguages.map { RecognitionLane($0.0) }
         lastPartial = ""
-        requestLock.lock()
-        for request in requests { request.endAudio() }
-        requests = lanes.map { $0.request }
-        let buffered = includePreRoll ? preRoll : []
-        if !includePreRoll { preRoll.removeAll(keepingCapacity: true) }
-        requestLock.unlock()
-        for lane in lanes {
-            let request = lane.request
-            request.requiresOnDeviceRecognition = true
-            request.shouldReportPartialResults = true
-            request.addsPunctuation = true
-            request.contextualStrings = ["Astra"]
-            request.taskHint = .dictation
-            for buffer in buffered { request.append(buffer) }
-            lane.task = recognizers[lane.language]?.recognitionTask(with: request) { result, error in
-                DispatchQueue.main.async {
-                    guard self.enabled, self.cycle == current else { return }
-                    if let result {
-                        self.failures = 0
-                        lane.text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let segments = result.bestTranscription.segments
-                        lane.confidence = segments.isEmpty ? 0 : segments.reduce(0) { $0 + $1.confidence } / Float(segments.count)
-                        self.received(lane, final: result.isFinal)
-                    } else if let error {
-                        let native = error as NSError
-                        if native.code == 1110 || native.code == 203 || native.code == 216 { self.startRecognition(); return }
-                        self.failures += 1
-                        if self.failures < maximumRecognitionFailures {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { if self.cycle == current { self.startRecognition() } }
-                        } else { event("voice/error", ["message": "Speech recognition stopped: " + error.localizedDescription]); self.stop() }
-                    }
-                }
-            }
+        guard let monoFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: engine.inputNode.outputFormat(forBus: 0).sampleRate, channels: 1, interleaved: false) else { return }
+        let prepared = try await SpeechRecognition.prepare(inputFormat: monoFormat, onResult: { language, text, confidence in
+            guard self.enabled, self.cycle == current, let lane = self.lanes.first(where: { $0.language == language }) else { return }
+            lane.text = text; lane.confidence = confidence
+            self.received(lane, final: false)
+        }, onError: { error in
+            guard self.enabled, self.cycle == current else { return }
+            event("voice/error", ["message": "Speech recognition stopped: " + error.localizedDescription]); self.stop()
+        })
+        guard enabled, cycle == current else { prepared.stop(); return }
+        requestLock.withLock {
+            for buffer in preRoll { prepared.append(buffer) }
+            preRoll = []; recognition = prepared
         }
         let rotate = DispatchWorkItem { if self.wakeOnly || self.bestText().0.isEmpty { self.startRecognition() } else { self.finishUtterance() } }
         rotation = rotate
@@ -160,19 +132,30 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         let plain = normalized(lane.text)
         guard !plain.isEmpty else { if final { startRecognition() }; return }
         if wakeOnly {
+            silence?.cancel()
+            if isHomeShortcut(plain) {
+                let current = cycle
+                let home = DispatchWorkItem {
+                    guard self.enabled, self.wakeOnly, self.cycle == current, isHomeShortcut(self.bestText().0) else { return }
+                    event("voice/home")
+                    self.startRecognition()
+                }
+                silence = home
+                DispatchQueue.main.asyncAfter(deadline: .now() + silenceDelay, execute: home)
+                return
+            }
             if plain.split(separator: " ").contains("astra") {
                 wakeOnly = false
                 event("voice/wake")
-                startRecognition(preRoll: true)
-            } else if final { startRecognition() }
-            return
+                lastPartial = ""
+            } else { return }
         }
         if synthesizer.isSpeaking && normalized(spokenText).contains(plain) { return }
         let (text, language) = bestText()
-        guard !text.isEmpty, text != lastPartial else { return }
+        guard text != lastPartial || text.isEmpty else { return }
         if synthesizer.isSpeaking { interrupt() }
         lastPartial = text
-        event("voice/partial", ["text": text, "language": language])
+        if !text.isEmpty { event("voice/partial", ["text": text, "language": language]) }
         silence?.cancel()
         let finish = DispatchWorkItem { self.finishUtterance() }
         silence = finish
@@ -187,7 +170,7 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         guard enabled, !wakeOnly else { return }
         let (text, language) = bestText()
         startRecognition()
-        if !text.isEmpty { event("voice/final", ["text": text, "language": language]) }
+        event("voice/final", ["text": text, "language": language])
     }
     func speak(_ text: String, id: Int, language: String) {
         interrupt()
@@ -207,11 +190,9 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         enabled = false
         silence?.cancel(); rotation?.cancel()
         cycle = UUID()
-        for lane in lanes { lane.task?.cancel() }
         lanes = []
         requestLock.lock()
-        for request in requests { request.endAudio() }
-        requests = []; preRoll = []
+        recognition?.stop(); recognition = nil; preRoll = []
         requestLock.unlock()
         if engine.isRunning { engine.stop() }
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
@@ -227,6 +208,10 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         if !synthesizer.isSpeaking { spokenText = ""; if reset { startRecognition() } }
     }
 }
+#if !ASTRA_SPEECH_TEST
+@main
+struct AstraVoice {
+static func main() {
 let voice = VoiceEngine()
 DispatchQueue.global(qos: .userInitiated).async {
     while let line = readLine() {
@@ -250,3 +235,6 @@ DispatchQueue.global(qos: .userInitiated).async {
     DispatchQueue.main.async { voice.stop(); exit(0) }
 }
 RunLoop.main.run()
+}
+}
+#endif

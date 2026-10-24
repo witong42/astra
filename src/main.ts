@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
+import type { Server } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,9 +14,12 @@ import {
   Tray,
 } from "electron";
 import { z } from "zod";
+import type { AppController } from "./app-control";
 import { runAppleScript } from "./applescript";
-import { CodexBackend } from "./backend";
+import { astraSocketPath, startAstraApi } from "./astra-api";
+import { CodexBackend, findCodex } from "./backend";
 import { canvasAckSchema } from "./canvas";
+import { CodexLiveMedia } from "./live-media";
 import { NativeSpeech } from "./native-speech";
 import { externalWebUrl } from "./navigation";
 import { loadState, saveState } from "./storage";
@@ -43,6 +47,27 @@ let saved: SavedState | null = null;
 let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let quitting = false;
+let api: Server | null = null;
+let controlQueue = Promise.resolve<unknown>(undefined);
+const controlInterface: AppController = (request) => {
+  const operation = controlQueue.then(async () => {
+    if (!window || window.isDestroyed())
+      throw new Error("Astra's window is unavailable.");
+    if (request.action !== "status" && !HIDDEN_TEST_WINDOW) await showWindow();
+    const result = await window.webContents.executeJavaScript(
+      `(()=>{if(!window.astraControl)throw new Error("Astra's interface is still opening.");return window.astraControl(${JSON.stringify(request)});})()`,
+    );
+    return request.action === "status"
+      ? {
+          ...result,
+          windowVisible: window.isVisible(),
+          voice: voice.snapshot().status,
+        }
+      : result;
+  });
+  controlQueue = operation.catch(() => {});
+  return operation;
+};
 
 app.setName("Astra");
 app.setPath("userData", DATA_DIRECTORY);
@@ -97,8 +122,8 @@ function installHandlers() {
     });
   };
   handle("voiceSnapshot", () => voice.snapshot());
-  handle("startVoice", async () => {
-    await voice.start();
+  handle("startVoice", async (standby) => {
+    await voice.start(z.boolean().optional().parse(standby));
     if (voice.snapshot().active && voice.snapshot().status !== "starting")
       backend.setVoiceEnabled(true);
   });
@@ -124,6 +149,9 @@ function installHandlers() {
       z.string().max(24_000).parse(text),
       z.string().uuid().optional().parse(workspaceId),
     ),
+  );
+  handle("sendAssistant", (text) =>
+    backend.sendAssistant(z.string().max(24_000).parse(text)),
   );
   handle("interrupt", (workspaceId) =>
     backend.interrupt(z.string().uuid().optional().parse(workspaceId)),
@@ -302,7 +330,7 @@ function updateVoice(state: VoiceState) {
             backend.setVoiceEnabled(false);
           } else
             void voice
-              .start()
+              .start(true)
               .then(() => backend.setVoiceEnabled(voice.snapshot().active))
               .catch((error) =>
                 dialog.showErrorBox(
@@ -386,12 +414,14 @@ app
     mkdirSync(DATA_DIRECTORY, { recursive: true, mode: 0o700 });
     const cwd = existsSync(__PROJECT_ROOT__) ? __PROJECT_ROOT__ : homedir();
     const state = loadState(join(DATA_DIRECTORY, "workspace.json"), cwd);
-    backend = new CodexBackend(state, broadcast, persist);
+    backend = new CodexBackend(state, broadcast, persist, controlInterface);
     voice = new VoiceSession(
       backend,
       (onEvent) =>
         new NativeSpeech(join(app.getAppPath(), "dist/voice-helper"), onEvent),
+      (onEvent) => new CodexLiveMedia(findCodex(), onEvent),
       updateVoice,
+      () => controlInterface({ action: "home" }),
     );
     app.setAboutPanelOptions({
       applicationName: "Astra",
@@ -441,6 +471,15 @@ app
       ]),
     );
     await createWindow();
+    api = await startAstraApi(astraSocketPath(DATA_DIRECTORY), (request) => {
+      if (quitting)
+        throw new Error("Astra is quitting. Retry after opening it again.");
+      return backend.appAction(request);
+    });
+    api.on("error", (error) => {
+      backend.state.error = `Astra's local API failed: ${error.message}`;
+      broadcast(backend.snapshot());
+    });
     updateVoice(voice.snapshot());
     if (state.voiceEnabled && !HIDDEN_TEST_WINDOW)
       void voice.start(true).catch((error) => {
@@ -463,10 +502,12 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   event.preventDefault();
   quitting = true;
+  api?.close();
   voice?.stop();
   tray?.destroy();
   tray = null;
-  void flushRenderer()
+  void controlQueue
+    .then(() => flushRenderer())
     .then(async () => {
       if (saveTimer) clearTimeout(saveTimer);
       if (saved) {

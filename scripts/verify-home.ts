@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import { initialJournal } from "../src/journal";
 import { loadState, newWorkspace, saveState } from "../src/storage";
 import type { Snapshot } from "../src/types";
 import { desktopClient } from "./desktop-client";
 
-const PROFILE = "/tmp/codexos-home-check";
+const PROFILE = process.env.CODEXOS_DATA_DIR ?? "/tmp/codexos-home-check";
 const ROOT = join(import.meta.dir, "..");
 const MARKDOWN =
   '# Your weekly plan\n\n**Keep it focused.** Choose three priorities and leave room to think.\n\n1. Finish the orbit lab\n2. Plan the next release\n\n- [x] Create the canvas\n- [ ] Review the details\n\n| Project | Status |\n| --- | --- |\n| Orbit lab | Ready |\n| Planner | In progress |\n\n```ts\nconst priority = "Make one useful thing";\nconst veryLongLine = "' +
@@ -43,6 +44,30 @@ if (process.argv.includes("--prepare")) {
   const blank = newWorkspace(ROOT);
   state.workspaces = [orbit, planner, notes, blank];
   state.activeId = planner.id;
+  state.assistant = newWorkspace(ROOT);
+  state.assistant.name = "Astra";
+  state.voiceEnabled = false;
+  state.journal = undefined;
+  state.journal = initialJournal(state);
+  state.journal.push(
+    {
+      id: "qa-voice",
+      at: Date.now(),
+      kind: "user",
+      source: "voice",
+      text: "Astra, ouvre le planning.",
+      workspaceId: state.assistant.id,
+    },
+    {
+      id: "qa-action",
+      at: Date.now(),
+      kind: "action",
+      source: "tool",
+      text: "Mini-app ouverte · Weekly planner",
+      workspaceId: planner.id,
+      status: "completed",
+    },
+  );
   saveState(join(PROFILE, "workspace.json"), state);
   console.log(
     "HOME_PROFILE_PREPARED",
@@ -92,7 +117,7 @@ try {
   assert.equal(await visible(".home-screen"), true);
   assert.equal(
     await client.evaluate("document.querySelectorAll('.app-tile').length"),
-    3,
+    4,
   );
   assert.equal(
     await client.evaluate("document.querySelectorAll('.library-row').length"),
@@ -100,11 +125,45 @@ try {
   );
   assert.equal(
     await client.evaluate(
-      "document.querySelectorAll('.library-row .favorite-toggle:disabled').length",
+      "document.querySelector('.home-screen').dataset.layout",
+    ),
+    "horizon",
+  );
+  assert.equal(
+    await client.evaluate(
+      "document.querySelectorAll('.desktop-toolbar button').length",
     ),
     1,
   );
   await client.screenshot("test-results/home-wide.png");
+  await click("#chat-toggle");
+  await wait(
+    () => client.evaluate("document.activeElement?.getAttribute('aria-label')"),
+    (value) => value === "Message Astra",
+    "Home journal focus",
+  );
+  await wait(
+    () =>
+      client.evaluate(
+        "Math.abs(document.querySelector('.chat-drawer').getBoundingClientRect().right-innerWidth)<1",
+      ),
+    Boolean,
+    "right journal position",
+  );
+  assert.equal(
+    await client.evaluate(
+      "document.querySelector('.journal-history').textContent.includes('Astra, ouvre le planning.')",
+    ),
+    true,
+  );
+  assert.equal(
+    await client.evaluate(
+      "document.querySelector('.journal-result.completed').textContent.includes('Effectuée')",
+    ),
+    true,
+  );
+  await client.screenshot("test-results/home-journal.png");
+  await click(".close-chat");
   await click(`.app-tile[data-workspace-id="${planner.id}"]`);
   await wait(
     () => visible(".home-screen"),
@@ -145,7 +204,7 @@ try {
   await click("#chat-toggle");
   await wait(
     () => client.evaluate("document.activeElement?.getAttribute('aria-label')"),
-    (value) => value === "Message Codex",
+    (value) => value === "Message Astra",
     "composer focus",
   );
   assert.equal(
@@ -230,16 +289,15 @@ try {
     );
   await wait(
     () => client.evaluate("document.querySelectorAll('.app-tile').length"),
-    (count) => count === 0,
-    "empty favorites",
+    (count) => count === 4,
+    "all apps remain visible without favorites",
   );
-  assert.equal(await visible(".home-empty"), true);
   await client.evaluate(
-    `document.querySelector('.library-open[data-workspace-id="${planner.id}"]').closest('.library-row').querySelector('.favorite-toggle').click()`,
+    `window.codexos.setFavorite(${JSON.stringify(planner.id)},true)`,
   );
   await wait(
     () => client.evaluate("document.querySelectorAll('.app-tile').length"),
-    (count) => count === 1,
+    (count) => count === 4,
     "favorite added",
   );
   await client.evaluate("window.codexosFlush()");
@@ -253,7 +311,7 @@ try {
   await wait(() => visible(".home-screen"), Boolean, "Home on reload");
   assert.equal(
     await client.evaluate("document.querySelectorAll('.app-tile').length"),
-    1,
+    4,
   );
   for (const [width, height] of [
     [1440, 920],
@@ -302,7 +360,8 @@ try {
     );
   }
   await client.call("Emulation.clearDeviceMetricsOverride");
-  await click(".new-app-button");
+  await click("#chat-toggle");
+  await click('.journal-tools [aria-label="Créer une mini-app"]');
   const next = await wait(
     snapshot,
     (state) => state.activeId !== planner.id,
@@ -324,6 +383,9 @@ try {
   assert.equal(client.errors.length, 0);
   const result = {
     homeOnLaunch: true,
+    horizonLayout: true,
+    journalOnHomeAndRight: true,
+    voiceAndActionHistory: true,
     favoritesPersist: true,
     fullScreenCanvas: true,
     drawerKeepsCanvasSize: true,

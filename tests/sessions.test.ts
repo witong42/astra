@@ -67,6 +67,8 @@ let commandsRead = 0;
 let rejectDeletes = false;
 let holdDeletes = false;
 let alreadyDeleted = false;
+let resumeError = null;
+let forkError = null;
 const pendingDeletes = [];
 const complete = (threadId, status = 'completed') => send({method:'turn/completed', params:{threadId, turn:{id:turns.get(threadId),status}}});
 createInterface({input:process.stdin}).on('line', line => {
@@ -78,7 +80,9 @@ createInterface({input:process.stdin}).on('line', line => {
   if (method === 'model/list') send({id,result:{data:[{id:'test',model:'test',displayName:'Test',isDefault:true,defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}],serviceTiers:[]}]}});
   if (method === 'config/read') send({id,result:{config:{model:'test'}}});
   if (method === 'thread/start') send({id,result:{thread:{id:'thread-'+ ++threadSequence}}});
-  if (method === 'thread/resume') send({id,result:{thread:{id:params.threadId}}});
+  if (method === 'thread/resume') send(resumeError ? {id,error:{code:-32000,message:resumeError}} : {id,result:{thread:{id:params.threadId}}});
+  if (method === 'thread/fork') send(forkError ? {id,error:{code:-32000,message:forkError}} : {id,result:{thread:{id:'fork-'+ ++threadSequence}}});
+  if (method === 'thread/realtime/start' || method === 'thread/realtime/stop') send({id,result:{}});
   if (method === 'thread/delete') {
     if(alreadyDeleted) send({id,error:{code:-32000,message:'no rollout found for thread id '+params.threadId}});
     else if(rejectDeletes) send({id,error:{code:-32000,message:'Thread cleanup failed'}});
@@ -120,6 +124,8 @@ setInterval(() => {
     if (command.kind === 'hold-starts') holdStarts = true;
     if (command.kind === 'reject-deletes') rejectDeletes = command.value;
     if (command.kind === 'already-deleted') alreadyDeleted = true;
+    if (command.kind === 'reject-resumes') resumeError = command.value;
+    if (command.kind === 'reject-forks') forkError = command.value;
     if (command.kind === 'hold-deletes') holdDeletes = true;
     if (command.kind === 'release-deletes') { holdDeletes=false; for(const id of pendingDeletes.splice(0)) send({id,result:{}}); }
     if (command.kind === 'release-starts') {
@@ -209,6 +215,8 @@ test("CodexOS grants full access to new and saved sessions without changing mode
       'approval_policy="never"',
       "-c",
       'sandbox_mode="danger-full-access"',
+      "-c",
+      'experimental_realtime_webrtc_call_base_url="https://chatgpt.com/backend-api/codex"',
     ]);
     workspace(b).threadId = "saved-thread";
     await backend.send("Create A", a);
@@ -651,6 +659,7 @@ test("persisted workspace state excludes transient sessions and approvals", () =
       expect(saved).toBeDefined();
       expect(Object.keys(saved ?? {}).sort()).toEqual([
         "activeId",
+        "journal",
         "model",
         "reasoningEffort",
         "serviceTier",
@@ -942,12 +951,13 @@ test("Astra has a persistent hidden agent and exposes app tools only on its acti
     await backend.send("Bonjour Astra", assistantId);
     const start = requests("thread/start").at(-1);
     expect(start?.params?.dynamicTools).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: "codexos_app" }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ name: "astra" })]),
     );
     expect(start?.params?.developerInstructions).toContain("You are Astra");
     expect(backend.state.assistant?.name).toBe("Astra");
+    expect(start?.params?.developerInstructions).toContain(
+      "~/.local/bin/astra",
+    );
     const threadId = backend.state.assistant?.threadId;
     const turnId = requests("turn/start").at(-1)?.id;
     const turn = `turn-${threadId}-${turnId}`;
@@ -957,7 +967,7 @@ test("Astra has a persistent hidden agent and exposes app tools only on its acti
       params: {
         threadId,
         turnId: turn,
-        tool: "codexos_app",
+        tool: "astra",
         arguments: { action: "create", name: "Moon Notes" },
       },
     });
@@ -965,6 +975,13 @@ test("Astra has a persistent hidden agent and exposes app tools only on its acti
       (w) => w.name === "Moon Notes",
     );
     if (!created) throw new Error("Astra did not create the test app.");
+    await waitFor(
+      () =>
+        readWire().some(
+          (message) => message.id === "create-app" && message.result,
+        ),
+      "Home tool response",
+    );
     expect(backend.state.activeId).toBe(a);
     expect(
       readWire().find((m) => m.id === "create-app" && m.result)?.result,
@@ -975,7 +992,7 @@ test("Astra has a persistent hidden agent and exposes app tools only on its acti
       params: {
         threadId,
         turnId: "old-turn",
-        tool: "codexos_app",
+        tool: "astra",
         arguments: { action: "create", name: "Wrong App" },
       },
     });
@@ -996,4 +1013,303 @@ test("Astra has a persistent hidden agent and exposes app tools only on its acti
       }),
     ).toThrow();
     expect(created?.canvas).toEqual(canvas);
+  }));
+
+test("voice negotiates through Codex and delegated turns retain the Home app tools", () =>
+  withBackend(async ({ backend, event, requests, session, a, readWire }) => {
+    const received: RpcMessage[] = [];
+    const unsubscribe = backend.subscribeRealtime((message) =>
+      received.push(message),
+    );
+    await backend.startRealtimeVoice("voice-offer");
+    const assistant = backend.state.assistant;
+    if (!assistant?.threadId) throw new Error("Missing voice assistant");
+    const started = requests("thread/realtime/start")[0]?.params;
+    expect(started).toMatchObject({
+      threadId: assistant.threadId,
+      transport: { type: "webrtc", sdp: "voice-offer" },
+      model: "gpt-live-1.1-codex",
+      voice: "aube",
+      version: "v3",
+      clientManagedHandoffs: false,
+    });
+    expect(started?.prompt).toContain(
+      'The standalone spoken command "Home" is handled directly by Astra',
+    );
+    await event({
+      method: "thread/realtime/sdp",
+      params: { threadId: assistant.threadId, sdp: "voice-answer" },
+    });
+    expect(received.at(-1)?.params?.sdp).toBe("voice-answer");
+    await event({
+      method: "turn/started",
+      params: { threadId: assistant.threadId, turn: { id: "voice-turn" } },
+    });
+    expect(session(assistant.id)?.busy).toBe(true);
+    expect(session(a)?.busy ?? false).toBe(false);
+    await event({
+      id: "voice-tool",
+      method: "item/tool/call",
+      params: {
+        threadId: assistant.threadId,
+        turnId: "voice-turn",
+        tool: "astra",
+        arguments: { action: "list" },
+      },
+    });
+    expect(
+      readWire().find((message) => message.id === "voice-tool")?.result,
+    ).toMatchObject({ success: true });
+    await event({
+      method: "turn/completed",
+      params: {
+        threadId: assistant.threadId,
+        turn: { id: "voice-turn", status: "completed" },
+      },
+    });
+    expect(session(assistant.id)?.busy).toBe(false);
+    await backend.stopRealtimeVoice();
+    const count = received.length;
+    await event({
+      method: "thread/realtime/sdp",
+      params: { threadId: assistant.threadId, sdp: "stale-answer" },
+    });
+    expect(received).toHaveLength(count);
+    unsubscribe();
+  }));
+
+test("saved assistant tool declarations remain callable after the astra rename", () =>
+  withBackend(async ({ backend, event, readWire }) => {
+    await backend.startRealtimeVoice("voice-offer");
+    const threadId = backend.state.assistant?.threadId;
+    await event({
+      method: "turn/started",
+      params: { threadId, turn: { id: "saved-voice-turn" } },
+    });
+    await event({
+      id: "legacy-tool",
+      method: "item/tool/call",
+      params: {
+        threadId,
+        turnId: "saved-voice-turn",
+        tool: "codexos_app",
+        arguments: { action: "list" },
+      },
+    });
+    await waitFor(
+      () =>
+        readWire().some(
+          (message) =>
+            message.id === "legacy-tool" && message.result !== undefined,
+        ),
+      "legacy assistant tool response",
+    );
+    expect(
+      readWire().find((message) => message.id === "legacy-tool")?.result,
+    ).toMatchObject({ success: true });
+  }));
+
+test("Astra preserves its history when ChatGPT owns the saved assistant thread", () =>
+  withBackend(async ({ backend, requests, command, persisted }) => {
+    backend.ensureAssistantWorkspace();
+    const assistant = backend.state.assistant;
+    if (!assistant) throw new Error("Missing assistant");
+    assistant.threadId = "shared-assistant";
+    assistant.messages.push({
+      id: "history",
+      role: "user",
+      text: "Remember the Moon app",
+    });
+    const original = structuredClone(assistant);
+    const apps = structuredClone(backend.state.workspaces);
+    await command({
+      kind: "reject-resumes",
+      value: "thread shared-assistant already has an active writer",
+    });
+
+    await backend.startRealtimeVoice("voice-offer");
+
+    const forkId = assistant.threadId;
+    expect(forkId).not.toBe(original.threadId);
+    expect(assistant).toEqual({ ...original, threadId: forkId });
+    expect(backend.state.workspaces).toEqual(apps);
+    expect(requests("thread/fork")[0]?.params).toMatchObject({
+      threadId: original.threadId,
+      cwd: original.cwd,
+      model: backend.state.model,
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+      excludeTurns: true,
+    });
+    expect(requests("thread/fork")[0]?.params?.developerInstructions).toContain(
+      "You are Astra",
+    );
+    expect(requests("thread/realtime/start")[0]?.params?.threadId).toBe(forkId);
+    expect(persisted.at(-1)?.assistant?.threadId).toBe(forkId);
+    expect(requests("thread/delete")).toHaveLength(0);
+
+    await backend.stopRealtimeVoice();
+    await backend.startRealtimeVoice("next-offer");
+    expect(requests("thread/fork")).toHaveLength(1);
+    expect(requests("thread/resume")).toHaveLength(1);
+  }));
+
+test("failed writer recovery keeps the saved thread and can be retried", () =>
+  withBackend(async ({ backend, command, requests }) => {
+    backend.ensureAssistantWorkspace();
+    const assistant = backend.state.assistant;
+    if (!assistant) throw new Error("Missing assistant");
+    assistant.threadId = "shared-assistant";
+    await command({
+      kind: "reject-resumes",
+      value: "thread shared-assistant already has an active writer",
+    });
+    await command({ kind: "reject-forks", value: "Disk is full" });
+    await expect(backend.startRealtimeVoice("voice-offer")).rejects.toThrow(
+      "Disk is full",
+    );
+    expect(assistant.threadId).toBe("shared-assistant");
+    expect(requests("thread/realtime/start")).toHaveLength(0);
+    await command({ kind: "reject-forks", value: null });
+    await backend.startRealtimeVoice("retry-offer");
+    expect(assistant.threadId).not.toBe("shared-assistant");
+  }));
+
+test("writer recovery only applies to the hidden assistant and the exact ownership error", () =>
+  withBackend(async ({ backend, a, workspace, command, requests }) => {
+    workspace(a).threadId = "shared-app";
+    await command({
+      kind: "reject-resumes",
+      value: "thread shared-app already has an active writer",
+    });
+    await expect(backend.send("Continue my app", a)).rejects.toThrow(
+      "active writer",
+    );
+    backend.ensureAssistantWorkspace();
+    const assistant = backend.state.assistant;
+    if (!assistant) throw new Error("Missing assistant");
+    assistant.threadId = "saved-assistant";
+    await command({
+      kind: "reject-resumes",
+      value: "History could not be read",
+    });
+    await expect(backend.startRealtimeVoice("voice-offer")).rejects.toThrow(
+      "History could not be read",
+    );
+    expect(requests("thread/fork")).toHaveLength(0);
+    expect(assistant.threadId).toBe("saved-assistant");
+  }));
+
+test.each([null, "saved-assistant"])(
+  "voice and a simultaneous request load the assistant once (%s)",
+  (threadId) =>
+    withBackend(async ({ backend, requests }) => {
+      const assistantId = backend.ensureAssistantWorkspace();
+      const assistant = backend.state.assistant;
+      if (!assistant) throw new Error("Missing assistant");
+      assistant.threadId = threadId;
+      await Promise.all([
+        backend.startRealtimeVoice("voice-offer"),
+        backend.send("Open the Moon app", assistantId),
+      ]);
+      expect(
+        requests(threadId ? "thread/resume" : "thread/start"),
+      ).toHaveLength(1);
+      expect(requests("thread/realtime/start")[0]?.params?.threadId).toBe(
+        assistant.threadId,
+      );
+      expect(requests("turn/start")[0]?.params?.threadId).toBe(
+        assistant.threadId,
+      );
+    }),
+);
+
+test("live voice and confirmed tool actions share a persistent journal without duplicate transcript chunks", () =>
+  withBackend(async ({ backend, a, workspace, event, persisted }) => {
+    await backend.startRealtimeVoice("voice-offer");
+    const threadId = backend.state.assistant?.threadId;
+    await event({
+      method: "thread/realtime/transcript/delta",
+      params: { threadId, role: "user", delta: "Ouvre " },
+    });
+    await event({
+      method: "thread/realtime/transcript/delta",
+      params: { threadId, role: "user", delta: "la calculatrice" },
+    });
+    await event({
+      method: "thread/realtime/transcript/done",
+      params: { threadId, role: "user", text: "Ouvre la calculatrice" },
+    });
+    await event({
+      method: "thread/realtime/transcript/done",
+      params: {
+        threadId,
+        role: "assistant",
+        text: "La calculatrice est ouverte.",
+      },
+    });
+    await backend.send("Update this app", a);
+    const appThread = workspace(a).threadId;
+    await event({
+      method: "item/started",
+      params: {
+        threadId: appThread,
+        item: {
+          id: "cmd",
+          type: "commandExecution",
+          command: "open Calculator",
+        },
+      },
+    });
+    await event({
+      method: "item/completed",
+      params: {
+        threadId: appThread,
+        item: {
+          id: "cmd",
+          type: "commandExecution",
+          command: "open Calculator",
+          exitCode: 0,
+          aggregatedOutput: "Opened",
+        },
+      },
+    });
+    const journal = backend.state.journal ?? [];
+    expect(journal.filter((entry) => entry.source === "voice")).toHaveLength(2);
+    expect(journal.find((entry) => entry.kind === "user")?.text).toBe(
+      "Ouvre la calculatrice",
+    );
+    expect(journal.find((entry) => entry.id === `${a}:cmd`)).toMatchObject({
+      status: "completed",
+      detail: "open Calculator\nOpened",
+    });
+    expect(persisted.at(-1)?.journal).toEqual(journal);
+  }));
+
+test("deleting an app also removes its journal traces while preserving other history", () =>
+  withBackend(async ({ backend, a, b, persisted }) => {
+    const at = Date.now();
+    backend.state.journal = [
+      {
+        id: "remove",
+        at,
+        kind: "action",
+        source: "tool",
+        text: "Private app action",
+        workspaceId: a,
+      },
+      {
+        id: "keep",
+        at,
+        kind: "user",
+        source: "voice",
+        text: "Keep my history",
+        workspaceId: b,
+      },
+    ];
+    await backend.deleteWorkspace(a);
+    expect(backend.state.journal?.map((entry) => entry.id)).toEqual(["keep"]);
+    expect(persisted.at(-1)?.journal?.map((entry) => entry.id)).toEqual([
+      "keep",
+    ]);
   }));

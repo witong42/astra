@@ -1,20 +1,23 @@
 import {
   ArrowUpRightIcon,
-  ChatCircleDotsIcon,
   FolderSimpleIcon,
-  HouseIcon,
   IconContext,
+  MicrophoneIcon,
+  MicrophoneSlashIcon,
   PlusIcon,
+  SidebarSimpleIcon,
   SquaresFourIcon,
-  StarIcon,
+  StopIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { createRef, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { VOICE_LABELS } from "./Astra";
+import { Astra } from "./Astra";
+import { type AppController, controlSurface } from "./app-control";
 import type { CanvasHandle } from "./CanvasSurface";
-import { Chat, Composer } from "./Chat";
+import { Composer } from "./Chat";
 import { HomeScreen } from "./HomeScreen";
+import { Journal } from "./JournalView";
 import { Surface } from "./SurfaceView";
 import { hasWorkspaceSurface } from "./surface";
 import type { Snapshot, Workspace } from "./types";
@@ -41,6 +44,15 @@ const STARTERS = [
       "Help me shape a new idea. Ask me one useful question first, then we can build an interactive workspace for it.",
   },
 ];
+const CONTROL_TIMEOUT_MS = 5_000;
+async function waitForInterface(check: () => boolean) {
+  const deadline = Date.now() + CONTROL_TIMEOUT_MS;
+  while (!check()) {
+    if (Date.now() >= deadline)
+      throw new Error("Astra's interface did not finish opening.");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
 
 function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -93,6 +105,14 @@ function App() {
     },
     [captureWorkspace],
   );
+  const returnHome = useCallback(
+    () =>
+      afterCapture(async () => {
+        setHome(true);
+        setChatOpen(false);
+      }),
+    [afterCapture],
+  );
   const onSend = useCallback(
     async (text: string, id: string) => {
       const status = snapshotRef.current?.status;
@@ -110,8 +130,7 @@ function App() {
     return unsubscribe;
   }, [onError]);
   const toggleVoice = useCallback(() => {
-    const action = window.codexos.startVoice();
-    void action.catch(onError);
+    void window.codexos.startVoice().catch(onError);
   }, [onError]);
   const pauseVoice = useCallback(() => {
     void window.codexos.stopVoice().catch(onError);
@@ -170,16 +189,19 @@ function App() {
     }
     if (id) previousWorkspace.current = id;
   }, [snapshot?.activeId]);
-  const approvalId = snapshot?.approval?.id;
+  const approvalId = Object.values(snapshot?.sessions ?? {})
+    .map((session) => session.approval?.id ?? "")
+    .filter(Boolean)
+    .join(",");
   useEffect(() => {
-    if (!home && approvalId !== undefined) setChatOpen(true);
-  }, [home, approvalId]);
+    if (approvalId) setChatOpen(true);
+  }, [approvalId]);
   useEffect(() => {
-    if (chatOpen && !home)
+    if (chatOpen)
       document
         .querySelector<HTMLTextAreaElement>(".composer textarea")
         ?.focus();
-  }, [chatOpen, home]);
+  }, [chatOpen]);
   const closeChat = () => {
     setChatOpen(false);
     document.getElementById("chat-toggle")?.focus();
@@ -226,10 +248,63 @@ function App() {
       throw error;
     }
   };
+  useEffect(() => {
+    const control: AppController = async (request) => {
+      if (request.action === "status")
+        return {
+          screen: home ? "home" : "app",
+          activeApp: snapshotRef.current?.activeId ?? null,
+        };
+      if (request.action === "home") {
+        await returnHome();
+        await waitForInterface(() =>
+          Boolean(document.querySelector(".home-screen")),
+        );
+        return { screen: "home" };
+      }
+      const id = request.id;
+      await afterCapture(async () => {
+        await window.codexos.selectWorkspace(id);
+        setHome(false);
+        setChatOpen(false);
+      });
+      await waitForInterface(
+        () =>
+          document.querySelector<HTMLElement>(".app-stage:not([inert])")
+            ?.dataset.workspaceId === id,
+      );
+      if (request.action === "open") return { screen: "app", activeApp: id };
+      await waitForInterface(() => {
+        const current = surfaceHandles.current.get(id)?.current;
+        const canvas = snapshotRef.current?.workspaces.find(
+          (workspace) => workspace.id === id,
+        )?.canvas;
+        return !canvas || Boolean(current && current.isReady?.() !== false);
+      });
+      const surface = surfaceHandles.current.get(id)?.current;
+      const root = document.querySelector<HTMLElement>(
+        ".generated-surface:not(.background-surface)",
+      );
+      if (!root)
+        throw new Error("This app has no rendered interface to inspect.");
+      const result = surface?.control
+        ? await surface.control(request)
+        : controlSurface(root, request);
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+      await surface?.flush();
+      return result;
+    };
+    window.astraControl = control;
+    return () => {
+      if (window.astraControl === control) delete window.astraControl;
+    };
+  }, [home, afterCapture, returnHome]);
   if (!snapshot)
     return (
       <div className="launch-screen">
-        <div className="brand-mark">&gt;_</div>
+        <img className="launch-icon" src="./icon.png" alt="" />
         <p>{errors[""] ?? "Opening your apps…"}</p>
       </div>
     );
@@ -255,59 +330,38 @@ function App() {
           : busy
             ? snapshot.activity
             : "Codex connected";
-  const favorite = (entry: Workspace) => {
-    void window.codexos.setFavorite(entry.id, !entry.favorite).catch(onError);
+  const favorite = (entry: Workspace) =>
+    window.codexos.setFavorite(entry.id, !entry.favorite);
+  const conversationWorkspace = home ? snapshot.assistant : workspace;
+  const conversationId = conversationWorkspace?.id ?? workspace.id;
+  const conversationSession = snapshot.sessions[conversationId];
+  const conversationSnapshot: Snapshot = {
+    ...snapshot,
+    status:
+      snapshot.status === "offline" || snapshot.status === "connecting"
+        ? snapshot.status
+        : conversationSession?.busy
+          ? "working"
+          : "ready",
+    activity: conversationSession?.activity ?? "Ready",
+    approval: conversationSession?.approval ?? null,
+    error: conversationSession?.error ?? null,
+    metrics: conversationSession?.metrics ?? null,
   };
+  const draftId = home ? "assistant" : workspace.id;
+  const voiceWorking =
+    voice.status === "speaking" || voice.status === "thinking";
   return (
     <div className={`desktop-app ${home ? "on-home" : "in-app"}`}>
       <header className="toolbar desktop-toolbar">
         <div className="desktop-navigation">
-          {voice.active && !home && (
-            <button
-              type="button"
-              className="astra-session-pill"
-              onClick={() => {
-                setHome(true);
-                setChatOpen(false);
-              }}
-            >
-              <span className="astra-status-dot" /> Astra ·{" "}
-              {VOICE_LABELS[voice.status]}
-            </button>
-          )}
           {!home && (
-            <>
-              <button
-                type="button"
-                className="home-button"
-                onClick={() =>
-                  void afterCapture(async () => {
-                    setHome(true);
-                    setChatOpen(false);
-                  }).catch(onError)
-                }
-              >
-                <HouseIcon />
-                Home
-              </button>
-              <span className="desktop-divider" />
-              <span className="app-title" title={workspace.name}>
-                {workspace.name}
-              </span>
-              <WorkspaceMenu
-                workspace={workspace}
-                busy={Boolean(snapshot.sessions[workspace.id]?.busy)}
-                onRename={window.codexos.renameWorkspace}
-                onDelete={deleteApp}
-              />
-            </>
+            <span className="app-title" title={workspace.name}>
+              {workspace.name}
+            </span>
           )}
         </div>
         <div className="toolbar-actions">
-          <span className="connection-label">
-            <span className={`status-dot ${snapshot.status}`} />
-            {connection}
-          </span>
           {snapshot.status === "offline" && (
             <button
               type="button"
@@ -317,62 +371,18 @@ function App() {
               Reconnect
             </button>
           )}
-          {home ? (
-            <button type="button" className="new-app-button" onClick={newApp}>
-              <PlusIcon />
-              New app
-            </button>
-          ) : (
-            <>
-              {workspace.canvas && workspace.canvas.history.length > 0 && (
-                <select
-                  className="version-picker"
-                  aria-label="Restore canvas version"
-                  value=""
-                  disabled={busy || workspace.canvas.pending.length > 0}
-                  onChange={(event) => {
-                    const index = Number(event.currentTarget.value);
-                    void afterCapture(() =>
-                      window.codexos.restoreCanvas(index, workspace.id),
-                    ).catch(onError);
-                  }}
-                >
-                  <option value="">
-                    Version {workspace.canvas.generation}
-                  </option>
-                  {workspace.canvas.history.map((entry, index) => (
-                    <option key={entry.generation} value={index}>
-                      Restore version {entry.generation}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <button
-                type="button"
-                className="favorite-toggle"
-                aria-label={
-                  workspace.favorite ? "Remove from Home" : "Add to Home"
-                }
-                aria-pressed={Boolean(workspace.favorite)}
-                disabled={!hasSurface}
-                onClick={() => favorite(workspace)}
-                title={workspace.favorite ? "Remove from Home" : "Add to Home"}
-              >
-                <StarIcon weight={workspace.favorite ? "fill" : "regular"} />
-              </button>
-              <button
-                type="button"
-                id="chat-toggle"
-                className={`chat-toggle ${chatOpen ? "selected" : ""}`}
-                aria-expanded={chatOpen}
-                aria-controls="chat-drawer"
-                onClick={() => (chatOpen ? closeChat() : setChatOpen(true))}
-              >
-                <ChatCircleDotsIcon />
-                Chat{snapshot.approval && <span className="attention-dot" />}
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            id="chat-toggle"
+            className={`chat-toggle journal-toggle ${chatOpen ? "selected" : ""}`}
+            aria-label="Ouvrir le journal"
+            aria-expanded={chatOpen}
+            aria-controls="chat-drawer"
+            onClick={() => (chatOpen ? closeChat() : setChatOpen(true))}
+          >
+            <SidebarSimpleIcon />
+            {approvalId && <span className="attention-dot" />}
+          </button>
         </div>
       </header>
       {visibleError && (
@@ -401,9 +411,6 @@ function App() {
             onDelete={deleteApp}
             voice={voice}
             onToggleVoice={toggleVoice}
-            onInterruptVoice={interruptVoice}
-            onPauseVoice={pauseVoice}
-            onError={onError}
           />
         )}
         <section
@@ -479,59 +486,148 @@ function App() {
             )}
           </div>
         </section>
+        {!home && (
+          <div className="floating-astra">
+            <Astra
+              voice={voice}
+              compact
+              onToggle={() => void returnHome().catch(onError)}
+            />
+          </div>
+        )}
         <aside
           id="chat-drawer"
-          className={`conversation-main chat-drawer ${chatOpen && !home ? "open" : ""}`}
-          aria-label="Chat"
-          aria-hidden={!chatOpen || home}
-          inert={!chatOpen || home}
+          className={`conversation-main chat-drawer journal-drawer ${chatOpen ? "open" : ""}`}
+          aria-label="Journal"
+          aria-hidden={!chatOpen}
+          inert={!chatOpen}
           onKeyDown={(event) => {
             if (
               event.key === "Escape" &&
               !event.defaultPrevented &&
               !event.currentTarget.querySelector(":popover-open")
-            )
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
               closeChat();
+            }
           }}
         >
-          <Chat
-            key={workspace.id}
+          <Journal
             snapshot={snapshot}
-            workspace={workspace}
+            onOpen={openWorkspace}
             onError={onError}
             onClose={closeChat}
           />
           <footer className="workspace-footer">
-            <div className="drawer-folder">
+            <div className="journal-tools">
               <button
                 type="button"
-                title={workspace.cwd}
-                onClick={() =>
-                  void afterCapture(() => window.codexos.chooseFolder()).catch(
-                    onError,
-                  )
+                onClick={voice.active ? pauseVoice : toggleVoice}
+                title={voice.active ? "Désactiver le micro" : "Activer la voix"}
+                aria-label={
+                  voice.active ? "Désactiver le micro" : "Activer la voix"
                 }
               >
-                <FolderSimpleIcon />
-                {workspace.cwd.split("/").filter(Boolean).at(-1) ??
-                  workspace.cwd}
+                {voice.active ? <MicrophoneIcon /> : <MicrophoneSlashIcon />}
               </button>
+              {voiceWorking && (
+                <button
+                  type="button"
+                  onClick={interruptVoice}
+                  aria-label="Interrompre Astra"
+                >
+                  <StopIcon />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={newApp}
+                title="Créer une mini-app"
+                aria-label="Créer une mini-app"
+              >
+                <PlusIcon />
+              </button>
+              {!home && (
+                <WorkspaceMenu
+                  workspace={workspace}
+                  busy={busy}
+                  onRename={window.codexos.renameWorkspace}
+                  onDelete={deleteApp}
+                  onFavorite={
+                    hasSurface ? () => favorite(workspace) : undefined
+                  }
+                />
+              )}
+              {!home &&
+                workspace.canvas &&
+                workspace.canvas.history.length > 0 && (
+                  <select
+                    className="version-picker"
+                    aria-label="Restore canvas version"
+                    value=""
+                    disabled={busy || workspace.canvas.pending.length > 0}
+                    onChange={(event) => {
+                      const index = Number(event.currentTarget.value);
+                      void afterCapture(() =>
+                        window.codexos.restoreCanvas(index, workspace.id),
+                      ).catch(onError);
+                    }}
+                  >
+                    <option value="">
+                      Version {workspace.canvas.generation}
+                    </option>
+                    {workspace.canvas.history.map((entry, index) => (
+                      <option key={entry.generation} value={index}>
+                        Restore version {entry.generation}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              <span className="journal-connection" title={connection}>
+                <span className={`status-dot ${snapshot.status}`} />
+              </span>
             </div>
+            {!home && (
+              <div className="drawer-folder">
+                <button
+                  type="button"
+                  title={workspace.cwd}
+                  onClick={() =>
+                    void afterCapture(() =>
+                      window.codexos.chooseFolder(),
+                    ).catch(onError)
+                  }
+                >
+                  <FolderSimpleIcon />
+                  {workspace.cwd.split("/").filter(Boolean).at(-1) ??
+                    workspace.cwd}
+                </button>
+              </div>
+            )}
+            <p className="journal-compose-context">
+              {home ? "Parler à Astra" : workspace.name}
+            </p>
             <Composer
-              key={workspace.id}
-              snapshot={snapshot}
-              draft={drafts[workspace.id] ?? ""}
+              key={draftId}
+              snapshot={conversationSnapshot}
+              draft={drafts[draftId] ?? ""}
               onDraftChange={(value) =>
                 setDrafts((previous) => ({
                   ...previous,
-                  [workspace.id]:
+                  [draftId]:
                     typeof value === "function"
-                      ? value(previous[workspace.id] ?? "")
+                      ? value(previous[draftId] ?? "")
                       : value,
                 }))
               }
-              onSend={(text) => onSend(text, workspace.id)}
-              workspaceId={workspace.id}
+              onSend={async (text) => {
+                if (home) {
+                  await captureWorkspace(workspace.id);
+                  await window.codexos.sendAssistant(text);
+                } else await onSend(text, workspace.id);
+              }}
+              workspaceId={conversationId}
               onError={onError}
             />
           </footer>

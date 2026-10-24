@@ -1,14 +1,8 @@
-import {
-  ArrowUpIcon,
-  ArrowUpRightIcon,
-  StopIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import {
   type Dispatch,
   memo,
   type SetStateAction,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -17,7 +11,7 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ModelControls } from "./ModelControls";
 import { externalWebUrl } from "./navigation";
-import type { Approval, Snapshot, Workspace } from "./types";
+import type { Approval, Snapshot } from "./types";
 
 const MARKDOWN_PLUGINS = [remarkGfm];
 function markdownUrl(url: string, key: string) {
@@ -28,7 +22,7 @@ function markdownUrl(url: string, key: string) {
     return "";
   }
 }
-const MarkdownMessage = memo(function MarkdownMessage({
+export const MarkdownMessage = memo(function MarkdownMessage({
   text,
   onError,
 }: {
@@ -170,92 +164,6 @@ export function ApprovalPanel({
   );
 }
 
-export function Chat({
-  snapshot,
-  workspace,
-  onError,
-  onClose,
-}: {
-  snapshot: Snapshot;
-  workspace: Workspace;
-  onError: (error: unknown) => void;
-  onClose?: () => void;
-}) {
-  const history = useRef<HTMLDivElement>(null);
-  const busy = snapshot.status === "working";
-  const lastText = workspace.messages.at(-1)?.text;
-  useEffect(() => {
-    if (lastText !== undefined || snapshot.approval)
-      history.current?.scrollTo({ top: history.current.scrollHeight });
-  }, [lastText, snapshot.approval]);
-  return (
-    <main className="chat-panel" aria-label="Conversation">
-      <div className="chat-header">
-        <h2>Conversation</h2>
-        {onClose && (
-          <button
-            type="button"
-            className="close-chat"
-            aria-label="Close chat"
-            onClick={onClose}
-          >
-            <XIcon />
-          </button>
-        )}
-      </div>
-      <div
-        className="messages"
-        ref={history}
-        aria-live="polite"
-        aria-relevant="additions text"
-      >
-        {workspace.messages.length === 0 && (
-          <div className="chat-intro">
-            <div className="small-mark" aria-hidden="true">
-              <ArrowUpRightIcon size={24} />
-            </div>
-            <h1>What are we making?</h1>
-            <p>
-              Ask a question, work on your code, or bring an idea to the canvas.
-            </p>
-          </div>
-        )}
-        {workspace.messages.map((message, index) => (
-          <article className={`message ${message.role}`} key={message.id}>
-            <div className="message-author">
-              {message.role === "user" ? "You" : "Codex"}
-              {message.role === "assistant" &&
-                busy &&
-                index === workspace.messages.length - 1 && (
-                  <span className="working-dot" />
-                )}
-            </div>
-            <div className="message-text">
-              <MarkdownMessage
-                onError={onError}
-                text={
-                  message.text ||
-                  (busy && index === workspace.messages.length - 1
-                    ? snapshot.activity
-                    : "Workspace updated.")
-                }
-              />
-            </div>
-          </article>
-        ))}
-        {snapshot.approval && (
-          <ApprovalPanel
-            key={snapshot.approval.id}
-            approval={snapshot.approval}
-            workspaceId={workspace.id}
-            onError={onError}
-          />
-        )}
-      </div>
-    </main>
-  );
-}
-
 export function Composer({
   snapshot,
   workspaceId,
@@ -294,11 +202,11 @@ export function Composer({
     <div className="composer-area">
       <div className="composer">
         <textarea
-          aria-label="Message Codex"
+          aria-label="Message Astra"
           placeholder={
             busy
-              ? "Guide Codex while it works…"
-              : "Ask Codex, or describe a view…"
+              ? "Précise ta demande pendant qu’Astra travaille…"
+              : "Écris à Astra…"
           }
           value={draft}
           maxLength={24_000}

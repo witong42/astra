@@ -129,3 +129,19 @@ test("Astra's hidden assistant and wake preference survive upgrades without chan
     rmSync(directory, { recursive: true });
   }
 });
+
+test("the continuous journal survives saving and reopening with its original timestamps", () => {
+  const path = file();
+  const state = loadState(path, "/tmp");
+  state.journal = [
+    {
+      id: "voice",
+      at: 12345,
+      kind: "user",
+      source: "voice",
+      text: "Ouvre la calculatrice",
+    },
+  ];
+  saveState(path, state);
+  expect(loadState(path, "/tmp").journal).toEqual(state.journal);
+});
