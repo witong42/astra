@@ -20,6 +20,11 @@ import { astraSocketPath, startAstraApi } from "./astra-api";
 import { CodexBackend, findCodex } from "./backend";
 import { canvasAckSchema } from "./canvas";
 import { CodexLiveMedia } from "./live-media";
+import {
+  INTERFACE_LANGUAGES,
+  type InterfaceLanguage,
+  messages,
+} from "./locale";
 import { NativeSpeech } from "./native-speech";
 import { externalWebUrl } from "./navigation";
 import { PhoneInput } from "./phone-input";
@@ -208,8 +213,19 @@ function installHandlers() {
       appNameSchema.parse(name),
     ),
   );
-  handle("deleteWorkspace", (id) => deleteWorkspace(id, false));
-  async function deleteWorkspace(id: unknown, confirmed: boolean) {
+  handle("deleteWorkspace", (id, language) =>
+    deleteWorkspace(
+      id,
+      false,
+      z.enum(INTERFACE_LANGUAGES).optional().parse(language),
+    ),
+  );
+  async function deleteWorkspace(
+    id: unknown,
+    confirmed: boolean,
+    language: InterfaceLanguage = "fr",
+  ) {
+    const t = messages[language];
     const workspaceId = z.string().uuid().parse(id);
     const workspace = backend.state.workspaces.find(
       (entry) => entry.id === workspaceId,
@@ -221,12 +237,11 @@ function installHandlers() {
       ? { response: 0 }
       : await dialog.showMessageBox(window, {
           type: "warning",
-          buttons: ["Delete App", "Cancel"],
+          buttons: [t.deleteApp, t.cancel],
           defaultId: 1,
           cancelId: 1,
-          message: `Delete ${workspace.name}?`,
-          detail:
-            "Permanently removes this app's conversation, canvas, saved versions, and Codex thread history. This cannot be undone. Project files and external backups are kept.",
+          message: t.deleteTitle,
+          detail: `${workspace.name}\n\n${t.deleteConfirm}`,
         });
     if (result.response !== 0) return false;
     try {
@@ -296,10 +311,12 @@ function installHandlers() {
   );
   handle("reconnect", () => backend.connect());
   handle("openExternal", (url) => shell.openExternal(externalWebUrl(url)));
-  handle("chooseFolder", async () => {
+  handle("chooseFolder", async (language) => {
+    const t =
+      messages[z.enum(INTERFACE_LANGUAGES).optional().parse(language) ?? "fr"];
     if (!window) return;
     const selected = await dialog.showOpenDialog(window, {
-      title: "Choose a workspace folder",
+      title: t.chooseFolder,
       defaultPath: backend.workspace.cwd,
       properties: ["openDirectory"],
     });

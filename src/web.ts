@@ -1,11 +1,15 @@
+import { getCopy, LANGUAGE_CHANGED_EVENT, readLanguage } from "./locale";
 import { APP_RELEASE } from "./version";
 import { WebBridge } from "./web-bridge";
 
 declare const __ASTRA_REMOTE_URL__: string;
 const root = document.getElementById("root");
+document.documentElement.lang = readLanguage();
 if (root) {
   root.innerHTML =
-    '<main class="remote-opening"><strong>Astra</strong><p>Connexion privée au Mac…</p><small></small></main>';
+    '<main class="remote-opening"><strong>Astra</strong><p></p><small></small></main>';
+  const opening = root.querySelector("p");
+  if (opening) opening.textContent = getCopy().privateConnection;
   const release = root.querySelector("small");
   if (release) release.textContent = APP_RELEASE;
 }
@@ -16,27 +20,28 @@ banner.hidden = true;
 const message = document.createElement("span");
 const retry = document.createElement("button");
 retry.type = "button";
-retry.textContent = "Recharger";
 retry.onclick = () => window.location.reload();
 const resume = document.createElement("button");
 resume.type = "button";
-resume.textContent = "Activer le son";
 resume.hidden = true;
 banner.append(message, retry, resume);
 document.body.append(banner);
 let connectionError: string | null = null;
 let playbackError: string | null = null;
 function updateBanner() {
+  retry.textContent = getCopy().reload;
+  resume.textContent = getCopy().enableSound;
   const error = connectionError ?? playbackError;
   banner.hidden = error === null;
   message.textContent = error;
   retry.hidden = connectionError === null;
   resume.hidden = connectionError !== null || playbackError === null;
 }
+window.addEventListener(LANGUAGE_CHANGED_EVENT, updateBanner);
 const remote = new WebBridge(
   __ASTRA_REMOTE_URL__,
   (connected, error) => {
-    connectionError = connected ? null : (error ?? "Connexion privée au Mac…");
+    connectionError = connected ? null : (error ?? getCopy().privateConnection);
     updateBanner();
   },
   (error) => {

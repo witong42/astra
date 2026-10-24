@@ -1,27 +1,8 @@
 import { type CSSProperties, useEffect, useRef } from "react";
 import { mountGalaxy } from "./galaxy";
+import { useLocale } from "./LocaleProvider";
 import { INITIAL_VOICE, type VoiceState } from "./voice";
 
-const VOICE_LABELS = {
-  fr: {
-    off: "Micro désactivé",
-    starting: "Connexion vocale",
-    standby: "En veille",
-    listening: "À ton écoute",
-    thinking: "Je m’en occupe",
-    speaking: "Astra répond",
-    error: "Voix indisponible",
-  },
-  en: {
-    off: "Microphone off",
-    starting: "Connecting voice",
-    standby: "On standby",
-    listening: "Listening",
-    thinking: "Working on it",
-    speaking: "Speaking",
-    error: "Voice unavailable",
-  },
-};
 function Galaxy({
   voice,
   compact = false,
@@ -62,8 +43,8 @@ export function Astra({
   onToggle?: () => void;
   compact?: boolean;
 }) {
-  const french = voice.language === "fr";
-  const label = VOICE_LABELS[voice.language][voice.status];
+  const { language, t } = useLocale();
+  const label = t.voiceStates[voice.status];
   if (compact) {
     const level =
       (voice.status === "listening" || voice.status === "speaking") &&
@@ -76,7 +57,7 @@ export function Astra({
         className={`astra-home-orb home-button voice-${voice.status}`}
         style={{ "--astra-voice-level": level } as CSSProperties}
         onClick={onToggle}
-        aria-label="Retour à l’accueil"
+        aria-label={t.returnHome}
         aria-description={label}
         title={`Astra · ${label}`}
       >
@@ -85,24 +66,18 @@ export function Astra({
     );
   }
   const resting = voice.status === "off" || voice.status === "standby";
-  const text = resting
-    ? french
-      ? "Je suis là."
-      : "I’m here."
-    : voice.transcript ||
-      voice.reply ||
-      voice.task ||
-      (french ? "Je t’écoute…" : "I’m listening…");
+  const spokenText =
+    !resting && (voice.transcript || voice.reply || voice.task);
+  const text = spokenText || (resting ? t.here : t.listening);
   return (
     <section
       className={`astra voice-${voice.status}`}
-      lang={voice.language}
-      aria-label="Astra voice assistant"
+      aria-label={t.astraVoice}
     >
       <button
         type="button"
         className="astra-avatar"
-        aria-label={voice.active ? "Talk to Astra" : "Start Astra voice"}
+        aria-label={voice.active ? t.talkAstra : t.startVoice}
         aria-pressed={voice.active}
         disabled={voice.status === "starting"}
         onClick={onToggle}
@@ -119,7 +94,9 @@ export function Astra({
           <span />
           <span />
         </div>
-        <p className="astra-task">{text}</p>
+        <p className="astra-task" lang={spokenText ? voice.language : language}>
+          {text}
+        </p>
         <p className="astra-state" role="status">
           {label}
         </p>

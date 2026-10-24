@@ -1,6 +1,7 @@
 import { createStateStore, JSONUIProvider, Renderer } from "@json-render/react";
 import {
   Component,
+  type ContextType,
   type ReactNode,
   useCallback,
   useEffect,
@@ -8,6 +9,7 @@ import {
   useState,
 } from "react";
 import { type CanvasHandle, CanvasSurface } from "./CanvasSurface";
+import { LocaleContext } from "./LocaleProvider";
 import { OpenUISurface } from "./OpenUISurface";
 import { AgentActionContext, registry } from "./registry";
 import type { Workspace } from "./types";
@@ -16,6 +18,8 @@ class RenderBoundary extends Component<
   { children: ReactNode; revision: number },
   { error: string | null }
 > {
+  static contextType = LocaleContext;
+  declare context: ContextType<typeof LocaleContext>;
   state = { error: null as string | null };
   static getDerivedStateFromError(error: Error) {
     return { error: error.message };
@@ -27,9 +31,9 @@ class RenderBoundary extends Component<
   render() {
     return this.state.error ? (
       <div className="surface-error" role="alert">
-        This view could not render. Ask Codex to simplify or replace it.
+        {this.context.t.renderFailed}
         <details>
-          <summary>Details</summary>
+          <summary>{this.context.t.details}</summary>
           {this.state.error}
         </details>
       </div>

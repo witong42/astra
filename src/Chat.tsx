@@ -9,6 +9,7 @@ import {
 } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useLocale } from "./LocaleProvider";
 import { ModelControls } from "./ModelControls";
 import { externalWebUrl } from "./navigation";
 import type { Approval, Snapshot } from "./types";
@@ -97,9 +98,10 @@ export function ApprovalPanel({
   workspaceId: string;
   onError: (error: unknown) => void;
 }) {
+  const { t } = useLocale();
   const [answers, setAnswers] = useState<Record<string, string>>({});
   return (
-    <section className="approval" aria-label="Codex request">
+    <section className="approval" aria-label={t.approvalRequest}>
       <strong>{approval.summary}</strong>
       {approval.kind === "question" ? (
         approval.questions?.map((question) => (
@@ -123,8 +125,8 @@ export function ApprovalPanel({
               </label>
             ))}
             <input
-              aria-label={`Your answer: ${question.header}`}
-              placeholder="Your answer"
+              aria-label={t.answerLabel(question.header)}
+              placeholder={t.yourAnswer}
               value={answers[question.id] ?? ""}
               onChange={(event) =>
                 setAnswers({ ...answers, [question.id]: event.target.value })
@@ -145,7 +147,7 @@ export function ApprovalPanel({
                 .catch(onError)
             }
           >
-            Decline
+            {t.decline}
           </button>
         )}
         <button
@@ -157,7 +159,7 @@ export function ApprovalPanel({
               .catch(onError)
           }
         >
-          {approval.kind === "question" ? "Send answer" : "Allow once"}
+          {approval.kind === "question" ? t.sendAnswer : t.allowOnce}
         </button>
       </div>
     </section>
@@ -179,6 +181,7 @@ export function Composer({
   onSend: (text: string) => Promise<void>;
   onError: (error: unknown) => void;
 }) {
+  const { t } = useLocale();
   const sending = useRef(false);
   const [pending, setPending] = useState(false);
   const busy = snapshot.status === "working";
@@ -202,12 +205,8 @@ export function Composer({
     <div className="composer-area">
       <div className="composer">
         <textarea
-          aria-label="Message Astra"
-          placeholder={
-            busy
-              ? "Précise ta demande pendant qu’Astra travaille…"
-              : "Écris à Astra…"
-          }
+          aria-label={t.messageAstra}
+          placeholder={busy ? t.guideAstra : t.writeAstra}
           value={draft}
           maxLength={24_000}
           rows={3}
@@ -225,16 +224,16 @@ export function Composer({
         />
         <div className="composer-bottom">
           <span>
-            <kbd>↵</kbd> {busy ? "Steer" : "Send"}{" "}
-            <span className="composer-hint">· Shift ↵ new line</span>
+            <kbd>↵</kbd> {busy ? t.steer : t.send}{" "}
+            <span className="composer-hint">· {t.newLine}</span>
           </span>
           <div className="composer-actions">
             {busy && (
               <button
                 type="button"
                 className="stop-button"
-                aria-label="Stop Codex"
-                title="Stop this session"
+                aria-label={t.stopAstra}
+                title={t.stopSession}
                 onClick={() =>
                   window.codexos.interrupt(workspaceId).catch(onError)
                 }
@@ -245,8 +244,8 @@ export function Composer({
             <button
               type="button"
               className="send-button"
-              aria-label={busy ? "Send guidance" : "Send message"}
-              title={busy ? "Steer the current turn" : "Send message"}
+              aria-label={busy ? t.sendGuidance : t.sendMessage}
+              title={busy ? t.steerTurn : t.sendMessage}
               disabled={!draft.trim() || !connected || pending}
               onClick={send}
             >

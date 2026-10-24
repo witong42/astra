@@ -85,8 +85,8 @@ test("the empty journal keeps approval questions and their answer controls acces
   expect(html).toContain("Le fil de ce qu’on fait ensemble.");
   expect(html).toContain("Which approach?");
   expect(html).toContain("Keep it compact");
-  expect(html).toContain('aria-label="Your answer: Direction"');
-  expect(html).toContain("Send answer");
+  expect(html).toContain('aria-label="Ta réponse : Direction"');
+  expect(html).toContain("Envoyer la réponse");
 });
 
 test("the journal renders Markdown structure, GitHub tables and fenced code", () => {

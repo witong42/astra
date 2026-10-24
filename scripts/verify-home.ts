@@ -133,7 +133,7 @@ try {
     await client.evaluate(
       "document.querySelectorAll('.desktop-toolbar button').length",
     ),
-    1,
+    3,
   );
   await client.screenshot("test-results/home-wide.png");
   await click("#chat-toggle");

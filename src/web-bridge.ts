@@ -1,3 +1,4 @@
+import { getCopy } from "./locale";
 import { externalWebUrl } from "./navigation";
 import type { RemoteCommand, RemoteMethod } from "./remote-server";
 import type { Bridge, Snapshot } from "./types";
@@ -62,10 +63,7 @@ export class WebBridge {
           this.connection(false, String(error)),
         );
       } catch {
-        this.connection(
-          false,
-          "Le Mac a envoyé une réponse illisible. Recharge Astra.",
-        );
+        this.connection(false, getCopy().unreadableMac);
       }
     };
     this.events.onerror = () => {
@@ -73,17 +71,13 @@ export class WebBridge {
       this.captureId = null;
       this.audio.stop();
       this.publishVoice(structuredClone(INITIAL_VOICE));
-      this.connection(
-        false,
-        "Connexion au Mac interrompue. Active Tailscale, ferme les autres onglets Astra, garde le Mac allumé puis recharge.",
-      );
+      this.connection(false, getCopy().macDisconnected);
       if (this.latest)
         this.publish({
           ...this.latest,
           status: "offline",
-          activity: "Mac déconnecté",
-          error:
-            "La connexion privée au Mac est interrompue. Les actions n’ont pas été renvoyées automatiquement.",
+          activity: getCopy().macOffline,
+          error: getCopy().connectionInterrupted,
         });
     };
     const call = <T = void>(method: RemoteMethod, ...args: unknown[]) =>
@@ -108,10 +102,7 @@ export class WebBridge {
         this.starting = true;
         let captureId: string | null = null;
         try {
-          if (!this.connected)
-            throw new Error(
-              "Reconnecte le téléphone au Mac avant d’activer la voix.",
-            );
+          if (!this.connected) throw new Error(getCopy().reconnectVoice);
           captureId = await this.audio.prepare();
           this.captureId = captureId;
           await call("startVoice", { captureId, standby });
@@ -146,17 +137,12 @@ export class WebBridge {
       setFavorite: (id, favorite) => call("setFavorite", id, favorite),
       renameWorkspace: (id, name) => call("renameWorkspace", id, name),
       deleteWorkspace: async (id) => {
-        if (
-          !window.confirm(
-            "Supprimer définitivement cette mini-app, sa conversation et ses versions ? Les fichiers du projet sur le Mac seront conservés.",
-          )
-        )
-          return false;
+        if (!window.confirm(getCopy().deleteConfirm)) return false;
         return call<boolean>("deleteWorkspace", id, true);
       },
       chooseFolder: async () => {
         const path = window.prompt(
-          "Chemin absolu d’un dossier existant sur le Mac :",
+          getCopy().chooseFolderPath,
           this.latest?.workspaces.find(
             (workspace) => workspace.id === this.latest?.activeId,
           )?.cwd ?? "",
@@ -174,10 +160,7 @@ export class WebBridge {
       answer: (allow, answers, id, approvalId) =>
         call("answer", allow, answers, id, approvalId),
       reconnect: async () => {
-        if (!this.connected)
-          throw new Error(
-            "Active Tailscale et recharge Astra pour retrouver le Mac.",
-          );
+        if (!this.connected) throw new Error(getCopy().reconnectPhone);
         await call("reconnect");
       },
       openExternal: async (url) => {
@@ -233,10 +216,7 @@ export class WebBridge {
         else if (command.kind === "capture") this.audio.stop(command.captureId);
         else if (command.kind === "flush") await window.codexosFlush?.();
         else {
-          if (!window.astraControl)
-            throw new Error(
-              "L’interface du téléphone est encore en cours d’ouverture.",
-            );
+          if (!window.astraControl) throw new Error(getCopy().phoneOpening);
           result = await window.astraControl(command.request);
         }
         receipt = { result: result ?? null };
@@ -266,10 +246,7 @@ export class WebBridge {
     });
     const result = await response.json();
     if (!response.ok || !result.ok)
-      throw new Error(
-        result.error ??
-          "Le Mac n’a pas confirmé cette action. Vérifie son état avant de réessayer.",
-      );
+      throw new Error(result.error ?? getCopy().actionUnconfirmed);
     return result.result;
   }
   private async call<T = void>(
@@ -277,10 +254,7 @@ export class WebBridge {
     args: unknown[],
     timeout?: number,
   ): Promise<T> {
-    if (!this.connected)
-      throw new Error(
-        "Le téléphone est déconnecté du Mac. Active Tailscale puis recharge Astra.",
-      );
+    if (!this.connected) throw new Error(getCopy().phoneDisconnected);
     return this.post(
       "call",
       { clientId: this.clientId, method, args },

@@ -44,7 +44,7 @@ test("the resting galaxy has no instructional labels", () => {
   expect(html).not.toContain("Click to meet Astra");
   expect(html).not.toContain("Click once to enable voice");
   expect(html).toContain("Micro désactivé");
-  expect(html).toContain('aria-label="Start Astra voice"');
+  expect(html).toContain('aria-label="Activer la voix d’Astra"');
 });
 test("Horizon exposes every app without requiring favorites or adding a second library", () => {
   const html = render(state());

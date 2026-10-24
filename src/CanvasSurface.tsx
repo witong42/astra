@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { CANVAS_CONTROL_PREFIX, type SurfaceControl } from "./app-control";
 import type { CanvasAck, CanvasState } from "./canvas";
+import { useLocale } from "./LocaleProvider";
 import type { CanvasInputs } from "./openui";
 
 export type CanvasHandle = {
@@ -22,6 +23,7 @@ export function CanvasSurface({
   handle: React.RefObject<CanvasHandle | null>;
   inputs?: CanvasInputs;
 }) {
+  const { t } = useLocale();
   const frame = useRef<HTMLIFrameElement>(null);
   const state = useRef(canvas);
   state.current = canvas;
@@ -258,7 +260,7 @@ export function CanvasSurface({
       name={id}
       src="./canvas.html"
       sandbox="allow-scripts"
-      title="Live generated canvas"
+      title={t.generatedCanvas}
       className="canvas-frame"
     />
   );

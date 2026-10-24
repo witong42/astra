@@ -18,6 +18,8 @@ import type { CanvasHandle } from "./CanvasSurface";
 import { Composer } from "./Chat";
 import { HomeScreen } from "./HomeScreen";
 import { Journal } from "./JournalView";
+import { LocaleProvider, useLocale } from "./LocaleProvider";
+import { getCopy, INTERFACE_LANGUAGES } from "./locale";
 import { Surface } from "./SurfaceView";
 import { hasWorkspaceSurface } from "./surface";
 import type { Snapshot, Workspace } from "./types";
@@ -25,26 +27,6 @@ import { APP_RELEASE } from "./version";
 import { INITIAL_VOICE, type VoiceState } from "./voice";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 
-const STARTERS = [
-  {
-    title: "Plan my week",
-    detail: "A board for what matters next",
-    prompt:
-      "Create a weekly planning workspace with an editable task board (To do, Doing, Done), a short heading and a notes input. Start with an empty task list and a few useful labels. Keep it compact.",
-  },
-  {
-    title: "Compare my options",
-    detail: "A clear table and room for notes",
-    prompt:
-      "Create a decision workspace with a comparison table for three options, an input to name the decision, and a notes field. Label example options clearly as editable examples. Use high-level components and keep it concise.",
-  },
-  {
-    title: "Start from an idea",
-    detail: "Tell Codex what you need",
-    prompt:
-      "Help me shape a new idea. Ask me one useful question first, then we can build an interactive workspace for it.",
-  },
-];
 const CONTROL_TIMEOUT_MS = 5_000;
 async function waitForInterface(check: () => boolean) {
   const deadline = Date.now() + CONTROL_TIMEOUT_MS;
@@ -56,6 +38,7 @@ async function waitForInterface(check: () => boolean) {
 }
 
 function App() {
+  const { language, t, setLanguage } = useLocale();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -93,7 +76,9 @@ function App() {
       } catch (error) {
         onWorkspaceError(
           id,
-          `Canvas changes could not be saved: ${error instanceof Error ? error.message : String(error)} Chat remains available using the last saved canvas.`,
+          getCopy().canvasSaveFailed(
+            error instanceof Error ? error.message : String(error),
+          ),
         );
       }
     },
@@ -119,7 +104,7 @@ function App() {
     async (text: string, id: string) => {
       const status = snapshotRef.current?.status;
       if (status === "connecting" || status === "offline" || !status)
-        throw new Error("Reconnect to Codex before sending a message.");
+        throw new Error(getCopy().reconnectBeforeSend);
       setErrors((previous) => ({ ...previous, [id]: null }));
       await captureWorkspace(id);
       await window.codexos.send(text, id);
@@ -207,7 +192,7 @@ function App() {
     if (chatOpen)
       document
         .querySelector<HTMLTextAreaElement>(".composer textarea")
-        ?.focus();
+        ?.focus({ preventScroll: true });
   }, [chatOpen]);
   const closeChat = () => {
     setChatOpen(false);
@@ -312,8 +297,8 @@ function App() {
   if (remoteActive)
     return (
       <main className="launch-screen" role="status">
-        <p>Astra est ouverte sur ton téléphone.</p>
-        <p>Ferme son onglet pour reprendre ici.</p>
+        <p>{t.phoneActive}</p>
+        <p>{t.closePhoneTab}</p>
         <small>{APP_RELEASE}</small>
       </main>
     );
@@ -321,14 +306,13 @@ function App() {
     return (
       <div className="launch-screen">
         <img className="launch-icon" src="./icon.png" alt="" />
-        <p>{errors[""] ?? "Opening your apps…"}</p>
+        <p>{errors[""] ?? t.openingApps}</p>
       </div>
     );
   const workspace = snapshot.workspaces.find(
     (entry) => entry.id === snapshot.activeId,
   );
-  if (!workspace)
-    return <div role="alert">The selected workspace is missing.</div>;
+  if (!workspace) return <div role="alert">{t.appMissing}</div>;
   const busy = snapshot.status === "working";
   const hasSurface = hasWorkspaceSurface(workspace);
   const error = errors[workspace.id];
@@ -338,14 +322,14 @@ function App() {
   ).length;
   const connection =
     snapshot.status === "connecting"
-      ? "Connecting"
+      ? t.connecting
       : snapshot.status === "offline"
-        ? "Disconnected"
+        ? t.disconnected
         : home && running
-          ? `${running} working`
+          ? t.backgroundTasks(running)
           : busy
-            ? snapshot.activity
-            : "Codex connected";
+            ? t.working
+            : t.connected;
   const favorite = (entry: Workspace) =>
     window.codexos.setFavorite(entry.id, !entry.favorite);
   const conversationWorkspace = home ? snapshot.assistant : workspace;
@@ -384,14 +368,37 @@ function App() {
               className="text-button"
               onClick={() => window.codexos.reconnect().catch(onError)}
             >
-              Reconnect
+              {t.reconnect}
             </button>
           )}
+          <fieldset
+            className="language-switch"
+            aria-label={t.interfaceLanguage}
+          >
+            {INTERFACE_LANGUAGES.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                lang={choice}
+                aria-label={choice === "fr" ? "Français" : "English"}
+                aria-pressed={language === choice}
+                onClick={() => {
+                  try {
+                    setLanguage(choice);
+                  } catch (error) {
+                    onError(error);
+                  }
+                }}
+              >
+                {choice.toUpperCase()}
+              </button>
+            ))}
+          </fieldset>
           <button
             type="button"
             id="chat-toggle"
             className={`chat-toggle journal-toggle ${chatOpen ? "selected" : ""}`}
-            aria-label="Ouvrir le journal"
+            aria-label={chatOpen ? t.closeJournal : t.openJournal}
             aria-expanded={chatOpen}
             aria-controls="chat-drawer"
             onClick={() => (chatOpen ? closeChat() : setChatOpen(true))}
@@ -407,7 +414,7 @@ function App() {
           {error && (
             <button
               type="button"
-              aria-label="Dismiss error"
+              aria-label={t.dismissError}
               onClick={() =>
                 setErrors((previous) => ({ ...previous, [workspace.id]: null }))
               }
@@ -432,7 +439,7 @@ function App() {
         <section
           className={`canvas app-stage ${home ? "parked" : ""}`}
           data-workspace-id={workspace.id}
-          aria-label="Live canvas"
+          aria-label={t.liveCanvas}
           aria-hidden={home}
           inert={home}
         >
@@ -471,12 +478,26 @@ function App() {
                 <div className="workspace-emblem" aria-hidden="true">
                   <SquaresFourIcon size={28} weight="light" />
                 </div>
-                <h2>What will you make?</h2>
-                <p className="empty-description">
-                  Describe an app in chat. Your canvas will take it from here.
-                </p>
+                <h2>{t.emptyTitle}</h2>
+                <p className="empty-description">{t.emptyDescription}</p>
                 <div className="starters">
-                  {STARTERS.map((starter) => (
+                  {[
+                    {
+                      title: t.planWeek,
+                      detail: t.planWeekDetail,
+                      prompt: t.planWeekPrompt,
+                    },
+                    {
+                      title: t.compareOptions,
+                      detail: t.compareOptionsDetail,
+                      prompt: t.compareOptionsPrompt,
+                    },
+                    {
+                      title: t.startIdea,
+                      detail: t.startIdeaDetail,
+                      prompt: t.startIdeaPrompt,
+                    },
+                  ].map((starter) => (
                     <button
                       type="button"
                       key={starter.title}
@@ -514,7 +535,7 @@ function App() {
         <aside
           id="chat-drawer"
           className={`conversation-main chat-drawer journal-drawer ${chatOpen ? "open" : ""}`}
-          aria-label="Journal"
+          aria-label={t.journal}
           aria-hidden={!chatOpen}
           inert={!chatOpen}
           onKeyDown={(event) => {
@@ -540,10 +561,8 @@ function App() {
               <button
                 type="button"
                 onClick={voice.active ? pauseVoice : toggleVoice}
-                title={voice.active ? "Désactiver le micro" : "Activer la voix"}
-                aria-label={
-                  voice.active ? "Désactiver le micro" : "Activer la voix"
-                }
+                title={voice.active ? t.disableMicrophone : t.enableVoice}
+                aria-label={voice.active ? t.disableMicrophone : t.enableVoice}
               >
                 {voice.active ? <MicrophoneIcon /> : <MicrophoneSlashIcon />}
               </button>
@@ -551,7 +570,7 @@ function App() {
                 <button
                   type="button"
                   onClick={interruptVoice}
-                  aria-label="Interrompre Astra"
+                  aria-label={t.interruptAstra}
                 >
                   <StopIcon />
                 </button>
@@ -559,8 +578,8 @@ function App() {
               <button
                 type="button"
                 onClick={newApp}
-                title="Créer une mini-app"
-                aria-label="Créer une mini-app"
+                title={t.createApp}
+                aria-label={t.createApp}
               >
                 <PlusIcon />
               </button>
@@ -580,7 +599,7 @@ function App() {
                 workspace.canvas.history.length > 0 && (
                   <select
                     className="version-picker"
-                    aria-label="Restore canvas version"
+                    aria-label={t.restoreCanvas}
                     value=""
                     disabled={busy || workspace.canvas.pending.length > 0}
                     onChange={(event) => {
@@ -591,11 +610,11 @@ function App() {
                     }}
                   >
                     <option value="">
-                      Version {workspace.canvas.generation}
+                      {t.version(workspace.canvas.generation)}
                     </option>
                     {workspace.canvas.history.map((entry, index) => (
                       <option key={entry.generation} value={index}>
-                        Restore version {entry.generation}
+                        {t.restoreVersion(entry.generation)}
                       </option>
                     ))}
                   </select>
@@ -625,7 +644,7 @@ function App() {
               </div>
             )}
             <p className="journal-compose-context">
-              {home ? "Parler à Astra" : workspace.name}
+              {home ? t.talkAstra : workspace.name}
               <small className="app-release">{APP_RELEASE}</small>
             </p>
             <Composer
@@ -663,6 +682,8 @@ if (container)
     <IconContext.Provider
       value={{ size: 16, weight: "regular", "aria-hidden": true }}
     >
-      <App />
+      <LocaleProvider>
+        <App />
+      </LocaleProvider>
     </IconContext.Provider>,
   );

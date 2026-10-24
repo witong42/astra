@@ -5,6 +5,7 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
+import { useLocale } from "./LocaleProvider";
 import type { Workspace } from "./types";
 import { appNameSchema, MAX_APP_NAME_LENGTH } from "./workspace-name";
 
@@ -25,13 +26,14 @@ export function WorkspaceMenu({
   onDelete: (id: string) => Promise<void>;
   onFavorite?: () => Promise<void>;
 }) {
+  const { t } = useLocale();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(workspace.name);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<Error | "invalidAppName" | null>(null);
   const [pending, setPending] = useState(false);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   useEffect(() => {
@@ -46,12 +48,12 @@ export function WorkspaceMenu({
   };
   const run = async (action: () => Promise<void>) => {
     setPending(true);
-    setError("");
+    setError(null);
     try {
       await action();
       close();
     } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+      setError(error instanceof Error ? error : new Error(String(error)));
     } finally {
       setPending(false);
     }
@@ -62,7 +64,7 @@ export function WorkspaceMenu({
         type="button"
         ref={trigger}
         className="workspace-menu-trigger"
-        aria-label={`Manage ${workspace.name}`}
+        aria-label={t.manageApp(workspace.name)}
         aria-haspopup="dialog"
         disabled={pending}
         popoverTarget={id}
@@ -84,7 +86,7 @@ export function WorkspaceMenu({
             });
           setName(workspace.name);
           setEditing(false);
-          setError("");
+          setError(null);
         }}
       >
         <DotsThreeIcon size={22} weight="bold" />
@@ -94,7 +96,7 @@ export function WorkspaceMenu({
         ref={panel}
         popover="auto"
         role="dialog"
-        aria-label={`Manage ${workspace.name}`}
+        aria-label={t.manageApp(workspace.name)}
         className="workspace-menu"
         style={position}
         onToggle={(event) => {
@@ -113,13 +115,13 @@ export function WorkspaceMenu({
               event.preventDefault();
               const parsed = appNameSchema.safeParse(name);
               if (!parsed.success) {
-                setError("Use one or two words, up to 32 characters.");
+                setError("invalidAppName");
                 return;
               }
               void run(() => onRename(workspace.id, parsed.data));
             }}
           >
-            <label htmlFor={`${id}-name`}>App name</label>
+            <label htmlFor={`${id}-name`}>{t.appName}</label>
             <input
               id={`${id}-name`}
               ref={input}
@@ -129,13 +131,13 @@ export function WorkspaceMenu({
               disabled={pending}
               onChange={(event) => setName(event.currentTarget.value)}
             />
-            <small>One or two words.</small>
+            <small>{t.appNameHint}</small>
             <div className="workspace-menu-actions">
               <button type="button" disabled={pending} onClick={close}>
-                Cancel
+                {t.cancel}
               </button>
               <button type="submit" className="primary" disabled={pending}>
-                {pending ? "Saving…" : "Save"}
+                {pending ? t.saving : t.save}
               </button>
             </div>
           </form>
@@ -149,9 +151,7 @@ export function WorkspaceMenu({
                 onClick={() => void run(onFavorite)}
               >
                 <StarIcon weight={workspace.favorite ? "fill" : "regular"} />
-                {workspace.favorite
-                  ? "Retirer des favoris"
-                  : "Ajouter aux favoris"}
+                {workspace.favorite ? t.removeFavorite : t.addFavorite}
               </button>
             )}
             <button
@@ -161,7 +161,7 @@ export function WorkspaceMenu({
               onClick={() => setEditing(true)}
             >
               <PencilSimpleIcon />
-              Rename
+              {t.rename}
             </button>
             <button
               type="button"
@@ -170,18 +170,16 @@ export function WorkspaceMenu({
               onClick={() => void run(() => onDelete(workspace.id))}
             >
               <TrashIcon />
-              {pending ? "Deleting…" : "Delete app"}
+              {pending ? t.deleting : t.deleteApp}
             </button>
             {busy && (
-              <p className="workspace-menu-hint">
-                Stop the current response to delete this app.
-              </p>
+              <p className="workspace-menu-hint">{t.stopBeforeDelete}</p>
             )}
           </>
         )}
         {error && (
           <p role="alert" className="workspace-menu-error">
-            {error}
+            {error === "invalidAppName" ? t.invalidAppName : error.message}
           </p>
         )}
       </div>

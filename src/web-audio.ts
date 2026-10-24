@@ -1,3 +1,4 @@
+import { getCopy } from "./locale";
 import type { RemoteCommand } from "./remote-server";
 import type { AudioStatus } from "./types";
 
@@ -30,9 +31,7 @@ export class WebAudio {
   async prepare() {
     this.stop();
     if (!navigator.mediaDevices?.getUserMedia)
-      throw new Error(
-        "Le microphone nécessite un navigateur récent et une connexion HTTPS.",
-      );
+      throw new Error(getCopy().micHttps);
     const context = new AudioContext({ latencyHint: "interactive" });
     const player = new Audio();
     player.autoplay = true;
@@ -68,22 +67,18 @@ export class WebAudio {
       });
       if (this.capture !== capture) {
         for (const track of stream.getTracks()) track.stop();
-        throw new Error("Microphone arrêté.");
+        throw new Error(getCopy().micStopped);
       }
       capture.stream = stream;
       for (const track of stream.getAudioTracks())
         track.addEventListener("ended", () => {
           if (this.capture === capture)
-            this.fail(
-              new Error(
-                "Le téléphone a arrêté le microphone. Rouvre Astra puis active la voix.",
-              ),
-            );
+            this.fail(new Error(getCopy().micEnded));
         });
       await context.audioWorklet.addModule(
         new URL("./audio-worklet.js", import.meta.url),
       );
-      if (this.capture !== capture) throw new Error("Microphone arrêté.");
+      if (this.capture !== capture) throw new Error(getCopy().micStopped);
       const processor = new AudioWorkletNode(context, "astra-phone-audio", {
         numberOfInputs: 1,
         numberOfOutputs: 1,
@@ -102,11 +97,7 @@ export class WebAudio {
         this.level(event.data.level);
         if (!capture.streaming) return;
         if (capture.queue.length >= MAX_QUEUED_FRAMES) {
-          this.fail(
-            new Error(
-              "La connexion au Mac est trop lente pour la voix. Relance la voix avec une meilleure connexion.",
-            ),
-          );
+          this.fail(new Error(getCopy().slowVoice));
           return;
         }
         capture.queue.push(event.data.pcm);
@@ -114,11 +105,7 @@ export class WebAudio {
       };
       context.addEventListener("statechange", () => {
         if (this.capture === capture && context.state === "suspended")
-          this.fail(
-            new Error(
-              "Le navigateur a suspendu l’audio. Garde Astra au premier plan puis réactive la voix.",
-            ),
-          );
+          this.fail(new Error(getCopy().audioSuspended));
       });
       return capture.id;
     } catch (error) {
@@ -163,9 +150,7 @@ export class WebAudio {
     const capture = this.capture;
     if (!capture || capture.id !== command.captureId) {
       if (command.action === "stop") return null;
-      throw new Error(
-        "Le microphone du téléphone n’est plus actif. Relance la voix.",
-      );
+      throw new Error(getCopy().micInactive);
     }
     if (command.action === "offer") {
       this.closePeer(capture);
@@ -173,7 +158,7 @@ export class WebAudio {
       const peer = { id: command.callId, connection };
       capture.peer = peer;
       capture.streaming = true;
-      if (!capture.stream) throw new Error("Le microphone n’est pas prêt.");
+      if (!capture.stream) throw new Error(getCopy().micNotReady);
       for (const track of capture.stream.getAudioTracks())
         connection.addTrack(track, capture.stream);
       connection.addEventListener("track", (event) => {
@@ -188,26 +173,21 @@ export class WebAudio {
           capture.peer === peer &&
           connection.connectionState === "failed"
         )
-          this.fail(
-            new Error(
-              "La connexion audio à Codex a été interrompue. Relance la voix.",
-            ),
-          );
+          this.fail(new Error(getCopy().voiceInterrupted));
       });
       connection.createDataChannel("oai-events");
       await connection.setLocalDescription(await connection.createOffer());
       await this.gatherIce(connection);
       if (this.capture !== capture || capture.peer !== peer)
-        throw new Error("La connexion audio a été remplacée.");
+        throw new Error(getCopy().audioReplaced);
       const sdp = connection.localDescription?.sdp;
-      if (!sdp)
-        throw new Error("Le téléphone n’a pas produit de connexion audio.");
+      if (!sdp) throw new Error(getCopy().noAudioOffer);
       capture.player.muted = false;
       return sdp;
     }
     if (capture.peer?.id !== command.callId) {
       if (command.action === "stop") return null;
-      throw new Error("Cette connexion audio a expiré.");
+      throw new Error(getCopy().audioExpired);
     }
     if (command.action === "answer") {
       await capture.peer.connection.setRemoteDescription({
@@ -216,7 +196,7 @@ export class WebAudio {
       });
       await capture.context.resume();
       if (capture.context.state !== "running")
-        throw new Error("Autorise l’audio du navigateur puis relance la voix.");
+        throw new Error(getCopy().allowAudio);
     } else if (command.action === "mute") capture.player.muted = command.muted;
     else this.closePeer(capture);
     return null;
@@ -233,12 +213,7 @@ export class WebAudio {
         if (connection.iceGatheringState === "complete") finish();
       };
       const timer = setTimeout(
-        () =>
-          finish(
-            new Error(
-              "Le téléphone n’a pas pu préparer la connexion audio. Vérifie le réseau puis relance la voix.",
-            ),
-          ),
+        () => finish(new Error(getCopy().audioPreparationFailed)),
         ICE_TIMEOUT_MS,
       );
       connection.addEventListener("icegatheringstatechange", changed);
@@ -271,21 +246,21 @@ export class WebAudio {
         return false;
       capture.playbackError =
         error instanceof DOMException && error.name === "NotAllowedError"
-          ? "Le navigateur bloque le son. Appuie sur « Activer le son ». Si le blocage continue, autorise le son et la lecture automatique pour ce site."
-          : `La lecture audio a échoué : ${error instanceof Error ? error.message : String(error)}. Appuie sur « Activer le son » pour réessayer.`;
+          ? getCopy().playbackBlocked
+          : getCopy().playbackFailed(
+              error instanceof Error ? error.message : String(error),
+            );
       this.playback(capture.playbackError);
       return false;
     }
   }
   async resumeOutput() {
     const capture = this.capture;
-    if (!capture) throw new Error("Active la voix avant de réactiver le son.");
+    if (!capture) throw new Error(getCopy().voiceBeforeSound);
     const playing = this.playOutput(capture);
     await capture.context.resume();
     if (!(await playing) && this.capture === capture)
-      throw new Error(
-        capture.playbackError ?? "La lecture audio reste bloquée.",
-      );
+      throw new Error(capture.playbackError ?? getCopy().playbackStillBlocked);
   }
   async diagnostics(): Promise<AudioStatus> {
     const capture = this.capture;
@@ -346,7 +321,7 @@ export class WebAudio {
     void capture.context
       .close()
       .catch((error) =>
-        this.failure(new Error(`Impossible de fermer l’audio : ${error}`)),
+        this.failure(new Error(getCopy().audioCloseFailed(String(error)))),
       );
   }
 }

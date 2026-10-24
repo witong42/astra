@@ -5,10 +5,12 @@ import {
   SlidersHorizontalIcon,
 } from "@phosphor-icons/react";
 import { useId, useRef, useState } from "react";
+import { useLocale } from "./LocaleProvider";
 import type { Snapshot } from "./types";
 
 type Choice = { value: string; label: string; description?: string };
 function ChoiceMenu({
+  setting,
   label,
   value,
   choices,
@@ -17,6 +19,7 @@ function ChoiceMenu({
   onSelect,
   onError,
 }: {
+  setting: string;
   label: string;
   value: string;
   choices: Choice[];
@@ -25,6 +28,7 @@ function ChoiceMenu({
   onSelect: (value: string) => Promise<void>;
   onError: (error: unknown) => void;
 }) {
+  const { t } = useLocale();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -37,11 +41,11 @@ function ChoiceMenu({
         type="button"
         ref={trigger}
         className={`choice-trigger ${icon ? "" : "model-choice"}`}
-        data-setting={label}
+        data-setting={setting}
         popoverTarget={id}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={`${label}: ${selected?.label ?? "Default"}`}
+        aria-label={`${label}: ${selected?.label ?? t.default}`}
         disabled={disabled}
         title={label}
         onClick={() => {
@@ -55,7 +59,7 @@ function ChoiceMenu({
       >
         {icon === "reasoning" && <SlidersHorizontalIcon size={14} />}
         {icon === "speed" && <LightningIcon size={14} />}
-        <span>{selected?.label ?? "Default"}</span>
+        <span>{selected?.label ?? t.default}</span>
         <CaretDownIcon className="choice-chevron" size={10} />
       </button>
       <div
@@ -144,6 +148,7 @@ export function ModelControls({
   snapshot: Snapshot;
   onError: (error: unknown) => void;
 }) {
+  const { t } = useLocale();
   const busy = snapshot.status === "working";
   const selection = busy
     ? (snapshot.sessions[snapshot.activeId]?.settings ?? snapshot)
@@ -154,7 +159,8 @@ export function ModelControls({
   return (
     <div className="model-controls">
       <ChoiceMenu
-        label="Model"
+        setting="Model"
+        label={t.model}
         value={selection.model}
         choices={snapshot.models.map((entry) => ({
           value: entry.model,
@@ -165,17 +171,16 @@ export function ModelControls({
         onError={onError}
       />
       <ChoiceMenu
-        label="Reasoning effort"
+        setting="Reasoning effort"
+        label={t.reasoning}
         value={selection.reasoningEffort}
         icon="reasoning"
         choices={
           model?.supportedReasoningEfforts?.map((entry) => ({
             value: entry.reasoningEffort,
             label:
-              entry.reasoningEffort === "xhigh"
-                ? "Extra high"
-                : entry.reasoningEffort.charAt(0).toUpperCase() +
-                  entry.reasoningEffort.slice(1),
+              t.efforts[entry.reasoningEffort as keyof typeof t.efforts] ??
+              entry.reasoningEffort,
             description: entry.description,
           })) ?? []
         }
@@ -184,19 +189,21 @@ export function ModelControls({
         onError={onError}
       />
       <ChoiceMenu
-        label="Model speed"
+        setting="Model speed"
+        label={t.modelSpeed}
         value={selection.serviceTier}
         icon="speed"
         choices={[
           {
             value: "default",
-            label: "Standard",
-            description: "Normal speed and usage",
+            label: t.standard,
+            description: t.standardDescription,
           },
           ...(model?.serviceTiers?.map((tier) => ({
             value: tier.id,
-            label: tier.name,
-            description: tier.description,
+            label: tier.id === "priority" ? t.fast : tier.name,
+            description:
+              tier.id === "priority" ? t.fastDescription : tier.description,
           })) ?? []),
         ]}
         disabled={busy || !model?.serviceTiers?.length}

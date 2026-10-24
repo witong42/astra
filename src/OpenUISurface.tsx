@@ -7,6 +7,7 @@ import {
 } from "./app-control";
 import { type CanvasHandle, CanvasSurface } from "./CanvasSurface";
 import type { CanvasState } from "./canvas";
+import { LocaleContext, useLocale } from "./LocaleProvider";
 import { type CanvasInputs, inspectOpenUI } from "./openui";
 import {
   AppleScriptContext,
@@ -29,6 +30,7 @@ export function OpenUISurface({
   onError: (error: unknown) => void;
   handle: React.RefObject<CanvasHandle | null>;
 }) {
+  const { t } = useLocale();
   const ui = canvas.openui;
   if (!ui) throw new Error("This workspace has no OpenUI layout.");
   const innerHandle = useRef<CanvasHandle | null>(null);
@@ -100,19 +102,23 @@ export function OpenUISurface({
   }, [handle, hasCanvas]);
   const renderCanvas = useCallback(
     (inputs: CanvasInputs, height: number) => (
-      <section
-        className="openui-live-canvas"
-        style={{ height }}
-        aria-label="Interactive canvas"
-      >
-        <CanvasSurface
-          id={id}
-          canvas={canvas}
-          onError={onError}
-          handle={innerHandle}
-          inputs={inputs}
-        />
-      </section>
+      <LocaleContext.Consumer>
+        {({ t }) => (
+          <section
+            className="openui-live-canvas"
+            style={{ height }}
+            aria-label={t.interactiveCanvas}
+          >
+            <CanvasSurface
+              id={id}
+              canvas={canvas}
+              onError={onError}
+              handle={innerHandle}
+              inputs={inputs}
+            />
+          </section>
+        )}
+      </LocaleContext.Consumer>
     ),
     [id, canvas, onError],
   );
@@ -120,9 +126,9 @@ export function OpenUISurface({
     <div className="openui-surface" ref={root}>
       {errors.length > 0 && (
         <div className="surface-error" role="alert">
-          This layout needs a correction. Ask Codex to repair it.
+          {t.layoutFailed}
           <details>
-            <summary>Details</summary>
+            <summary>{t.details}</summary>
             {errors.join(" ")}
           </details>
         </div>

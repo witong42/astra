@@ -1,18 +1,10 @@
 import { XIcon } from "@phosphor-icons/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { ApprovalPanel, MarkdownMessage } from "./Chat";
+import { useLocale } from "./LocaleProvider";
 import type { Snapshot, Workspace } from "./types";
 
 const SCROLL_PIN_DISTANCE = 48;
-const timeFormat = new Intl.DateTimeFormat("fr-FR", {
-  hour: "2-digit",
-  minute: "2-digit",
-});
-const dayFormat = new Intl.DateTimeFormat("fr-FR", {
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-});
 export function Journal({
   snapshot,
   onClose,
@@ -24,6 +16,20 @@ export function Journal({
   onOpen: (workspace: Workspace) => void;
   onError: (error: unknown) => void;
 }) {
+  const { language, t } = useLocale();
+  const { timeFormat, dayFormat } = useMemo(
+    () => ({
+      timeFormat: new Intl.DateTimeFormat(
+        language === "fr" ? "fr-FR" : "en-GB",
+        { hour: "2-digit", minute: "2-digit" },
+      ),
+      dayFormat: new Intl.DateTimeFormat(
+        language === "fr" ? "fr-FR" : "en-GB",
+        { day: "numeric", month: "long", year: "numeric" },
+      ),
+    }),
+    [language],
+  );
   const history = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const entries = snapshot.journal ?? [];
@@ -38,13 +44,13 @@ export function Journal({
       history.current?.scrollTo({ top: history.current.scrollHeight });
   });
   return (
-    <section className="chat-panel journal-panel" aria-label="Journal continu">
+    <section className="chat-panel journal-panel" aria-label={t.journalLabel}>
       <div className="chat-header">
-        <h2>Journal</h2>
+        <h2>{t.journal}</h2>
         <button
           type="button"
           className="close-chat"
-          aria-label="Fermer le journal"
+          aria-label={t.closeJournal}
           onClick={onClose}
         >
           <XIcon />
@@ -63,28 +69,28 @@ export function Journal({
       >
         {!entries.length && (
           <div className="journal-empty">
-            <p>Le fil de ce qu’on fait ensemble.</p>
-            <span>Nos échanges et les actions d’Astra apparaîtront ici.</span>
+            <p>{t.journalEmpty}</p>
+            <span>{t.journalEmptyDetail}</span>
           </div>
         )}
         {entries.map((entry, index) => {
           const previous = entries[index - 1];
-          const day = entry.at ? dayFormat.format(entry.at) : "Historique";
+          const day = entry.at ? dayFormat.format(entry.at) : t.history;
           const previousDay = previous
             ? previous.at
               ? dayFormat.format(previous.at)
-              : "Historique"
+              : t.history
             : null;
           const app = snapshot.workspaces.find(
             (workspace) => workspace.id === entry.workspaceId,
           );
-          const author = entry.kind === "user" ? "Toi" : "Astra";
+          const author = entry.kind === "user" ? t.you : "Astra";
           const source =
             entry.source === "voice"
-              ? "voix"
+              ? t.voice
               : entry.kind === "action"
-                ? "action"
-                : "message";
+                ? t.action
+                : t.message;
           return (
             <article
               className={`journal-entry message ${entry.kind} ${entry.status ?? ""}`}
@@ -107,9 +113,7 @@ export function Journal({
               {entry.detail && (
                 <details className="journal-detail">
                   <summary>
-                    {entry.status === "failed"
-                      ? "Détail de l’échec"
-                      : "Détails"}
+                    {entry.status === "failed" ? t.failureDetails : t.details}
                   </summary>
                   <pre>{entry.detail}</pre>
                 </details>
@@ -127,10 +131,10 @@ export function Journal({
                 {entry.status && (
                   <span className={`journal-result ${entry.status}`}>
                     {entry.status === "running"
-                      ? "En cours"
+                      ? t.inProgress
                       : entry.status === "failed"
-                        ? "Non aboutie"
-                        : "Effectuée"}
+                        ? t.failed
+                        : t.completed}
                   </span>
                 )}
               </div>
@@ -139,7 +143,7 @@ export function Journal({
         })}
         {running && (
           <p className="journal-working" role="status">
-            <span className="working-dot" /> Astra travaille…
+            <span className="working-dot" /> {t.astraWorking}
           </p>
         )}
         {pending.map(

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { readLanguage } from "./locale";
 import type { Bridge, Snapshot } from "./types";
 import type { VoiceState } from "./voice";
 
@@ -38,8 +39,8 @@ const bridge: Bridge = {
   selectWorkspace: (id) => invoke("selectWorkspace", id),
   setFavorite: (id, favorite) => invoke("setFavorite", id, favorite),
   renameWorkspace: (id, name) => invoke("renameWorkspace", id, name),
-  deleteWorkspace: (id) => invoke("deleteWorkspace", id),
-  chooseFolder: () => invoke("chooseFolder"),
+  deleteWorkspace: (id) => invoke("deleteWorkspace", id, readLanguage()),
+  chooseFolder: () => invoke("chooseFolder", readLanguage()),
   setModel: (model) => invoke("setModel", model),
   updateData: (workspaceId, path, value) =>
     invoke("updateData", workspaceId, path, value),

@@ -1546,6 +1546,37 @@ td {
 .desktop-toolbar .journal-toggle.selected {
   background: #ffffff08;
 }
+.language-switch {
+  display: flex;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid #ffffff18;
+  border-radius: 9px;
+  -webkit-app-region: no-drag;
+}
+.language-switch button {
+  min-width: 32px;
+  min-height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: #97a8b5;
+  font-size: 11px;
+  font-weight: 500;
+}
+.language-switch button:hover {
+  background: #ffffff08;
+}
+.language-switch button[aria-pressed="true"] {
+  background: #ffffff14;
+  color: #e4e9ed;
+}
+@media (pointer: coarse) {
+  .language-switch button {
+    min-width: 44px;
+    min-height: 40px;
+  }
+}
 .journal-toggle .attention-dot {
   position: absolute;
   right: 5px;

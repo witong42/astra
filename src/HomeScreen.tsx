@@ -24,6 +24,7 @@ import {
   useState,
 } from "react";
 import { Astra } from "./Astra";
+import { useLocale } from "./LocaleProvider";
 import { hasWorkspaceSurface } from "./surface";
 import type { Snapshot, Workspace } from "./types";
 import type { VoiceState } from "./voice";
@@ -110,6 +111,7 @@ export function HomeScreen({
   voice?: VoiceState;
   onToggleVoice?: () => void;
 }) {
+  const { t } = useLocale();
   const [startIndex, setStartIndex] = useState(0);
   const library = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -117,7 +119,11 @@ export function HomeScreen({
   const previousIndex = useRef(0);
   const activity = (workspace: Workspace) => {
     const session = snapshot.sessions[workspace.id];
-    return session?.approval ? "À confirmer" : session?.busy ? "En cours" : "";
+    return session?.approval
+      ? t.needsConfirmation
+      : session?.busy
+        ? t.inProgress
+        : "";
   };
   const workspaces = [...snapshot.workspaces].sort(
     (first, second) =>
@@ -195,19 +201,15 @@ export function HomeScreen({
     return () => animation.cancel();
   }, [currentIndex]);
   return (
-    <main className="home-screen" aria-label="Home" data-layout="horizon">
+    <main className="home-screen" aria-label={t.home} data-layout="horizon">
       <div className="home-content horizon-home">
         <Astra voice={voice} onToggle={onToggleVoice} />
         <section
           ref={library}
           className="horizon-library"
-          aria-label="Mini-apps"
-          aria-roledescription={appCount > 1 ? "carrousel" : undefined}
-          aria-description={
-            appCount > 1
-              ? "Défilez à la molette ou utilisez les flèches du clavier."
-              : undefined
-          }
+          aria-label={t.miniApps}
+          aria-roledescription={appCount > 1 ? t.carousel : undefined}
+          aria-description={appCount > 1 ? t.browseHint : undefined}
           tabIndex={appCount > 1 ? 0 : undefined}
           onKeyDown={(event) => {
             if (event.target !== event.currentTarget) return;
@@ -233,8 +235,10 @@ export function HomeScreen({
                     type="button"
                     className="library-open app-tile"
                     data-workspace-id={workspace.id}
-                    aria-label={`Ouvrir ${workspace.name}`}
-                    aria-description={workspace.favorite ? "Favori" : undefined}
+                    aria-label={t.openApp(workspace.name)}
+                    aria-description={
+                      workspace.favorite ? t.favorite : undefined
+                    }
                     onClick={() => onOpen(workspace)}
                     title={workspace.name}
                   >
@@ -283,13 +287,10 @@ export function HomeScreen({
             </div>
           </div>
           {appCount > 1 && (
-            <nav
-              className="home-carousel-controls"
-              aria-label="Parcourir les mini-apps"
-            >
+            <nav className="home-carousel-controls" aria-label={t.browseApps}>
               <button
                 type="button"
-                aria-label="Mini-apps précédentes"
+                aria-label={t.previousApps}
                 onClick={() => move(-1)}
               >
                 <CaretLeftIcon size={16} aria-hidden="true" />
@@ -303,7 +304,7 @@ export function HomeScreen({
               </span>
               <button
                 type="button"
-                aria-label="Mini-apps suivantes"
+                aria-label={t.nextApps}
                 onClick={() => move(1)}
               >
                 <CaretRightIcon size={16} aria-hidden="true" />
