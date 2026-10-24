@@ -82,6 +82,7 @@ export type Snapshot = SavedState & {
 };
 export type AudioStatus = {
   lastError?: { message: string; at: number };
+  localInput?: { queuedMs: number; discardedMs: number };
   active: boolean;
   context: string;
   connection: string;

@@ -1,8 +1,10 @@
 import { getCopy } from "./locale";
+import { PHONE_FRAME_SAMPLES, PHONE_SAMPLE_RATE } from "./phone-audio";
 import type { RemoteCommand } from "./remote-server";
 import type { AudioStatus } from "./types";
 
-const MAX_QUEUED_FRAMES = 10;
+const MAX_QUEUED_FRAMES = PHONE_SAMPLE_RATE / PHONE_FRAME_SAMPLES;
+const MILLISECONDS_PER_SECOND = 1000;
 const AUDIO_LOWPASS_HZ = 7200;
 const ICE_TIMEOUT_MS = 8000;
 type AudioCommand = Extract<RemoteCommand, { kind: "audio" }>;
@@ -19,6 +21,7 @@ type Capture = {
   streaming: boolean;
   queue: Float32Array[];
   uploading: boolean;
+  discardedSamples: number;
 };
 export class WebAudio {
   private capture: Capture | null = null;
@@ -51,6 +54,7 @@ export class WebAudio {
       streaming: false,
       queue: [],
       uploading: false,
+      discardedSamples: 0,
     };
     this.capture = capture;
     void this.playOutput(capture);
@@ -97,8 +101,8 @@ export class WebAudio {
         this.level(event.data.level);
         if (!capture.streaming) return;
         if (capture.queue.length >= MAX_QUEUED_FRAMES) {
-          this.fail(new Error(getCopy().slowVoice));
-          return;
+          // Stale local-recognition audio must not stop the independent live call.
+          capture.discardedSamples += capture.queue.shift()?.length ?? 0;
         }
         capture.queue.push(event.data.pcm);
         void this.flush(capture);
@@ -286,6 +290,15 @@ export class WebAudio {
       });
     return {
       active: true,
+      localInput: {
+        queuedMs:
+          (capture.queue.reduce((samples, frame) => samples + frame.length, 0) /
+            PHONE_SAMPLE_RATE) *
+          MILLISECONDS_PER_SECOND,
+        discardedMs:
+          (capture.discardedSamples / PHONE_SAMPLE_RATE) *
+          MILLISECONDS_PER_SECOND,
+      },
       context: capture.context.state,
       connection: connection?.connectionState ?? "inactive",
       output: {
