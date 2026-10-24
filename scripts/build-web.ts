@@ -6,8 +6,11 @@ import { appIcon } from "./icon";
 
 const root = join(import.meta.dir, "..");
 const outdir = join(root, "dist/client");
-const remote =
-  process.env.ASTRA_REMOTE_URL ?? "https://william-mbp.tail21a7b9.ts.net:8443";
+const remote = process.env.ASTRA_REMOTE_URL;
+if (!remote)
+  throw new Error(
+    "Set ASTRA_REMOTE_URL to your Mac's HTTPS origin before building the phone client. See README.md#phone-access.",
+  );
 const url = new URL(remote);
 const loopback =
   url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);

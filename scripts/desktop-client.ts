@@ -53,7 +53,11 @@ export async function desktopClient(
       entry.url.endsWith(
         surface === "app" ? "/dist/index.html" : "/dist/canvas.html",
       ) &&
-      (entry.url.includes("/Projects/Astra/") ||
+      (entry.url ===
+        new URL(
+          surface === "app" ? "../dist/index.html" : "../dist/canvas.html",
+          import.meta.url,
+        ).href ||
         entry.url.startsWith("file:///Applications/CodexOS.app/") ||
         entry.url.startsWith("file:///Applications/Astra.app/")),
   );

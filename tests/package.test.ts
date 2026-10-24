@@ -27,6 +27,13 @@ test.skipIf(process.platform !== "darwin")(
     mkdirSync(join(electron, "Contents/MacOS"), { recursive: true });
     mkdirSync(join(root, "scripts"));
     mkdirSync(join(root, "dist"));
+    for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.md"])
+      writeFileSync(join(root, file), `Astra fixture ${file}`);
+    for (const file of ["LICENSE", "LICENSES.chromium.html"])
+      writeFileSync(
+        join(root, "node_modules/electron/dist", file),
+        `Electron fixture ${file}`,
+      );
     cpSync("/usr/bin/true", join(electron, "Contents/MacOS/Electron"));
     writeFileSync(
       join(electron, "Contents/Info.plist"),
@@ -57,6 +64,14 @@ test.skipIf(process.platform !== "darwin")(
     cpSync(join(import.meta.dir, "../scripts/package.ts"), packageScript);
     execFileSync(process.execPath, [packageScript], { cwd: root });
     const app = join(root, "release/v9.8.7/Astra.app");
+    for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.md"])
+      expect(
+        readFileSync(join(app, "Contents/Resources/app", file), "utf8"),
+      ).toBe(`Astra fixture ${file}`);
+    for (const file of ["LICENSE", "LICENSES.chromium.html"])
+      expect(readFileSync(join(app, "Contents/Resources", file), "utf8")).toBe(
+        `Electron fixture ${file}`,
+      );
     const plist = join(app, "Contents/Info.plist");
     const metadata = JSON.parse(
       execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", plist], {

@@ -1,0 +1,15 @@
+name: Suggest an improvement
+description: Tell us what you're trying to do
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: A concrete situation helps more than a list of features.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would make it better?
+      description: Include your current workaround if you have one.

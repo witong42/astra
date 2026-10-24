@@ -73,10 +73,11 @@ const questionsSchema = z.array(
   }),
 );
 
-export function findCodex() {
+export function findCodex(homeDirectory = homedir()) {
   const candidates = [
     process.env.CODEXOS_CODEX_PATH,
-    join(homedir(), ".local/bin/codex"),
+    join(homeDirectory, ".local/bin/codex"),
+    join(homeDirectory, ".bun/bin/codex"),
     "/opt/homebrew/bin/codex",
     "/usr/local/bin/codex",
   ];

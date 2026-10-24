@@ -1,0 +1,22 @@
+name: Bug report
+description: Help reproduce a problem with Astra
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: What happened?
+      description: Steps, expected behavior and actual behavior. Redact personal data.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Your setup
+      description: macOS version, Mac chip, Astra version, bun --version and codex --version.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted errors or recording
+      description: Never upload authentication, your private journal or a whole workspace file.

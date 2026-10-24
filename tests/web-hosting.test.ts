@@ -18,7 +18,15 @@ test.skipIf(process.platform !== "darwin")(
     try {
       const build = Bun.spawnSync(
         [process.execPath, join(project, "scripts/build-web.ts")],
-        { cwd: project, stdout: "pipe", stderr: "pipe" },
+        {
+          cwd: project,
+          stdout: "pipe",
+          stderr: "pipe",
+          env: {
+            ...process.env,
+            ASTRA_REMOTE_URL: "https://astra-backend.example.com",
+          },
+        },
       );
       if (build.exitCode !== 0)
         throw new Error(new TextDecoder().decode(build.stderr));

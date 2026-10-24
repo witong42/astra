@@ -35,6 +35,10 @@ execFileSync("/usr/bin/ditto", [
 const resources = join(output, "Contents/Resources");
 cpSync(join(root, "dist/icon.icns"), join(resources, "icon.icns"));
 cpSync(join(root, "dist"), join(resources, "app/dist"), { recursive: true });
+for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.md"])
+  cpSync(join(root, file), join(resources, "app", file));
+for (const file of ["LICENSE", "LICENSES.chromium.html"])
+  cpSync(join(root, "node_modules/electron/dist", file), join(resources, file));
 writeFileSync(
   join(resources, "app/package.json"),
   JSON.stringify({

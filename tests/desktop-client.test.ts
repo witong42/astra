@@ -1,5 +1,13 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { desktopClient } from "../scripts/desktop-client";
@@ -8,7 +16,7 @@ const PROBE_TIMEOUT_MS = 5000;
 const POLL_INTERVAL_MS = 50;
 const TEST_TIMEOUT_MS = 15_000;
 
-test("desktop checks connect to the renamed Astra project", async () => {
+test("desktop checks connect to their checkout in any directory", async () => {
   const socketUrl = "ws://127.0.0.1:9337/devtools/page/astra";
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json([
@@ -56,11 +64,25 @@ test.skipIf(process.platform !== "darwin")(
   "the orb appearance check inspects the current canvas in an isolated browser",
   async () => {
     const project = join(import.meta.dir, "..");
-    const directory = mkdtempSync(join(tmpdir(), "astra-orb-test-"));
+    const directory = realpathSync(
+      mkdtempSync(join(tmpdir(), "astra-orb-test-")),
+    );
     try {
-      const fixture = join(directory, "Projects/Astra/dist/index.html");
-      mkdirSync(join(directory, "Projects/Astra/dist"), { recursive: true });
+      const fixture = join(directory, "dist/index.html");
+      mkdirSync(join(directory, "dist"));
+      mkdirSync(join(directory, "scripts"));
+      symlinkSync(join(project, "src"), join(directory, "src"), "dir");
+      symlinkSync(
+        join(project, "node_modules"),
+        join(directory, "node_modules"),
+        "dir",
+      );
       mkdirSync(join(directory, "test-results"));
+      for (const file of ["desktop-client.ts", "verify-orb.ts"])
+        copyFileSync(
+          join(project, "scripts", file),
+          join(directory, "scripts", file),
+        );
       writeFileSync(
         fixture,
         `<!doctype html><style>${await Bun.file(join(project, "src/styles.css")).text()}</style><body></body>`,
@@ -109,7 +131,7 @@ test.skipIf(process.platform !== "darwin")(
             process.execPath,
             "--preload",
             preload,
-            join(project, "scripts/verify-orb.ts"),
+            join(directory, "scripts/verify-orb.ts"),
           ],
           { cwd: directory, env, stdout: "pipe", stderr: "pipe" },
         );

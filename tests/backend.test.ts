@@ -1,8 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodexBackend } from "../src/backend";
+import { CodexBackend, findCodex } from "../src/backend";
 import { loadState } from "../src/storage";
 
 const temporary: string[] = [];
@@ -12,6 +18,26 @@ afterEach(() => {
   else process.env.CODEXOS_CODEX_PATH = previousExecutable;
   for (const directory of temporary.splice(0))
     rmSync(directory, { recursive: true });
+});
+
+test("Codex installed in Bun's global bin directory is discovered", () => {
+  delete process.env.CODEXOS_CODEX_PATH;
+  const directory = mkdtempSync(join(tmpdir(), "astra-codex-discovery-"));
+  temporary.push(directory);
+  const bin = join(directory, ".bun/bin");
+  mkdirSync(bin, { recursive: true });
+  const executable = join(bin, "codex");
+  writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  expect(findCodex(directory)).toBe(executable);
+});
+
+test("an explicit Codex executable takes priority over discovered installs", () => {
+  const directory = mkdtempSync(join(tmpdir(), "astra-codex-override-"));
+  temporary.push(directory);
+  const executable = join(directory, "codex");
+  writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  process.env.CODEXOS_CODEX_PATH = executable;
+  expect(findCodex(directory)).toBe(executable);
 });
 
 test("concurrent Codex approval requests are reviewed individually and answered once", async () => {
