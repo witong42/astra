@@ -7,4 +7,5 @@ output/
 .env*
 .DS_Store
 /sites/astra/
+/sites/getastra/
 /.openai/hosting.json

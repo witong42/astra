@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#080d13" />
+    <meta name="description" content="Astra is your personal Jarvis, powered by Codex. Talk naturally, build personal mini-apps, and reshape them through conversation." />
+    <meta property="og:title" content="Astra — Your personal Jarvis, powered by Codex" />
+    <meta property="og:description" content="A voice-first assistant for your Mac. Mini-apps that change when you ask." />
+    <meta property="og:image" content="https://getastra.halcytron.chatgpt.site/assets/banner.png" />
+    <meta property="og:url" content="https://getastra.halcytron.chatgpt.site/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://getastra.halcytron.chatgpt.site/" />
+    <link rel="icon" href="./assets/icon.png" />
+    <link rel="stylesheet" href="./site.css" />
+    <title>Astra — Your personal Jarvis, powered by Codex</title>
+    <script type="module" src="./site.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main" data-i18n="skip">Skip to content</a>
+    <header class="navigation wrap">
+      <a class="brand" href="#main" aria-label="Astra home"><img src="./assets/icon.png" alt="" width="30" height="30" />astra<span class="brand-period">.</span></a>
+      <nav class="main-navigation" aria-label="Main navigation">
+        <a href="#possibilities" data-i18n="navApps">The possibilities</a>
+        <a href="#film" data-i18n="navFilm">Watch the film</a>
+        <a href="#install" data-i18n="navInstall">Get Astra <span aria-hidden="true">↗</span></a>
+      </nav>
+      <nav class="languages" aria-label="Language">
+        <a href="?lang=en" lang="en" data-language="en" aria-current="true">EN</a>
+        <a href="?lang=fr" lang="fr" data-language="fr">FR</a>
+      </nav>
+    </header>
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-galaxy"><canvas id="galaxy" aria-hidden="true"></canvas></div>
+        <div class="hero-copy">
+          <p class="eyebrow" data-i18n="eyebrow">A voice. A little universe of possibilities.</p>
+          <h1 id="hero-title" data-i18n="heroTitle">Your personal<br /><span>Jarvis.</span></h1>
+          <p class="hero-description" data-i18n="heroDescription">Powered by Codex. A personal assistant with mini-apps that change when you ask.</p>
+          <div class="hero-actions">
+            <a class="primary-action" href="#install"><span data-i18n="installAction">Get Astra for Mac</span><span aria-hidden="true">↗</span></a>
+            <a class="film-action" href="#film"><span class="play-symbol" aria-hidden="true">▶</span><span data-i18n="watchAction">Meet Astra</span></a>
+          </div>
+        </div>
+      </section>
+      <section class="conversation wrap" aria-labelledby="conversation-title">
+        <div class="section-heading">
+          <h2 id="conversation-title" data-i18n="conversationTitle">An idea is enough<br />to start a conversation.</h2>
+          <p data-i18n="conversationDescription">Speak or type. Astra helps you turn what you need into something you can actually use.</p>
+        </div>
+        <div class="conversation-example">
+          <p class="spoken-request"><span class="request-label" data-i18n="you">You</span><q data-i18n="request">Make a little app to keep my project moving.</q></p>
+          <div class="conversation-line" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <p class="spoken-response"><span class="request-label">Astra</span><span data-i18n="response">From the next step to the bigger picture. A tool that takes the shape of your work.</span></p>
+        </div>
+      </section>
+      <section class="possibilities wrap" id="possibilities" aria-labelledby="apps-title">
+        <div class="section-heading">
+          <h2 id="apps-title" data-i18n="appsTitle">Small apps.<br /><span>Entirely yours.</span></h2>
+          <p data-i18n="appsDescription">A trip, a project, something you're learning. Start with the thing that would make your day easier.</p>
+        </div>
+        <div class="app-gallery">
+          <div class="app-choices" role="tablist" aria-label="Example mini-apps">
+            <button id="tab-project" type="button" role="tab" aria-selected="true" aria-controls="app-preview" data-demo="project"><span class="example-index">01</span><span><strong data-i18n="projectTitle">Move a project forward</strong><small data-i18n="projectDescription">The next step, always in sight.</small></span><span aria-hidden="true">↗</span></button>
+            <button id="tab-travel" type="button" role="tab" aria-selected="false" aria-controls="app-preview" tabindex="-1" data-demo="travel"><span class="example-index">02</span><span><strong data-i18n="travelTitle">Make room for a trip</strong><small data-i18n="travelDescription">A plan, a checklist, a little headspace.</small></span><span aria-hidden="true">↗</span></button>
+            <button id="tab-quiz" type="button" role="tab" aria-selected="false" aria-controls="app-preview" tabindex="-1" data-demo="quiz"><span class="example-index">03</span><span><strong data-i18n="quizTitle">Follow your curiosity</strong><small data-i18n="quizDescription">A quiz for the things you want to learn.</small></span><span aria-hidden="true">↗</span></button>
+          </div>
+          <div class="app-preview" id="app-preview" role="tabpanel" aria-labelledby="tab-project" >
+            <img id="example-image" src="./assets/project.png" width="1100" height="760" loading="lazy" alt="Astra project mini-app with a task list and the next action" />
+            <p class="preview-caption" data-i18n="sampleData">Example mini-apps · Sample data</p>
+          </div>
+        </div>
+      </section>
+      <section class="evolution wrap" aria-labelledby="evolution-title">
+        <div class="evolution-copy"><h2 id="evolution-title" data-i18n="evolutionTitle">It doesn't end<br />at the first version.</h2><p data-i18n="evolutionDescription">Ask for another button. A simpler view. A different workflow. Codex reshapes your mini-app, and you keep going.</p><blockquote data-i18n="evolutionRequest">“Give me a simpler view, so I can focus.”</blockquote></div>
+        <figure class="evolution-preview"><img src="./assets/project-focus.png" width="1100" height="760" loading="lazy" alt="The same Astra project app after switching to a simpler focus view" /><figcaption data-i18n="evolutionCaption">The same mini-app. A new way to use it.</figcaption></figure>
+      </section>
+      <section class="film-section wrap" id="film" aria-labelledby="film-title">
+        <div class="film-heading"><h2 id="film-title" data-i18n="filmTitle">Astra, in a minute.</h2><p data-i18n="filmDescription">A short introduction to a more personal way of using AI.</p></div>
+        <div class="film-frame"><video id="pitch" controls playsinline preload="metadata" poster="./assets/film-poster.png" aria-label="Astra overview, narrated in English"><source src="./assets/astra-pitch-en.mp4" type="video/mp4" /><track kind="captions" src="./assets/astra-pitch-en.vtt" srclang="en" label="English" /><p data-i18n="videoFallback">Your browser cannot play this video.</p></video></div>
+        <p class="film-caption" data-i18n="filmCaption">English narration and captions. Illustrative mini-apps with sample data.</p>
+      </section>
+      <section class="your-mac wrap" aria-labelledby="local-title"><h2 id="local-title" data-i18n="localTitle">Your Mac.<br />Your Codex.<br /><span>Your way.</span></h2><div class="local-details"><p data-i18n="localDescription">Astra runs on your Mac and uses your own Codex account. Your mini-apps and journal stay in your local workspace.</p><p data-i18n="phoneDescription">Want to pick up from your phone? Connect it privately to the same Mac. Astra stays with you, while your Mac stays on.</p><a href="https://github.com/witong42/Astra#access-and-data" target="_blank" rel="noreferrer" data-i18n="dataLink">How access and data work ↗</a></div></section>
+      <section class="install-section wrap" id="install" aria-labelledby="install-title">
+        <div class="install-heading"><h2 id="install-title" data-i18n="installTitle">Meet your<br /><span>next little universe.</span></h2><p data-i18n="installDescription">Install Astra in one line. Bring your Codex sign-in and an idea.</p></div>
+        <div class="install-box"><div class="install-box-heading"><span data-i18n="installTerminal">In your Mac's Terminal</span><a href="./install.sh" target="_blank" rel="noreferrer" data-i18n="inspectInstaller">Inspect the script ↗</a></div><div class="install-command"><code id="install-command">curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash</code><button type="button" id="copy-install" aria-label="Copy installation command" data-i18n="copy">Copy</button></div><p class="copy-feedback" id="copy-feedback" role="status" aria-live="polite"></p></div>
+        <p class="requirements" data-i18n="requirements">Apple Silicon Mac · Codex CLI with ChatGPT sign-in · Experimental software</p>
+        <div class="install-links"><a href="https://github.com/witong42/Astra/releases" target="_blank" rel="noreferrer" data-i18n="manualDownload">Download manually ↗</a><a href="https://github.com/witong42/Astra" target="_blank" rel="noreferrer" data-i18n="sourceCode">Explore the source ↗</a><a href="https://developers.openai.com/codex/cli/" target="_blank" rel="noreferrer" data-i18n="codexSetup">Need Codex? ↗</a></div>
+        <p class="access-note" data-i18n="accessNote">Astra currently gives Codex full file and command access without approval prompts. Model requests use your Codex provider and your plan's limits. Read the setup notes before installing.</p>
+      </section>
+    </main>
+    <footer class="footer wrap"><a class="brand" href="#main">astra<span class="brand-period">.</span></a><p data-i18n="footer">A small independent project. Built to feel personal.</p><div><a href="https://github.com/witong42/Astra/blob/main/LICENSE" data-i18n="license">MIT license</a><a href="https://github.com/witong42/Astra/blob/main/THIRD_PARTY_NOTICES.md" data-i18n="credits">Credits</a></div><p class="affiliation" data-i18n="affiliation">An independent project, not affiliated with OpenAI.</p></footer>
+  </body>
+</html>
