@@ -5,6 +5,8 @@ import type { Snapshot } from "./types";
 const IDLE_TIMEOUT_MS = 60_000;
 const CONNECTION_TIMEOUT_MS = 30_000;
 const WAKE_COMMAND_TIMEOUT_MS = 12_000;
+const HOME_OBSERVATION_LIMIT = 16;
+const HOME_OBSERVATION_TEXT_LIMIT = 160;
 export type VoiceState = {
   active: boolean;
   status:
@@ -44,6 +46,7 @@ export type SpeechEvent =
     }
   | { method: "voice/speaking" | "voice/finished"; speechId: number }
   | { method: "voice/wake" | "voice/home" }
+  | { method: "voice/shortcut"; text: string; language: "en" | "fr" }
   | { method: "voice/level"; level: number }
   | { method: "voice/error"; message: string };
 export type Speech = {
@@ -85,6 +88,12 @@ function isHomeShortcut(text: string) {
   return words.length > 0 && words.every((word) => word === "home");
 }
 export class VoiceSession {
+  private homeObservations: {
+    kind: "recognition" | "reset" | "detected" | "navigated" | "failed";
+    at: number;
+    text?: string;
+    language?: "en" | "fr";
+  }[] = [];
   private state = structuredClone(INITIAL_VOICE);
   private wake: Pick<Speech, "start" | "stop"> | null = null;
   private homeListener: Pick<Speech, "start" | "stop"> | null = null;
@@ -123,6 +132,30 @@ export class VoiceSession {
 
   snapshot() {
     return structuredClone(this.state);
+  }
+  shortcutDiagnostics() {
+    return {
+      ready: this.state.homeShortcutReady,
+      error: this.state.error,
+      observations: structuredClone(this.homeObservations),
+    };
+  }
+  private observeHome(
+    kind: (typeof this.homeObservations)[number]["kind"],
+    text?: string,
+    language?: "en" | "fr",
+  ) {
+    this.homeObservations.push({
+      kind,
+      at: Date.now(),
+      ...(text === undefined
+        ? {}
+        : { text: text.slice(0, HOME_OBSERVATION_TEXT_LIMIT) }),
+      ...(language ? { language } : {}),
+    });
+    this.homeObservations = this.homeObservations.slice(
+      -HOME_OBSERVATION_LIMIT,
+    );
   }
   private changed() {
     this.publish(this.snapshot());
@@ -181,8 +214,16 @@ export class VoiceSession {
     const wake = this.createWake((event) => {
       if (this.wake !== wake || !this.state.active) return;
       if (event.method === "voice/error") this.fail(event.message);
-      else if (event.method === "voice/home") void this.home();
-      else if (event.method === "voice/wake") {
+      else if (event.method === "voice/shortcut")
+        this.observeHome(
+          event.text ? "recognition" : "reset",
+          event.text,
+          event.language,
+        );
+      else if (event.method === "voice/home") {
+        this.observeHome("detected");
+        void this.home();
+      } else if (event.method === "voice/wake") {
         this.wakeCommand = "";
         let resolve = () => {};
         const promise = new Promise<void>((done) => {
@@ -322,8 +363,15 @@ export class VoiceSession {
       )
         return;
       if (event.method === "voice/home") {
+        this.observeHome("detected");
         this.localHomePending = true;
         void this.home();
+      } else if (event.method === "voice/shortcut") {
+        this.observeHome(
+          event.text ? "recognition" : "reset",
+          event.text,
+          event.language,
+        );
       } else if (event.method === "voice/error") {
         this.homeListener = null;
         listener.stop();
@@ -402,12 +450,14 @@ export class VoiceSession {
     try {
       await Promise.all([this.navigateHome(), this.media?.muteOutput(true)]);
       if (epoch !== this.epoch) return;
+      this.observeHome("navigated");
       this.state.error = null;
       this.state.status = this.media ? "listening" : "standby";
       if (this.media) this.armIdle();
     } catch (error) {
       if (epoch !== this.epoch) return;
       this.state.error = error instanceof Error ? error.message : String(error);
+      this.observeHome("failed", this.state.error);
     }
     this.changed();
   }

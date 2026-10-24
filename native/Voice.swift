@@ -22,12 +22,18 @@ func isHomeShortcut(_ text: String) -> Bool {
 }
 final class HomeShortcutRecognition {
     private var silence: DispatchWorkItem?
+    private var observed: [String: String] = [:]
     private let onHome: () -> Void
     private let onReset: () -> Void
-    init(onHome: @escaping () -> Void, onReset: @escaping () -> Void) {
-        self.onHome = onHome; self.onReset = onReset
+    private let onRecognition: (String, String) -> Void
+    init(onHome: @escaping () -> Void, onReset: @escaping () -> Void, onRecognition: @escaping (String, String) -> Void = { _, _ in }) {
+        self.onHome = onHome; self.onReset = onReset; self.onRecognition = onRecognition
     }
     func received(language: String, text: String) {
+        if observed[language] != text {
+            observed[language] = text
+            onRecognition(language, text)
+        }
         guard language == "en", !normalized(text).isEmpty else { return }
         silence?.cancel()
         let finish = DispatchWorkItem { [onHome, onReset] in
@@ -37,7 +43,7 @@ final class HomeShortcutRecognition {
         silence = finish
         DispatchQueue.main.asyncAfter(deadline: .now() + silenceDelay, execute: finish)
     }
-    func cancel() { silence?.cancel(); silence = nil }
+    func cancel() { silence?.cancel(); silence = nil; observed.removeAll() }
 }
 final class RecognitionLane {
     let language: String
@@ -69,7 +75,12 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     private var utteranceIds: [ObjectIdentifier: Int] = [:]
     private var lastLevel: TimeInterval = 0
     private var lastPartial = ""
-    private lazy var homeShortcut = HomeShortcutRecognition(onHome: { event("voice/home") }, onReset: { [weak self] in self?.startRecognition() })
+    private lazy var homeShortcut = HomeShortcutRecognition(onHome: { event("voice/home") }, onReset: { [weak self] in
+        event("voice/shortcut", ["language": "en", "text": ""])
+        self?.startRecognition()
+    }, onRecognition: { language, text in
+        event("voice/shortcut", ["language": language, "text": String(text.prefix(160))])
+    })
     override init() { super.init(); synthesizer.delegate = self }
     func start(id: Any, standby: Bool, homeOnly: Bool = false) {
         AVCaptureDevice.requestAccess(for: .audio) { allowed in

@@ -62,6 +62,7 @@ const controlInterface: AppController = (request) => {
           ...result,
           windowVisible: window.isVisible(),
           voice: voice.snapshot().status,
+          homeShortcut: voice.shortcutDiagnostics(),
         }
       : result;
   });

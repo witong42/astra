@@ -10,9 +10,12 @@ struct VoiceTests {
         var homes = 0
         var resets = 0
         var transcript = ""
-        let shortcut = HomeShortcutRecognition(onHome: { homes += 1 }, onReset: { resets += 1; transcript = "" })
+        var observations: [(String, String)] = []
+        let shortcut = HomeShortcutRecognition(onHome: { homes += 1 }, onReset: { resets += 1; transcript = "" }, onRecognition: { observations.append(($0, $1)) })
         transcript = "Tell me about the dashboard"
         shortcut.received(language: "en", text: transcript)
+        shortcut.received(language: "en", text: transcript)
+        precondition(observations.count == 1, "Identical recognition observations were duplicated")
         try await Task.sleep(for: pause)
         guard resets == 1 else { throw NSError(domain: "AstraVoiceTest", code: 4, userInfo: [NSLocalizedDescriptionKey: "Ordinary conversation was not cleared before the next Home shortcut"]) }
         transcript += " Home Home"
@@ -20,6 +23,7 @@ struct VoiceTests {
         shortcut.received(language: "fr", text: "Homme homme")
         try await Task.sleep(for: pause)
         precondition(homes == 1 && resets == 2, "Home after conversation was lost or a French result canceled it")
+        precondition(observations.contains { $0.0 == "fr" && $0.1 == "Homme homme" }, "French recognition was not observable")
         shortcut.received(language: "en", text: "Home")
         shortcut.received(language: "en", text: "Home Assistant")
         try await Task.sleep(for: pause)

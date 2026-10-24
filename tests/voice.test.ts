@@ -144,6 +144,46 @@ async function tick() {
   await Bun.sleep(0);
 }
 
+test("Home diagnostics distinguish recognition, detection and navigation without dispatching speech", async () => {
+  const f = fixture();
+  try {
+    await f.voice.start();
+    for (let index = 0; index < 20; index++)
+      f.shortcut({
+        method: "voice/shortcut",
+        language: "en",
+        text: `${index}:${"x".repeat(200)}`,
+      });
+    const diagnostics = f.voice.shortcutDiagnostics();
+    expect(diagnostics.ready).toBe(true);
+    expect(diagnostics.observations).toHaveLength(16);
+    expect(
+      diagnostics.observations.every((event) => event.text?.length === 160),
+    ).toBe(true);
+    expect(f.homeRequests()).toBe(0);
+    expect(f.sent).toEqual([]);
+    diagnostics.observations.length = 0;
+    expect(f.voice.shortcutDiagnostics().observations).toHaveLength(16);
+    f.shortcut({ method: "voice/shortcut", language: "fr", text: "Homme" });
+    f.shortcut({ method: "voice/shortcut", language: "en", text: "Home" });
+    f.shortcut({ method: "voice/home" });
+    await tick();
+    expect(
+      f.voice
+        .shortcutDiagnostics()
+        .observations.slice(-4)
+        .map((event) => event.kind),
+    ).toEqual(["recognition", "recognition", "detected", "navigated"]);
+    f.voice.stop();
+    const stopped = f.voice.shortcutDiagnostics();
+    f.shortcut({ method: "voice/shortcut", language: "en", text: "stale" });
+    expect(f.voice.shortcutDiagnostics()).toEqual(stopped);
+    expect(stopped.ready).toBe(false);
+  } finally {
+    f.voice.stop();
+  }
+});
+
 test("the galaxy starts GPT-Live and accepts SDP before the request acknowledgement", async () => {
   const f = fixture();
   try {
