@@ -1,6 +1,7 @@
 import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildCanvas } from "./build-canvas";
+import { buildSiteWorker } from "./build-site-worker";
 import { appIcon } from "./icon";
 
 const root = join(import.meta.dir, "..");
@@ -53,4 +54,5 @@ await Bun.write(join(outdir, "index.html"), html);
 for (const file of ["styles.css", "web.css"])
   copyFileSync(join(root, "src", file), join(outdir, file));
 await Bun.write(join(outdir, "icon.png"), appIcon().png);
+await buildSiteWorker(outdir, join(root, "dist/server"));
 console.log(`Built Astra web for ${remote}.`);
