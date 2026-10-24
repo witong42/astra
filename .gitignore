@@ -4,3 +4,4 @@ release/
 test-results/
 .env*
 .DS_Store
+/sites/astra/

@@ -5,6 +5,12 @@ import { RpcPeer } from "./rpc";
 import type { Speech, SpeechEvent } from "./voice";
 
 const SPEECH_REQUEST_TIMEOUT_MS = 120_000;
+const MAX_PHONE_AUDIO_BYTES = 64_000;
+const phoneAudioSchema = z
+  .string()
+  .min(4)
+  .max(85_336)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/);
 const eventSchema = z.discriminatedUnion("method", [
   z.object({
     method: z.enum(["voice/partial", "voice/final"]),
@@ -27,9 +33,11 @@ const eventSchema = z.discriminatedUnion("method", [
 export class NativeSpeech implements Speech {
   private child: ChildProcessWithoutNullStreams | null = null;
   private rpc: RpcPeer | null = null;
+  private ready = false;
   constructor(
     private executable: string,
     private onEvent: (event: SpeechEvent) => void,
+    private input: "microphone" | "phone" = "microphone",
   ) {}
   async start(standby = false, homeOnly = false) {
     if (!existsSync(this.executable))
@@ -70,7 +78,28 @@ export class NativeSpeech implements Speech {
     child.stderr.on("data", () => {});
     child.on("error", (error) => rpc.close(error));
     child.on("exit", () => rpc.close());
-    await rpc.request("start", { standby, homeOnly });
+    await rpc.request("start", {
+      standby,
+      homeOnly,
+      external: this.input === "phone",
+    });
+    if (this.rpc === rpc) this.ready = true;
+  }
+  async appendAudio(pcm: string) {
+    if (this.input !== "phone")
+      throw new Error("Phone audio requires an external speech input.");
+    const data = Buffer.from(phoneAudioSchema.parse(pcm), "base64");
+    if (
+      data.length === 0 ||
+      data.length > MAX_PHONE_AUDIO_BYTES ||
+      data.length % Float32Array.BYTES_PER_ELEMENT !== 0
+    )
+      throw new Error(
+        "Phone audio must contain at most one second of mono Float32 audio.",
+      );
+    if (!this.ready || !this.rpc) return false;
+    const result = await this.rpc.request("audio", { pcm });
+    return z.object({ accepted: z.boolean() }).parse(result).accepted;
   }
   async listen() {
     await this.rpc?.request("listen", {});
@@ -86,6 +115,7 @@ export class NativeSpeech implements Speech {
     await this.rpc?.request("interrupt", {});
   }
   stop() {
+    this.ready = false;
     const rpc = this.rpc;
     this.rpc = null;
     rpc?.close();

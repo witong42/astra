@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { buildCanvas } from "./build-canvas";
 import { appIcon } from "./icon";
 
 const root = join(import.meta.dir, "..");
@@ -66,25 +67,7 @@ const cli = await Bun.build({
   naming: "astra.cjs",
   minify: false,
 });
-const canvas = await Bun.build({
-  entrypoints: [join(root, "src/canvas-runtime.ts")],
-  target: "browser",
-  format: "iife",
-  minify: true,
-});
-if (!canvas.success)
-  throw new AggregateError(canvas.logs, "Canvas build failed");
-const runtime = (await canvas.outputs[0].text()).replace(
-  /<\/script/gi,
-  "<\\/script",
-);
-await Bun.write(
-  join(outdir, "canvas.html"),
-  readFileSync(join(root, "src/canvas.html"), "utf8").replace(
-    "<!--CANVAS_RUNTIME-->",
-    `<script>${runtime}</script>`,
-  ),
-);
+await buildCanvas(root, outdir);
 for (const result of [main, renderer, cli])
   if (!result.success)
     throw new AggregateError(result.logs, "Astra build failed");

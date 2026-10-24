@@ -1,0 +1,60 @@
+.remote-opening {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+  color: #e6e5f2;
+  font-family: system-ui, sans-serif;
+}
+.remote-opening strong {
+  font-size: 28px;
+  font-weight: 500;
+}
+.remote-opening p,
+.remote-opening small {
+  color: #a9a8bf;
+}
+.remote-connection {
+  position: fixed;
+  z-index: 100;
+  inset: env(safe-area-inset-top, 0px) 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: #272235;
+  color: #f3edff;
+  font:
+    13px / 1.45 system-ui,
+    sans-serif;
+  box-shadow: 0 2px 12px #0005;
+}
+.remote-connection[hidden] {
+  display: none;
+}
+.remote-connection button {
+  flex: none;
+  border: 1px solid #837692;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+html[data-platform="web"] .window-controls-space {
+  display: none;
+}
+html[data-platform="web"] body {
+  overscroll-behavior: none;
+}
+@media (max-width: 640px) {
+  .remote-connection {
+    align-items: flex-start;
+    font-size: 12px;
+  }
+}

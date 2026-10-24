@@ -5,6 +5,33 @@ import Speech
 @main
 struct VoiceTests {
     @MainActor
+    static func verifyPhoneInput(_ path: String) async throws {
+        let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
+        precondition(file.processingFormat.sampleRate == phoneSampleRate)
+        let voice = VoiceEngine()
+        try await voice.beginExternalInput(standby: true, homeOnly: true)
+        let frameCount: AVAudioFrameCount = 1600
+        let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frameCount)!
+        while file.framePosition < file.length {
+            try file.read(into: buffer, frameCount: frameCount)
+            let data = Data(bytes: buffer.floatChannelData![0], count: Int(buffer.frameLength) * MemoryLayout<Float>.size)
+            let accepted = try voice.appendPhoneAudio(data)
+            precondition(accepted)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let silence = Data(repeating: 0, count: Int(frameCount) * MemoryLayout<Float>.size)
+        for _ in 0..<20 {
+            let accepted = try voice.appendPhoneAudio(silence)
+            precondition(accepted)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await Task.sleep(for: .seconds(3))
+        voice.stop()
+        let acceptedAfterStop = try voice.appendPhoneAudio(silence)
+        precondition(!acceptedAfterStop)
+        print("PHONE_EXTERNAL_REPLAY_VERIFIED")
+    }
+    @MainActor
     static func verifyHomeConversation() async throws {
         let pause = Duration.milliseconds(Int(silenceDelay * 1000) + 200)
         var homes = 0
@@ -35,6 +62,22 @@ struct VoiceTests {
         print("HOME_CONVERSATION_VERIFIED")
     }
     static func main() async throws {
+        if CommandLine.arguments.count > 4, CommandLine.arguments[4] == "phone" {
+            try await verifyPhoneInput(CommandLine.arguments[1])
+            return
+        }
+        let phoneSamples: [Float] = [0, 0.5, -0.5, 1, -1]
+        let phoneData = phoneSamples.withUnsafeBytes { Data($0) }
+        let phoneBuffer = try phoneAudioBuffer(phoneData)
+        precondition(phoneBuffer.format.sampleRate == phoneSampleRate)
+        precondition(phoneBuffer.format.channelCount == 1)
+        precondition(phoneBuffer.frameLength == phoneSamples.count)
+        for index in phoneSamples.indices { precondition(phoneBuffer.floatChannelData![0][index] == phoneSamples[index]) }
+        for invalid in [Data(), Data([1, 2, 3]), Data(repeating: 0, count: maximumPhoneAudioBytes + 4), [Float.nan].withUnsafeBytes { Data($0) }] {
+            do { _ = try phoneAudioBuffer(invalid); preconditionFailure("Invalid phone audio was accepted") }
+            catch { }
+        }
+        print("PHONE_PCM_VERIFIED")
         let engine = AVAudioEngine()
         try configureVoiceInput(engine.inputNode)
         let ducking = engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration

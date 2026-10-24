@@ -81,6 +81,8 @@ export type Snapshot = SavedState & {
   metrics: Metrics | null;
 };
 export type Bridge = {
+  remoteActive?: () => Promise<boolean>;
+  subscribeRemoteActive?: (listener: (active: boolean) => void) => () => void;
   voiceSnapshot: () => Promise<VoiceState>;
   subscribeVoice: (listener: (state: VoiceState) => void) => () => void;
   startVoice: (standby?: boolean) => Promise<void>;

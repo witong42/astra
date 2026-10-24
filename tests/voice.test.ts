@@ -209,6 +209,102 @@ test("the galaxy waits for the SDP notification after the request acknowledgemen
   f.voice.stop();
 });
 
+test("phone voice uses its supplied media and never opens either Mac microphone helper", async () => {
+  const f = fixture();
+  const answers: string[] = [];
+  const muted: boolean[] = [];
+  let stopped = 0;
+  let homeEvent: (event: SpeechEvent) => void = () => {};
+  await f.voice.start(false, {
+    media: () => ({
+      offer: async () => "phone-offer",
+      answer: async (sdp) => {
+        answers.push(sdp);
+      },
+      muteOutput: async (value) => {
+        muted.push(value);
+      },
+      stop: () => {
+        stopped++;
+      },
+    }),
+    speech: (onEvent) => {
+      homeEvent = onEvent;
+      return { start: async () => {}, stop: () => {} };
+    },
+  });
+  expect(f.calls).toEqual(["phone-offer"]);
+  expect(answers).toEqual(["answer"]);
+  expect(f.wakeStarts()).toBe(0);
+  expect(f.shortcutStarts()).toBe(0);
+  f.realtime("transcript/delta", {
+    role: "assistant",
+    delta: "Voici le résultat",
+  });
+  homeEvent({ method: "voice/home" });
+  f.realtime("transcript/done", {
+    role: "user",
+    text: "Home Home Maintenant ouvre le calendrier",
+  });
+  await tick();
+  expect(f.homeRequests()).toBe(1);
+  expect(muted).toEqual([true]);
+  expect(f.muted).toEqual([]);
+  await f.voice.start(false, null);
+  expect(stopped).toBe(1);
+  expect(f.calls).toEqual(["phone-offer", "offer", "answer"]);
+  expect(f.shortcutStarts()).toBe(1);
+  f.voice.stop();
+});
+
+test("switching to a phone cancels a pending Mac negotiation before starting the phone call", async () => {
+  const f = fixture({ autoSdp: false });
+  const desktop = f.voice.start();
+  await tick();
+  const answers: string[] = [];
+  const phone = f.voice.start(false, {
+    media: () => ({
+      offer: async () => "phone-offer",
+      answer: async (sdp) => {
+        answers.push(sdp);
+      },
+      muteOutput: async () => {},
+      stop: () => {},
+    }),
+    speech: () => ({ start: async () => {}, stop: () => {} }),
+  });
+  await tick();
+  f.realtime("sdp", { sdp: "phone-answer" });
+  await Promise.all([desktop, phone]);
+  expect(f.calls).toEqual(["offer", "phone-offer"]);
+  expect(answers).toEqual(["phone-answer"]);
+  expect(f.voice.snapshot().status).toBe("listening");
+  expect(f.shortcutStarts()).toBe(0);
+  f.voice.stop();
+});
+
+test("a superseded phone transfer cannot start its microphone after a newer transfer", async () => {
+  const f = fixture({ autoSdp: false });
+  const desktop = f.voice.start();
+  await tick();
+  const input = (name: string) => ({
+    media: () => ({
+      offer: async () => name,
+      answer: async () => {},
+      muteOutput: async () => {},
+      stop: () => {},
+    }),
+    speech: () => ({ start: async () => {}, stop: () => {} }),
+  });
+  const first = f.voice.start(false, input("obsolete-phone"));
+  const second = f.voice.start(false, input("current-phone"));
+  await tick();
+  f.realtime("sdp", { sdp: "current-answer" });
+  await Promise.all([desktop, first, second]);
+  expect(f.calls).toEqual(["offer", "current-phone"]);
+  f.voice.stop();
+});
+
 test("saying Astra starts the same live call while ambient local transcripts do not", async () => {
   const f = fixture();
   await f.voice.start(true);

@@ -60,6 +60,7 @@ function App() {
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [voice, setVoice] = useState<VoiceState>(INITIAL_VOICE);
+  const [remoteActive, setRemoteActive] = useState(false);
   const [home, setHome] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const surfaceHandles = useRef(
@@ -154,6 +155,11 @@ function App() {
     addEventListener("keydown", interrupt);
     return () => removeEventListener("keydown", interrupt);
   }, [home, voice.active, interruptVoice]);
+  useEffect(() => {
+    const unsubscribe = window.codexos.subscribeRemoteActive?.(setRemoteActive);
+    void window.codexos.remoteActive?.().then(setRemoteActive).catch(onError);
+    return unsubscribe;
+  }, [onError]);
   useEffect(() => {
     window.codexosFlush = async () => {
       await Promise.all(
@@ -302,6 +308,14 @@ function App() {
       if (window.astraControl === control) delete window.astraControl;
     };
   }, [home, afterCapture, returnHome]);
+  if (remoteActive)
+    return (
+      <main className="launch-screen" role="status">
+        <p>Astra est ouverte sur ton téléphone.</p>
+        <p>Ferme son onglet pour reprendre ici.</p>
+        <small>{APP_RELEASE}</small>
+      </main>
+    );
   if (!snapshot)
     return (
       <div className="launch-screen">

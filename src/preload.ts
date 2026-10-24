@@ -5,6 +5,13 @@ import type { VoiceState } from "./voice";
 const invoke = (name: string, ...args: unknown[]) =>
   ipcRenderer.invoke(`codexos:${name}`, ...args);
 const bridge: Bridge = {
+  remoteActive: () => invoke("remoteActive"),
+  subscribeRemoteActive: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, active: boolean) =>
+      callback(active);
+    ipcRenderer.on("codexos:remoteActive", listener);
+    return () => ipcRenderer.removeListener("codexos:remoteActive", listener);
+  },
   voiceSnapshot: () => invoke("voiceSnapshot"),
   startVoice: (standby) => invoke("startVoice", standby),
   stopVoice: () => invoke("stopVoice"),

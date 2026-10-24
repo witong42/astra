@@ -55,6 +55,32 @@ test.skipIf(process.platform !== "darwin")(
         expect(output).toContain("HOME_CONVERSATION_VERIFIED");
         expect(output).toContain("VOICE_DUCKING_VERIFIED");
         console.log(output.trim());
+        if (expected === "home") {
+          const phoneAudio = join(directory, "phone.caf");
+          execFileSync("/usr/bin/afconvert", [
+            audio,
+            phoneAudio,
+            "-f",
+            "caff",
+            "-d",
+            "LEF32@16000",
+            "-c",
+            "1",
+          ]);
+          const phoneOutput = execFileSync(
+            executable,
+            [phoneAudio, language, expected, "phone"],
+            { encoding: "utf8", timeout: SPEECH_TEST_TIMEOUT_MS },
+          );
+          expect(phoneOutput).toContain("PHONE_EXTERNAL_REPLAY_VERIFIED");
+          const events = phoneOutput
+            .split("\n")
+            .filter((line) => line.startsWith("{"))
+            .map((line) => JSON.parse(line));
+          expect(events.some((event) => event.method === "voice/home")).toBe(
+            true,
+          );
+        }
       }
     } finally {
       rmSync(directory, { recursive: true });

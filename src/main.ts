@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import type { Server } from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   app,
@@ -22,6 +22,9 @@ import { canvasAckSchema } from "./canvas";
 import { CodexLiveMedia } from "./live-media";
 import { NativeSpeech } from "./native-speech";
 import { externalWebUrl } from "./navigation";
+import { PhoneInput } from "./phone-input";
+import { readRemoteConfig } from "./remote-config";
+import { type RemoteMethod, startRemoteServer } from "./remote-server";
 import { loadState, saveState } from "./storage";
 import type { SavedState, Snapshot } from "./types";
 import { APP_BUILD, APP_VERSION } from "./version";
@@ -50,8 +53,29 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let quitting = false;
 let api: Server | null = null;
 let controlQueue = Promise.resolve<unknown>(undefined);
+let remote: Awaited<ReturnType<typeof startRemoteServer>> | null = null;
+let phoneInput: PhoneInput | null = null;
+let voiceTransfer = 0;
+let changingVoice = 0;
+let remoteActive = false;
+let desktopVoiceWasActive = false;
+const methods = new Map<string, (...args: unknown[]) => unknown>();
+const PERSISTENCE_METHODS = new Set([
+  "updateData",
+  "updateCanvas",
+  "updateOpenUI",
+]);
+const PASSIVE_METHODS = new Set([
+  "snapshot",
+  "voiceSnapshot",
+  "remoteActive",
+  ...PERSISTENCE_METHODS,
+]);
 const controlInterface: AppController = (request) => {
   const operation = controlQueue.then(async () => {
+    const clientId = remote?.activeClient() ?? phoneInput?.clientId;
+    if (clientId && remote)
+      return remote.requestClient(clientId, { kind: "interface", request });
     if (!window || window.isDestroyed())
       throw new Error("Astra's window is unavailable.");
     if (request.action !== "status" && !HIDDEN_TEST_WINDOW) await showWindow();
@@ -103,6 +127,7 @@ function persist(state: SavedState, immediate = false) {
 function broadcast(snapshot: Snapshot) {
   voice?.observe(snapshot);
   latest = snapshot;
+  remote?.publishSnapshot(snapshot);
   if (broadcastTimer) return;
   broadcastTimer = setTimeout(() => {
     broadcastTimer = null;
@@ -113,6 +138,7 @@ function broadcast(snapshot: Snapshot) {
 
 function installHandlers() {
   const handle = (name: string, callback: (...args: unknown[]) => unknown) => {
+    methods.set(name, callback);
     ipcMain.handle(`codexos:${name}`, (event, ...args: unknown[]) => {
       if (
         !window ||
@@ -120,17 +146,25 @@ function installHandlers() {
         event.senderFrame !== window.webContents.mainFrame
       )
         throw new Error("This request did not come from the Astra window.");
+      if (remoteActive && PERSISTENCE_METHODS.has(name)) return;
+      if (remoteActive && !PASSIVE_METHODS.has(name))
+        throw new Error(
+          "Astra is active on the phone. Close its browser tab to resume here.",
+        );
+      if (!PASSIVE_METHODS.has(name)) {
+        if (phoneInput && name !== "startVoice" && name !== "stopVoice")
+          stopVoiceInput();
+      }
       return callback(...args);
     });
   };
   handle("voiceSnapshot", () => voice.snapshot());
+  handle("remoteActive", () => remoteActive);
   handle("startVoice", async (standby) => {
-    await voice.start(z.boolean().optional().parse(standby));
-    if (voice.snapshot().active && voice.snapshot().status !== "starting")
-      backend.setVoiceEnabled(true);
+    await startVoiceInput(z.boolean().optional().parse(standby) ?? false, null);
   });
   handle("stopVoice", () => {
-    voice.stop();
+    stopVoiceInput();
     backend.setVoiceEnabled(false);
   });
   handle("interruptVoice", () => voice.interrupt());
@@ -174,7 +208,8 @@ function installHandlers() {
       appNameSchema.parse(name),
     ),
   );
-  handle("deleteWorkspace", async (id) => {
+  handle("deleteWorkspace", (id) => deleteWorkspace(id, false));
+  async function deleteWorkspace(id: unknown, confirmed: boolean) {
     const workspaceId = z.string().uuid().parse(id);
     const workspace = backend.state.workspaces.find(
       (entry) => entry.id === workspaceId,
@@ -182,15 +217,17 @@ function installHandlers() {
     if (!workspace || !window) throw new Error("This app no longer exists.");
     if (backend.snapshot().sessions[workspaceId]?.busy)
       throw new Error("Stop this app's current response before deleting it.");
-    const result = await dialog.showMessageBox(window, {
-      type: "warning",
-      buttons: ["Delete App", "Cancel"],
-      defaultId: 1,
-      cancelId: 1,
-      message: `Delete ${workspace.name}?`,
-      detail:
-        "Permanently removes this app's conversation, canvas, saved versions, and Codex thread history. This cannot be undone. Project files and external backups are kept.",
-    });
+    const result = confirmed
+      ? { response: 0 }
+      : await dialog.showMessageBox(window, {
+          type: "warning",
+          buttons: ["Delete App", "Cancel"],
+          defaultId: 1,
+          cancelId: 1,
+          message: `Delete ${workspace.name}?`,
+          detail:
+            "Permanently removes this app's conversation, canvas, saved versions, and Codex thread history. This cannot be undone. Project files and external backups are kept.",
+        });
     if (result.response !== 0) return false;
     try {
       await window.webContents.session.clearCache();
@@ -201,6 +238,13 @@ function installHandlers() {
     }
     await backend.deleteWorkspace(workspaceId);
     return true;
+  }
+  methods.set("remoteDeleteWorkspace", (id, confirmed) => {
+    if (confirmed !== true)
+      throw new Error(
+        "Confirm deletion on the phone before deleting this app.",
+      );
+    return deleteWorkspace(id, true);
   });
   handle("setModel", (model) =>
     backend.setModel(z.string().max(200).parse(model)),
@@ -264,7 +308,7 @@ function installHandlers() {
   });
 }
 
-async function flushRenderer() {
+async function flushRenderer(strict = false) {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed())
     return;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -279,6 +323,7 @@ async function flushRenderer() {
       }),
     ]);
   } catch (error) {
+    if (strict) throw error;
     dialog.showErrorBox(
       "The latest canvas edit could not be saved",
       String(error),
@@ -297,7 +342,106 @@ async function showWindow() {
     dialog.showErrorBox("Astra could not open", String(error));
   }
 }
+function releasePhoneInput() {
+  const source = phoneInput;
+  phoneInput = null;
+  source?.dispose();
+}
+function setRemoteActive(active: boolean) {
+  remoteActive = active;
+  if (window && !window.isDestroyed())
+    window.webContents.send("codexos:remoteActive", active);
+}
+function stopVoiceInput() {
+  voiceTransfer++;
+  changingVoice = 0;
+  voice.stop();
+  releasePhoneInput();
+}
+async function startVoiceInput(standby: boolean, source: PhoneInput | null) {
+  const transfer = ++voiceTransfer;
+  changingVoice = transfer;
+  releasePhoneInput();
+  phoneInput = source;
+  try {
+    await voice.start(standby, source?.input ?? null);
+    if (transfer === voiceTransfer && voice.snapshot().active)
+      backend.setVoiceEnabled(true);
+  } finally {
+    if (changingVoice === transfer) {
+      changingVoice = 0;
+      if (!voice.snapshot().active) releasePhoneInput();
+    }
+  }
+}
+async function invokeRemote(
+  method: RemoteMethod,
+  args: unknown[],
+  clientId: string,
+) {
+  if (quitting && !PASSIVE_METHODS.has(method))
+    throw new Error("Astra is closing on the Mac.");
+  if (method === "startVoice") {
+    const { captureId, standby } = z
+      .object({
+        captureId: z.string().uuid(),
+        standby: z.boolean().default(false),
+      })
+      .strict()
+      .parse(args[0]);
+    if (!remote) throw new Error("Remote access is unavailable.");
+    const input = new PhoneInput(
+      clientId,
+      captureId,
+      remote,
+      (onEvent) =>
+        new NativeSpeech(
+          join(app.getAppPath(), "dist/voice-helper"),
+          onEvent,
+          "phone",
+        ),
+    );
+    return startVoiceInput(standby, input);
+  }
+  if (method === "voiceAudio") {
+    const { captureId, pcm } = z
+      .object({
+        captureId: z.string().uuid(),
+        pcm: z.string().min(4).max(85_336),
+      })
+      .strict()
+      .parse(args[0]);
+    if (!phoneInput)
+      throw new Error("Start the phone microphone before sending audio.");
+    return phoneInput.appendAudio(clientId, captureId, pcm);
+  }
+  if (method === "stopVoice" && args[0] !== undefined) {
+    const { captureId } = z
+      .object({ captureId: z.string().uuid() })
+      .strict()
+      .parse(args[0]);
+    if (
+      !phoneInput ||
+      phoneInput.clientId !== clientId ||
+      phoneInput.captureId !== captureId
+    )
+      return;
+  }
+  if (method === "chooseFolder") {
+    const path = z.string().min(1).max(4096).parse(args[0]);
+    if (!isAbsolute(path) || !existsSync(path) || !statSync(path).isDirectory())
+      throw new Error("Enter an existing absolute folder path on the Mac.");
+    return backend.createWorkspace(path);
+  }
+  const name = method === "deleteWorkspace" ? "remoteDeleteWorkspace" : method;
+  const callback = methods.get(name);
+  if (!callback) throw new Error("This Astra action is unavailable remotely.");
+  return callback(...args);
+}
 function updateVoice(state: VoiceState) {
+  if (!state.active && !changingVoice) releasePhoneInput();
+  if (state.active || !changingVoice)
+    remote?.publishVoice(state, phoneInput?.clientId ?? null);
   if (window && !window.isDestroyed())
     window.webContents.send("codexos:voice", state);
   if (state.status === trayStatus) return;
@@ -328,11 +472,10 @@ function updateVoice(state: VoiceState) {
         label: state.active ? "Pause microphone" : "Enable voice",
         click: () => {
           if (voice.snapshot().active) {
-            voice.stop();
+            stopVoiceInput();
             backend.setVoiceEnabled(false);
           } else
-            void voice
-              .start(true)
+            void startVoiceInput(true, null)
               .then(() => backend.setVoiceEnabled(voice.snapshot().active))
               .catch((error) =>
                 dialog.showErrorBox(
@@ -475,6 +618,45 @@ app
       ]),
     );
     await createWindow();
+    try {
+      const config = readRemoteConfig(
+        join(DATA_DIRECTORY, "remote-access.json"),
+      );
+      if (config) {
+        remote = await startRemoteServer(config, {
+          connecting: async () => {
+            await flushRenderer(true);
+            desktopVoiceWasActive = voice.snapshot().active;
+            stopVoiceInput();
+            setRemoteActive(true);
+          },
+          snapshot: () => backend.snapshot(),
+          voice: () => ({
+            state: voice.snapshot(),
+            owner: phoneInput?.clientId ?? null,
+          }),
+          disconnected: (clientId) => {
+            if (phoneInput?.clientId === clientId) stopVoiceInput();
+            setRemoteActive(false);
+            if (desktopVoiceWasActive && !quitting) {
+              desktopVoiceWasActive = false;
+              void startVoiceInput(true, null).catch((error) => {
+                backend.state.error = String(error);
+                broadcast(backend.snapshot());
+              });
+            }
+          },
+          invoke: invokeRemote,
+        });
+        remote.server.on("error", (error) => {
+          backend.state.error = `Astra remote access failed: ${error.message}`;
+          broadcast(backend.snapshot());
+        });
+      }
+    } catch (error) {
+      backend.state.error = String(error);
+      broadcast(backend.snapshot());
+    }
     api = await startAstraApi(astraSocketPath(DATA_DIRECTORY), (request) => {
       if (quitting)
         throw new Error("Astra is quitting. Retry after opening it again.");
@@ -486,7 +668,7 @@ app
     });
     updateVoice(voice.snapshot());
     if (state.voiceEnabled && !HIDDEN_TEST_WINDOW)
-      void voice.start(true).catch((error) => {
+      void startVoiceInput(true, null).catch((error) => {
         backend.state.error = String(error);
         broadcast(backend.snapshot());
       });
@@ -507,11 +689,26 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   quitting = true;
   api?.close();
-  voice?.stop();
+  if (voice) stopVoiceInput();
   tray?.destroy();
   tray = null;
   void controlQueue
-    .then(() => flushRenderer())
+    .then(async () => {
+      await flushRenderer();
+      try {
+        await Promise.all(
+          remote
+            ?.clientIds()
+            .map((id) => remote?.requestClient(id, { kind: "flush" })) ?? [],
+        );
+      } catch (error) {
+        dialog.showErrorBox(
+          "The latest phone edit could not be saved",
+          String(error),
+        );
+      }
+      await remote?.close();
+    })
     .then(async () => {
       if (saveTimer) clearTimeout(saveTimer);
       if (saved) {

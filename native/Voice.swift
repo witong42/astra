@@ -7,6 +7,23 @@ let silenceDelay: TimeInterval = 1.05
 let recognitionRotation: TimeInterval = 48
 let microphoneBufferFrames: AVAudioFrameCount = 1024
 let preRollDuration: TimeInterval = 2.5
+let phoneSampleRate: Double = 16_000
+let maximumPhoneAudioBytes = Int(phoneSampleRate) * MemoryLayout<Float>.size
+func phoneAudioBuffer(_ data: Data) throws -> AVAudioPCMBuffer {
+    guard !data.isEmpty, data.count <= maximumPhoneAudioBytes,
+          data.count.isMultiple(of: MemoryLayout<Float>.size),
+          let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: phoneSampleRate, channels: 1, interleaved: false),
+          let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(data.count / MemoryLayout<Float>.size)),
+          let destination = output.floatChannelData?[0] else {
+        throw NSError(domain: "AstraVoice", code: 6, userInfo: [NSLocalizedDescriptionKey: "Phone audio must be a bounded mono Float32 frame at 16 kHz."])
+    }
+    output.frameLength = output.frameCapacity
+    _ = data.withUnsafeBytes { memcpy(destination, $0.baseAddress!, data.count) }
+    guard UnsafeBufferPointer(start: destination, count: Int(output.frameLength)).allSatisfy({ $0.isFinite && abs($0) <= 1 }) else {
+        throw NSError(domain: "AstraVoice", code: 6, userInfo: [NSLocalizedDescriptionKey: "Phone audio contains invalid samples."])
+    }
+    return output
+}
 func emit(_ value: [String: Any]) {
     do { FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: value) + Data([10])) }
     catch { FileHandle.standardError.write(Data("Astra could not encode a voice event.\n".utf8)) }
@@ -73,6 +90,8 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     private var wakeOnly = false
     private var homeOnly = false
     private var tapInstalled = false
+    private var inputSampleRate: Double = 0
+    private var externalInput = false
     private var silence: DispatchWorkItem?
     private var rotation: DispatchWorkItem?
     private var spokenText = ""
@@ -86,7 +105,16 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         event("voice/shortcut", ["language": language, "text": String(text.prefix(160))])
     })
     override init() { super.init(); synthesizer.delegate = self }
-    func start(id: Any, standby: Bool, homeOnly: Bool = false) {
+    func start(id: Any, standby: Bool, homeOnly: Bool = false, external: Bool = false) {
+        if external {
+            Task { @MainActor in
+                do {
+                    try await self.beginExternalInput(standby: standby, homeOnly: homeOnly)
+                    emit(["id": id, "result": ["locales": ["en-GB", "fr-FR"], "onDevice": true, "input": "phone"]])
+                } catch { self.stop(); self.failure(id, error.localizedDescription) }
+            }
+            return
+        }
         AVCaptureDevice.requestAccess(for: .audio) { allowed in
             guard allowed else { self.failure(id, "Enable Microphone for Astra in System Settings > Privacy & Security."); return }
             Task { @MainActor in
@@ -98,6 +126,30 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         }
     }
     private func failure(_ id: Any, _ text: String) { emit(["id": id, "error": ["code": -32000, "message": text]]) }
+    func beginExternalInput(standby: Bool, homeOnly: Bool) async throws {
+        guard !enabled else { return }
+        inputSampleRate = phoneSampleRate
+        externalInput = true
+        enabled = true
+        wakeOnly = standby
+        self.homeOnly = homeOnly
+        try await prepareRecognition()
+    }
+    func appendPhoneAudio(_ data: Data) throws -> Bool {
+        guard enabled, externalInput else { return false }
+        append(try phoneAudioBuffer(data))
+        return true
+    }
+    private func append(_ buffer: AVAudioPCMBuffer) {
+        requestLock.withLock {
+            if let recognition { recognition.append(buffer) }
+            else {
+                preRoll.append(buffer)
+                var frames = preRoll.reduce(0) { $0 + Int($1.frameLength) }
+                while frames > Int(buffer.format.sampleRate * preRollDuration), preRoll.count > 1 { frames -= Int(preRoll.removeFirst().frameLength) }
+            }
+        }
+    }
     private func beginListening(standby: Bool, homeOnly: Bool) async throws {
         guard !enabled else { return }
         let input = engine.inputNode
@@ -107,19 +159,14 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
             throw NSError(domain: "AstraVoice", code: 2, userInfo: [NSLocalizedDescriptionKey: "No microphone input is available."])
         }
         enabled = true
+        inputSampleRate = format.sampleRate
+        externalInput = false
         wakeOnly = standby
         self.homeOnly = homeOnly
         try await prepareRecognition()
         input.installTap(onBus: 0, bufferSize: microphoneBufferFrames, format: format) { buffer, _ in
             guard let mono = monoMicrophoneBuffer(buffer) else { return }
-            self.requestLock.lock()
-            if let recognition = self.recognition { recognition.append(mono) }
-            else {
-                self.preRoll.append(mono)
-                var frames = self.preRoll.reduce(0) { $0 + Int($1.frameLength) }
-                while frames > Int(format.sampleRate * preRollDuration), self.preRoll.count > 1 { frames -= Int(self.preRoll.removeFirst().frameLength) }
-            }
-            self.requestLock.unlock()
+            self.append(mono)
             let now = Date.timeIntervalSinceReferenceDate
             if now - self.lastLevel > 0.1, let samples = mono.floatChannelData?[0] {
                 self.lastLevel = now
@@ -151,7 +198,10 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
         requestLock.withLock { recognition?.stop(); recognition = nil; preRoll = [] }
         lanes = recognitionLanguages.map { RecognitionLane($0.0) }
         lastPartial = ""
-        guard let monoFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: engine.inputNode.outputFormat(forBus: 0).sampleRate, channels: 1, interleaved: false) else { return }
+        guard inputSampleRate > 0,
+              let monoFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: inputSampleRate, channels: 1, interleaved: false) else {
+            throw NSError(domain: "AstraVoice", code: 6, userInfo: [NSLocalizedDescriptionKey: "No audio format was selected for speech recognition."])
+        }
         let prepared = try await SpeechRecognition.prepare(inputFormat: monoFormat, onResult: { language, text, confidence in
             guard self.enabled, self.cycle == current, let lane = self.lanes.first(where: { $0.language == language }) else { return }
             lane.text = text; lane.confidence = confidence
@@ -222,6 +272,7 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     func interrupt() { synthesizer.stopSpeaking(at: .immediate); spokenText = "" }
     func stop() {
         enabled = false
+        externalInput = false
         homeShortcut.cancel()
         silence?.cancel(); rotation?.cancel()
         cycle = UUID()
@@ -254,7 +305,14 @@ DispatchQueue.global(qos: .userInitiated).async {
         let params = message["params"] as? [String: Any] ?? [:]
         DispatchQueue.main.async {
             switch method {
-            case "start": voice.start(id: id, standby: params["standby"] as? Bool ?? false, homeOnly: params["homeOnly"] as? Bool ?? false)
+            case "start": voice.start(id: id, standby: params["standby"] as? Bool ?? false, homeOnly: params["homeOnly"] as? Bool ?? false, external: params["external"] as? Bool ?? false)
+            case "audio":
+                guard let pcm = params["pcm"] as? String, pcm.count <= (maximumPhoneAudioBytes / 3 + 1) * 4,
+                      let data = Data(base64Encoded: pcm) else {
+                    emit(["id": id, "error": ["code": -32602, "message": "Invalid phone audio"]]); return
+                }
+                do { emit(["id": id, "result": ["accepted": try voice.appendPhoneAudio(data)]]) }
+                catch { emit(["id": id, "error": ["code": -32602, "message": error.localizedDescription]]) }
             case "listen": voice.listen(); emit(["id": id, "result": [:]])
             case "standby": voice.standby(); emit(["id": id, "result": [:]])
             case "speak":

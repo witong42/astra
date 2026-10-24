@@ -67,6 +67,12 @@ export type LiveMedia = {
   muteOutput: (muted: boolean) => Promise<void>;
   stop: () => void;
 };
+export type VoiceInput = {
+  speech: (
+    onEvent: (event: SpeechEvent) => void,
+  ) => Pick<Speech, "start" | "stop">;
+  media: (onEvent: (event: SpeechEvent) => void) => LiveMedia;
+};
 type Agent = Pick<
   CodexBackend,
   | "ensureAssistantWorkspace"
@@ -88,6 +94,7 @@ function isHomeShortcut(text: string) {
   return words.length > 0 && words.every((word) => word === "home");
 }
 export class VoiceSession {
+  private input: VoiceInput | null = null;
   private homeObservations: {
     kind: "recognition" | "reset" | "detected" | "navigated" | "failed";
     at: number;
@@ -211,7 +218,7 @@ export class VoiceSession {
     this.state.transcript = "";
     this.state.level = 0;
     this.changed();
-    const wake = this.createWake((event) => {
+    const wake = (this.input?.speech ?? this.createWake)((event) => {
       if (this.wake !== wake || !this.state.active) return;
       if (event.method === "voice/error") this.fail(event.message);
       else if (event.method === "voice/shortcut")
@@ -251,7 +258,15 @@ export class VoiceSession {
       wake.stop();
   }
 
-  async start(standby = false) {
+  async start(standby = false, input?: VoiceInput | null) {
+    if (input !== undefined && input !== this.input) {
+      const previous = this.opening;
+      this.stop();
+      const transfer = this.epoch;
+      if (previous) await previous.catch(() => {});
+      if (this.epoch !== transfer) return;
+      this.input = input;
+    }
     if (this.opening) return this.opening;
     if (this.media && this.state.status !== "starting") {
       if (this.state.status === "speaking" || this.state.status === "thinking")
@@ -292,7 +307,7 @@ export class VoiceSession {
   private async connect(epoch: number) {
     await this.closing;
     if (epoch !== this.epoch) return;
-    const media = this.createMedia((event) => {
+    const media = (this.input?.media ?? this.createMedia)((event) => {
       if (this.media !== media || epoch !== this.epoch) return;
       if (event.method === "voice/error") this.fail(event.message);
       else if (event.method === "voice/level") {
@@ -355,7 +370,7 @@ export class VoiceSession {
   }
 
   private async listenForHome(epoch: number) {
-    const listener = this.createWake((event) => {
+    const listener = (this.input?.speech ?? this.createWake)((event) => {
       if (
         this.homeListener !== listener ||
         !this.state.active ||
