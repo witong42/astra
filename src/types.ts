@@ -80,7 +80,20 @@ export type Snapshot = SavedState & {
   error: string | null;
   metrics: Metrics | null;
 };
+export type AudioStatus = {
+  active: boolean;
+  context: string;
+  connection: string;
+  output: {
+    paused: boolean;
+    muted: boolean;
+    readyState: number;
+    blocked: boolean;
+  } | null;
+  inbound: { bytes: number; packets: number; energy: number | null } | null;
+};
 export type Bridge = {
+  audioStatus?: () => Promise<AudioStatus>;
   remoteActive?: () => Promise<boolean>;
   subscribeRemoteActive?: (listener: (active: boolean) => void) => () => void;
   voiceSnapshot: () => Promise<VoiceState>;

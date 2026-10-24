@@ -1,4 +1,5 @@
 import type { RemoteCommand } from "./remote-server";
+import type { AudioStatus } from "./types";
 
 const MAX_QUEUED_FRAMES = 10;
 const AUDIO_LOWPASS_HZ = 7200;
@@ -9,7 +10,10 @@ type Capture = {
   context: AudioContext;
   stream: MediaStream | null;
   processor: AudioWorkletNode | null;
-  output: GainNode;
+  player: HTMLAudioElement;
+  priming: MediaStreamAudioDestinationNode;
+  playbackEpoch: number;
+  playbackError: string | null;
   peer: { id: string; connection: RTCPeerConnection } | null;
   streaming: boolean;
   queue: Float32Array[];
@@ -21,6 +25,7 @@ export class WebAudio {
     private upload: (captureId: string, pcm: string) => Promise<unknown>,
     private level: (value: number) => void,
     private failure: (error: Error) => void,
+    private playback: (error: string | null) => void = () => {},
   ) {}
   async prepare() {
     this.stop();
@@ -29,12 +34,18 @@ export class WebAudio {
         "Le microphone nécessite un navigateur récent et une connexion HTTPS.",
       );
     const context = new AudioContext({ latencyHint: "interactive" });
-    const output = context.createGain();
-    output.connect(context.destination);
+    const player = new Audio();
+    player.autoplay = true;
+    player.setAttribute("playsinline", "");
+    const priming = context.createMediaStreamDestination();
+    player.srcObject = priming.stream;
     const capture: Capture = {
       id: crypto.randomUUID(),
       context,
-      output,
+      player,
+      priming,
+      playbackEpoch: 0,
+      playbackError: null,
       stream: null,
       processor: null,
       peer: null,
@@ -43,6 +54,7 @@ export class WebAudio {
       uploading: false,
     };
     this.capture = capture;
+    void this.playOutput(capture);
     try {
       await context.resume();
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -167,7 +179,8 @@ export class WebAudio {
       connection.addEventListener("track", (event) => {
         if (this.capture !== capture || capture.peer !== peer) return;
         const stream = event.streams[0] ?? new MediaStream([event.track]);
-        capture.context.createMediaStreamSource(stream).connect(capture.output);
+        capture.player.srcObject = stream;
+        void this.playOutput(capture);
       });
       connection.addEventListener("connectionstatechange", () => {
         if (
@@ -189,7 +202,7 @@ export class WebAudio {
       const sdp = connection.localDescription?.sdp;
       if (!sdp)
         throw new Error("Le téléphone n’a pas produit de connexion audio.");
-      capture.output.gain.value = 1;
+      capture.player.muted = false;
       return sdp;
     }
     if (capture.peer?.id !== command.callId) {
@@ -204,8 +217,7 @@ export class WebAudio {
       await capture.context.resume();
       if (capture.context.state !== "running")
         throw new Error("Autorise l’audio du navigateur puis relance la voix.");
-    } else if (command.action === "mute")
-      capture.output.gain.value = command.muted ? 0 : 1;
+    } else if (command.action === "mute") capture.player.muted = command.muted;
     else this.closePeer(capture);
     return null;
   }
@@ -237,6 +249,78 @@ export class WebAudio {
     const peer = capture.peer;
     capture.peer = null;
     peer?.connection.close();
+    if (peer) {
+      capture.playbackEpoch++;
+      capture.player.pause();
+      capture.player.srcObject = null;
+      capture.playbackError = null;
+      this.playback(null);
+    }
+  }
+  private async playOutput(capture: Capture) {
+    const epoch = ++capture.playbackEpoch;
+    try {
+      await capture.player.play();
+      if (this.capture !== capture || capture.playbackEpoch !== epoch)
+        return false;
+      capture.playbackError = null;
+      this.playback(null);
+      return true;
+    } catch (error) {
+      if (this.capture !== capture || capture.playbackEpoch !== epoch)
+        return false;
+      capture.playbackError =
+        error instanceof DOMException && error.name === "NotAllowedError"
+          ? "Le navigateur bloque le son. Appuie sur « Activer le son ». Si le blocage continue, autorise le son et la lecture automatique pour ce site."
+          : `La lecture audio a échoué : ${error instanceof Error ? error.message : String(error)}. Appuie sur « Activer le son » pour réessayer.`;
+      this.playback(capture.playbackError);
+      return false;
+    }
+  }
+  async resumeOutput() {
+    const capture = this.capture;
+    if (!capture) throw new Error("Active la voix avant de réactiver le son.");
+    const playing = this.playOutput(capture);
+    await capture.context.resume();
+    if (!(await playing) && this.capture === capture)
+      throw new Error(
+        capture.playbackError ?? "La lecture audio reste bloquée.",
+      );
+  }
+  async diagnostics(): Promise<AudioStatus> {
+    const capture = this.capture;
+    if (!capture)
+      return {
+        active: false,
+        context: "inactive",
+        connection: "inactive",
+        output: null,
+        inbound: null,
+      };
+    const connection = capture.peer?.connection;
+    const inbound = connection
+      ? { bytes: 0, packets: 0, energy: null as number | null }
+      : null;
+    if (connection && inbound)
+      (await connection.getStats()).forEach((report) => {
+        if (report.type !== "inbound-rtp" || report.kind !== "audio") return;
+        inbound.bytes += report.bytesReceived ?? 0;
+        inbound.packets += report.packetsReceived ?? 0;
+        if (typeof report.totalAudioEnergy === "number")
+          inbound.energy = (inbound.energy ?? 0) + report.totalAudioEnergy;
+      });
+    return {
+      active: true,
+      context: capture.context.state,
+      connection: connection?.connectionState ?? "inactive",
+      output: {
+        paused: capture.player.paused,
+        muted: capture.player.muted,
+        readyState: capture.player.readyState,
+        blocked: capture.playbackError !== null,
+      },
+      inbound,
+    };
   }
   private fail(error: Error) {
     this.stop();
@@ -246,8 +330,13 @@ export class WebAudio {
     const capture = this.capture;
     if (!capture || (captureId && capture.id !== captureId)) return;
     this.capture = null;
+    capture.playbackEpoch++;
     capture.queue.length = 0;
     this.closePeer(capture);
+    capture.player.pause();
+    capture.player.srcObject = null;
+    for (const track of capture.priming.stream.getTracks()) track.stop();
+    this.playback(null);
     for (const track of capture.stream?.getTracks() ?? []) track.stop();
     if (capture.processor) {
       capture.processor.port.onmessage = null;

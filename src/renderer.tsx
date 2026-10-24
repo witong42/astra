@@ -261,6 +261,7 @@ function App() {
         return {
           screen: home ? "home" : "app",
           activeApp: snapshotRef.current?.activeId ?? null,
+          audio: await window.codexos.audioStatus?.(),
         };
       if (request.action === "home") {
         await returnHome();

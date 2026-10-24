@@ -29,6 +29,7 @@ export class WebBridge {
   constructor(
     private url: string,
     private connection: (connected: boolean, message?: string) => void,
+    playback: (error: string | null) => void = () => {},
   ) {
     this.ready = new Promise((resolve) => {
       this.resolveReady = resolve;
@@ -52,6 +53,7 @@ export class WebBridge {
             this.connection(false, String(failure)),
           );
       },
+      playback,
     );
     this.events = new EventSource(`${url}/events?clientId=${this.clientId}`);
     this.events.onmessage = (message) => {
@@ -87,6 +89,7 @@ export class WebBridge {
     const call = <T = void>(method: RemoteMethod, ...args: unknown[]) =>
       this.call<T>(method, args);
     this.bridge = {
+      audioStatus: () => this.audio.diagnostics(),
       snapshot: async () => this.call<Snapshot>("snapshot", []),
       subscribe: (listener) => {
         this.listeners.add(listener);
@@ -189,6 +192,9 @@ export class WebBridge {
     window.addEventListener("pageshow", (event) => {
       if (event.persisted) window.location.reload();
     });
+  }
+  resumeAudio() {
+    return this.audio.resumeOutput();
   }
   private publish(snapshot: Snapshot) {
     this.latest = snapshot;

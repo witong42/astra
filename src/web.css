@@ -34,7 +34,8 @@
     sans-serif;
   box-shadow: 0 2px 12px #0005;
 }
-.remote-connection[hidden] {
+.remote-connection[hidden],
+.remote-connection [hidden] {
   display: none;
 }
 .remote-connection button {

@@ -18,12 +18,38 @@ const retry = document.createElement("button");
 retry.type = "button";
 retry.textContent = "Recharger";
 retry.onclick = () => window.location.reload();
-banner.append(message, retry);
+const resume = document.createElement("button");
+resume.type = "button";
+resume.textContent = "Activer le son";
+resume.hidden = true;
+banner.append(message, retry, resume);
 document.body.append(banner);
-const remote = new WebBridge(__ASTRA_REMOTE_URL__, (connected, error) => {
-  banner.hidden = connected;
-  message.textContent = error ?? "Connexion privée au Mac…";
-});
+let connectionError: string | null = null;
+let playbackError: string | null = null;
+function updateBanner() {
+  const error = connectionError ?? playbackError;
+  banner.hidden = error === null;
+  message.textContent = error;
+  retry.hidden = connectionError === null;
+  resume.hidden = connectionError !== null || playbackError === null;
+}
+const remote = new WebBridge(
+  __ASTRA_REMOTE_URL__,
+  (connected, error) => {
+    connectionError = connected ? null : (error ?? "Connexion privée au Mac…");
+    updateBanner();
+  },
+  (error) => {
+    playbackError = error;
+    updateBanner();
+  },
+);
+resume.onclick = () => {
+  void remote.resumeAudio().catch((error) => {
+    playbackError = error instanceof Error ? error.message : String(error);
+    updateBanner();
+  });
+};
 window.codexos = remote.bridge;
 await remote.ready;
 document.documentElement.dataset.platform = "web";

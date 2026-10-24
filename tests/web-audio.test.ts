@@ -2,8 +2,203 @@ import { expect, test } from "bun:test";
 import { PHONE_FRAME_SAMPLES } from "../src/phone-audio";
 import { WebAudio } from "../src/web-audio";
 
+test("remote audio reports blocked playback and can resume without stopping the microphone", async () => {
+  const properties = [
+    "navigator",
+    "AudioContext",
+    "AudioWorkletNode",
+    "Audio",
+    "RTCPeerConnection",
+  ] as const;
+  const originals = properties.map(
+    (key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const,
+  );
+  let microphoneStopped = false;
+  const track = {
+    stop: () => {
+      microphoneStopped = true;
+    },
+    addEventListener() {},
+  };
+  const node = {
+    connect() {
+      return this;
+    },
+    frequency: { value: 0 },
+  };
+  const players: Player[] = [];
+  class Player {
+    autoplay = false;
+    muted = false;
+    paused = true;
+    readyState = 4;
+    srcObject: unknown = null;
+    blocked = false;
+    volume = 1;
+    constructor() {
+      players.push(this);
+    }
+    setAttribute() {}
+    async play() {
+      if (this.blocked)
+        throw new DOMException("Autoplay blocked", "NotAllowedError");
+      this.paused = false;
+    }
+    pause() {
+      this.paused = true;
+    }
+  }
+  class Context {
+    state = "running";
+    destination = {};
+    audioWorklet = { addModule: async () => {} };
+    createGain() {
+      return node;
+    }
+    createMediaStreamDestination() {
+      return { stream: { getTracks: () => [{ stop() {} }] } };
+    }
+    createMediaStreamSource() {
+      return node;
+    }
+    createBiquadFilter() {
+      return node;
+    }
+    async resume() {}
+    async close() {}
+    addEventListener() {}
+  }
+  class Processor {
+    port = { onmessage: null, close() {} };
+    connect() {
+      return this;
+    }
+    disconnect() {}
+  }
+  let peer!: Peer;
+  class Peer {
+    connectionState = "connected";
+    iceGatheringState = "complete";
+    localDescription: unknown;
+    listeners = new Map<string, (event: unknown) => void>();
+    constructor() {
+      peer = this;
+    }
+    addTrack() {}
+    createDataChannel() {}
+    addEventListener(name: string, callback: (event: unknown) => void) {
+      this.listeners.set(name, callback);
+    }
+    async createOffer() {
+      return { type: "offer", sdp: "test-offer" };
+    }
+    async setLocalDescription(value: unknown) {
+      this.localDescription = value;
+    }
+    async setRemoteDescription() {}
+    async getStats() {
+      return new Map([
+        [
+          "audio",
+          {
+            type: "inbound-rtp",
+            kind: "audio",
+            bytesReceived: 8000,
+            packetsReceived: 20,
+            totalAudioEnergy: 0.25,
+          },
+        ],
+      ]);
+    }
+    close() {
+      this.connectionState = "closed";
+    }
+  }
+  const mocks = {
+    navigator: {
+      mediaDevices: {
+        getUserMedia: async () => ({
+          getTracks: () => [track],
+          getAudioTracks: () => [track],
+        }),
+      },
+    },
+    AudioContext: Context,
+    AudioWorkletNode: Processor,
+    Audio: Player,
+    RTCPeerConnection: Peer,
+  };
+  for (const key of properties)
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      value: mocks[key],
+    });
+  const errors: Error[] = [];
+  const playback: (string | null)[] = [];
+  const audio = new WebAudio(
+    async () => {},
+    () => {},
+    (error) => errors.push(error),
+    (error) => playback.push(error),
+  );
+  try {
+    const captureId = await audio.prepare();
+    const callId = crypto.randomUUID();
+    expect(players).toHaveLength(1);
+    const player = players[0];
+    await audio.command({ kind: "audio", action: "offer", captureId, callId });
+    const remote = {
+      getAudioTracks: () => [{ kind: "audio", readyState: "live" }],
+    };
+    player.blocked = true;
+    peer.listeners.get("track")?.({ streams: [remote] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(player.srcObject).toBe(remote);
+    expect(playback.at(-1)).toContain("Activer le son");
+    expect(microphoneStopped).toBe(false);
+    expect(errors).toEqual([]);
+    player.blocked = false;
+    await audio.resumeOutput();
+    expect(player.paused).toBe(false);
+    expect(playback.at(-1)).toBeNull();
+    const status = await audio.diagnostics();
+    expect(status.inbound?.bytes).toBe(8000);
+    expect(status.inbound?.energy).toBe(0.25);
+    await audio.command({
+      kind: "audio",
+      action: "mute",
+      captureId,
+      callId,
+      muted: true,
+    });
+    expect(player.muted).toBe(true);
+    player.blocked = true;
+    peer.listeners.get("track")?.({ streams: [remote] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(playback.at(-1)).toContain("Activer le son");
+    await audio.command({ kind: "audio", action: "stop", captureId, callId });
+    expect(playback.at(-1)).toBeNull();
+    expect(microphoneStopped).toBe(false);
+    audio.stop();
+    expect(player.paused).toBe(true);
+    expect(player.srcObject).toBeNull();
+    expect(microphoneStopped).toBe(true);
+  } finally {
+    audio.stop();
+    for (const [key, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
 test("slow network uploads batch queued microphone frames without losing their order", async () => {
-  const properties = ["navigator", "AudioContext", "AudioWorkletNode"] as const;
+  const properties = [
+    "navigator",
+    "AudioContext",
+    "AudioWorkletNode",
+    "Audio",
+  ] as const;
   const originals = properties.map(
     (key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const,
   );
@@ -27,6 +222,9 @@ test("slow network uploads batch queued microphone frames without losing their o
     audioWorklet = { addModule: async () => {} };
     createGain() {
       return node;
+    }
+    createMediaStreamDestination() {
+      return { stream: { getTracks: () => [{ stop() {} }] } };
     }
     createMediaStreamSource() {
       return node;
@@ -72,6 +270,16 @@ test("slow network uploads batch queued microphone frames without losing their o
   Object.defineProperty(globalThis, "AudioWorkletNode", {
     configurable: true,
     value: Processor,
+  });
+  Object.defineProperty(globalThis, "Audio", {
+    configurable: true,
+    value: class {
+      autoplay = false;
+      srcObject: unknown = null;
+      setAttribute() {}
+      async play() {}
+      pause() {}
+    },
   });
   const packets: string[] = [];
   const errors: Error[] = [];
