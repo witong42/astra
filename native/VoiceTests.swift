@@ -35,6 +35,15 @@ struct VoiceTests {
         print("HOME_CONVERSATION_VERIFIED")
     }
     static func main() async throws {
+        let engine = AVAudioEngine()
+        try configureVoiceInput(engine.inputNode)
+        let ducking = engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration
+        guard engine.inputNode.isVoiceProcessingEnabled,
+              !ducking.enableAdvancedDucking.boolValue,
+              ducking.duckingLevel == .min else {
+            throw NSError(domain: "AstraVoiceTest", code: 5, userInfo: [NSLocalizedDescriptionKey: "Microphone processing should retain echo control with fixed minimum attenuation of other audio"])
+        }
+        print("VOICE_DUCKING_VERIFIED")
         try await verifyHomeConversation()
         for text in ["Home", " home! ", "HOME.", "Home Home"] { precondition(isHomeShortcut(text)) }
         for text in ["Home Assistant", "Je dis home", "homepage", ""] { precondition(!isHomeShortcut(text)) }

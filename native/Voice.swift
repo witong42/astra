@@ -20,6 +20,10 @@ func isHomeShortcut(_ text: String) -> Bool {
     let words = normalized(text).split(separator: " ")
     return !words.isEmpty && words.allSatisfy { $0 == "home" }
 }
+func configureVoiceInput(_ input: AVAudioInputNode) throws {
+    try input.setVoiceProcessingEnabled(true)
+    input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
+}
 final class HomeShortcutRecognition {
     private var silence: DispatchWorkItem?
     private var observed: [String: String] = [:]
@@ -97,7 +101,7 @@ final class VoiceEngine: NSObject, AVSpeechSynthesizerDelegate, @unchecked Senda
     private func beginListening(standby: Bool, homeOnly: Bool) async throws {
         guard !enabled else { return }
         let input = engine.inputNode
-        try input.setVoiceProcessingEnabled(true)
+        try configureVoiceInput(input)
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw NSError(domain: "AstraVoice", code: 2, userInfo: [NSLocalizedDescriptionKey: "No microphone input is available."])
