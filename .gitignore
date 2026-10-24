@@ -4,5 +4,3 @@ release/
 test-results/
 .env*
 .DS_Store
-graft/.cache/
-.graft/
