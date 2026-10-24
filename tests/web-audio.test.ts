@@ -34,7 +34,6 @@ test("remote audio reports blocked playback and can resume without stopping the 
     readyState = 4;
     srcObject: unknown = null;
     blocked = false;
-    volume = 1;
     constructor() {
       players.push(this);
     }
@@ -52,9 +51,6 @@ test("remote audio reports blocked playback and can resume without stopping the 
     state = "running";
     destination = {};
     audioWorklet = { addModule: async () => {} };
-    createGain() {
-      return node;
-    }
     createMediaStreamDestination() {
       return { stream: { getTracks: () => [{ stop() {} }] } };
     }
@@ -220,9 +216,6 @@ test("slow network uploads batch queued microphone frames without losing their o
     state = "running";
     destination = {};
     audioWorklet = { addModule: async () => {} };
-    createGain() {
-      return node;
-    }
     createMediaStreamDestination() {
       return { stream: { getTracks: () => [{ stop() {} }] } };
     }

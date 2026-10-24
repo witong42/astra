@@ -20,9 +20,9 @@ const appearance = () =>
     radius: string;
     filter: string;
     overflow: string;
-    imageClip: string;
+    canvasClip: string;
   }>(
-    `(()=>{const orb=document.querySelector(${JSON.stringify(selector)});const style=getComputedStyle(orb);return {background:style.backgroundColor,radius:style.borderRadius,filter:style.filter,overflow:style.overflow,imageClip:getComputedStyle(orb.querySelector('img')).clipPath}})()`,
+    `(()=>{const orb=document.querySelector(${JSON.stringify(selector)});const style=getComputedStyle(orb);return {background:style.backgroundColor,radius:style.borderRadius,filter:style.filter,overflow:style.overflow,canvasClip:getComputedStyle(orb.querySelector('canvas.astra-galaxy')).clipPath}})()`,
   );
 try {
   await client.evaluate(
@@ -49,7 +49,7 @@ try {
     "Hover must preserve the dark circular core.",
   );
   assert.equal(hovered.radius, "50%");
-  assert.equal(hovered.imageClip, "circle(50%)");
+  assert.equal(hovered.canvasClip, "circle(50%)");
   assert.equal(
     hovered.filter,
     "none",
@@ -58,7 +58,7 @@ try {
   assert.equal(
     hovered.overflow,
     "visible",
-    "The halo must remain outside the clipped image.",
+    "The halo must remain outside the clipped galaxy.",
   );
   assert.equal(client.errors.length, 0);
   const result = {
