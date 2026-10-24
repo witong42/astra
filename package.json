@@ -1,8 +1,8 @@
 {
   "name": "astra",
   "productName": "Astra",
-  "version": "0.2.0",
-  "astraBuild": 2,
+  "version": "0.2.1",
+  "astraBuild": 3,
   "private": true,
   "type": "module",
   "main": "dist/main.cjs",

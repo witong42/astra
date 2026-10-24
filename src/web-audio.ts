@@ -122,8 +122,15 @@ export class WebAudio {
     capture.uploading = true;
     try {
       while (this.capture === capture && capture.queue.length) {
-        const frame = capture.queue.shift();
-        if (!frame) break;
+        const frames = capture.queue.splice(0);
+        const frame = new Float32Array(
+          frames.reduce((length, chunk) => length + chunk.length, 0),
+        );
+        let offset = 0;
+        for (const chunk of frames) {
+          frame.set(chunk, offset);
+          offset += chunk.length;
+        }
         const bytes = new Uint8Array(
           frame.buffer,
           frame.byteOffset,
