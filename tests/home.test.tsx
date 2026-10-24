@@ -46,6 +46,21 @@ test("the resting galaxy has no instructional labels", () => {
   expect(html).toContain("Micro désactivé");
   expect(html).toContain('aria-label="Activer la voix d’Astra"');
 });
+test("the galaxy labels distinguish pausing a live call, waking standby and enabling voice", () => {
+  for (const [status, active, label, pressed] of [
+    ["speaking", true, "Mettre Astra en veille", true],
+    ["listening", true, "Mettre Astra en veille", true],
+    ["standby", true, "Parler à Astra", false],
+    ["off", false, "Activer la voix d’Astra", false],
+    ["error", false, "Activer la voix d’Astra", false],
+  ] as const) {
+    const html = renderToStaticMarkup(
+      <Astra voice={{ ...INITIAL_VOICE, status, active }} />,
+    );
+    expect(html).toContain(`aria-label="${label}"`);
+    expect(html).toContain(`aria-pressed="${pressed}"`);
+  }
+});
 test("Horizon exposes every app without requiring favorites or adding a second library", () => {
   const html = render(state());
   expect(html).toContain('data-layout="horizon"');

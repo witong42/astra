@@ -28,6 +28,7 @@ export const REMOTE_METHODS = [
   "voiceSnapshot",
   "startVoice",
   "stopVoice",
+  "pauseVoice",
   "interruptVoice",
   "runAppleScript",
   "send",

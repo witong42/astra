@@ -26,6 +26,7 @@ async function browserProbe(config: {
   process.stdin.on("end", () => app.exit(3));
   await app.whenReady();
   const states = new Map<number, Snapshot>();
+  const voices = new Map<number, VoiceState>();
   const calls = new Map<number, { method: string; args: unknown[] }[]>();
   for (const method of [
     "snapshot",
@@ -38,13 +39,23 @@ async function browserProbe(config: {
     "deleteWorkspace",
     "startVoice",
     "stopVoice",
+    "pauseVoice",
   ]) {
     ipcMain.handle(`codexos:${method}`, (event, ...args) => {
       const state = states.get(event.sender.id);
       assert.ok(state);
       calls.get(event.sender.id)?.push({ method, args });
       if (method === "snapshot") return state;
-      if (method === "voiceSnapshot") return config.voice;
+      if (method === "voiceSnapshot") return voices.get(event.sender.id);
+      if (method === "pauseVoice" || method === "startVoice") {
+        const voice = {
+          ...config.voice,
+          active: true,
+          status: method === "pauseVoice" ? "standby" : "listening",
+        } as VoiceState;
+        voices.set(event.sender.id, voice);
+        event.sender.send("codexos:voice", voice);
+      }
       if (method === "remoteActive") return false;
       if (method === "selectWorkspace") {
         state.activeId = String(args[0]);
@@ -86,6 +97,7 @@ async function browserProbe(config: {
       },
     });
     states.set(window.webContents.id, structuredClone(config.snapshot));
+    voices.set(window.webContents.id, structuredClone(config.voice));
     calls.set(window.webContents.id, []);
     window.webContents.on("console-message", (details) => {
       if (
@@ -332,6 +344,29 @@ async function browserProbe(config: {
           (call) => call.method === "startVoice" || call.method === "stopVoice",
         ).length,
       0,
+    );
+    await click(".astra-avatar");
+    await waitFor(
+      "document.querySelector('.astra-avatar')?.getAttribute('aria-pressed')==='false'",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.astra-avatar').getAttribute('aria-label')",
+      ),
+      "Talk to Astra",
+    );
+    await click(".astra-avatar");
+    await waitFor(
+      "document.querySelector('.astra-avatar')?.getAttribute('aria-pressed')==='true'",
+    );
+    assert.deepEqual(
+      calls
+        .get(window.webContents.id)
+        ?.filter((call) =>
+          ["pauseVoice", "startVoice", "stopVoice"].includes(call.method),
+        )
+        .map((call) => call.method),
+      ["pauseVoice", "startVoice"],
     );
     const blank = config.snapshot.workspaces.find(
       (entry) => !entry.canvas?.generation,

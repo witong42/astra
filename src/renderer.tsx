@@ -117,8 +117,12 @@ function App() {
     return unsubscribe;
   }, [onError]);
   const toggleVoice = useCallback(() => {
-    void window.codexos.startVoice().catch(onError);
-  }, [onError]);
+    const action =
+      voice.active && voice.status !== "standby"
+        ? window.codexos.pauseVoice()
+        : window.codexos.startVoice();
+    void action.catch(onError);
+  }, [onError, voice.active, voice.status]);
   const pauseVoice = useCallback(() => {
     void window.codexos.stopVoice().catch(onError);
   }, [onError]);

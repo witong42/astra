@@ -156,7 +156,10 @@ function installHandlers() {
           "Astra is active on the phone. Close its browser tab to resume here.",
         );
       if (!PASSIVE_METHODS.has(name)) {
-        if (phoneInput && name !== "startVoice" && name !== "stopVoice")
+        if (
+          phoneInput &&
+          !["startVoice", "stopVoice", "pauseVoice"].includes(name)
+        )
           stopVoiceInput();
       }
       return callback(...args);
@@ -172,6 +175,7 @@ function installHandlers() {
     backend.setVoiceEnabled(false);
   });
   handle("interruptVoice", () => voice.interrupt());
+  handle("pauseVoice", () => voice.pause());
   handle("snapshot", () => backend.snapshot());
   handle("runAppleScript", (workspaceId, request) => {
     const id = z.string().uuid().parse(workspaceId);

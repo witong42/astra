@@ -127,6 +127,7 @@ export class WebBridge {
         if (captureId) await call("stopVoice", { captureId });
       },
       interruptVoice: () => call("interruptVoice"),
+      pauseVoice: () => call("pauseVoice"),
       runAppleScript: (id, request) =>
         call<string>("runAppleScript", id, request),
       send: (text, id) => call("send", text, id),

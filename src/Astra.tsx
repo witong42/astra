@@ -66,6 +66,7 @@ export function Astra({
     );
   }
   const resting = voice.status === "off" || voice.status === "standby";
+  const conversing = voice.active && !resting;
   const spokenText =
     !resting && (voice.transcript || voice.reply || voice.task);
   const text = spokenText || (resting ? t.here : t.listening);
@@ -77,8 +78,10 @@ export function Astra({
       <button
         type="button"
         className="astra-avatar"
-        aria-label={voice.active ? t.talkAstra : t.startVoice}
-        aria-pressed={voice.active}
+        aria-label={
+          conversing ? t.pauseAstra : voice.active ? t.talkAstra : t.startVoice
+        }
+        aria-pressed={conversing}
         disabled={voice.status === "starting"}
         onClick={onToggle}
       >

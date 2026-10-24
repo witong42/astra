@@ -16,6 +16,7 @@ const bridge: Bridge = {
   voiceSnapshot: () => invoke("voiceSnapshot"),
   startVoice: (standby) => invoke("startVoice", standby),
   stopVoice: () => invoke("stopVoice"),
+  pauseVoice: () => invoke("pauseVoice"),
   interruptVoice: () => invoke("interruptVoice"),
   subscribeVoice: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, state: VoiceState) =>

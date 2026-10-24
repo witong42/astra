@@ -69,6 +69,15 @@ function fixture() {
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+test("pausing phone voice preserves capture and sends only the pause action", async () => {
+  const f = fixture();
+  await f.bridge.bridge.pauseVoice();
+  expect(f.calls.at(-1)?.body).toMatchObject({
+    method: "pauseVoice",
+    args: [],
+  });
+});
+
 test("web clients use the shared Mac snapshot and never replay a failed mutation after reconnecting", async () => {
   const f = fixture();
   expect((await f.bridge.bridge.snapshot()).activeId).toBe(f.snapshot.activeId);

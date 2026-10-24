@@ -100,6 +100,7 @@ export type Bridge = {
   subscribeVoice: (listener: (state: VoiceState) => void) => () => void;
   startVoice: (standby?: boolean) => Promise<void>;
   stopVoice: () => Promise<void>;
+  pauseVoice: () => Promise<void>;
   interruptVoice: () => Promise<void>;
   runAppleScript: (
     workspaceId: string,
