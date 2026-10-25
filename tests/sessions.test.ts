@@ -207,7 +207,7 @@ setInterval(() => {
       () => readWire().some((message) => message.controlId === controlId),
       "fake server to consume command",
     );
-    if (value.kind !== "disconnect") {
+    if (value.kind === "event" || value.kind === "complete") {
       const { rpc } = backend as unknown as { rpc: RpcPeer | null };
       assert.ok(rpc, "The fake server has no active client transport.");
       await rpc.request(FIXTURE_SYNC_METHOD, {});
