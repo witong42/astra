@@ -11,12 +11,14 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexBackend } from "../src/backend";
-import type { RpcMessage } from "../src/rpc";
+import type { RpcMessage, RpcPeer } from "../src/rpc";
 import { loadState, newWorkspace } from "../src/storage";
 import type { SavedState } from "../src/types";
 
 const POLL_INTERVAL_MS = 10;
 const POLL_ATTEMPTS = 200;
+const EVENT_DELAY_MS = 50;
+const FIXTURE_SYNC_METHOD = "astra-test/synchronize";
 
 async function waitFor(check: () => boolean, description: string) {
   for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
@@ -77,6 +79,7 @@ let holdDeletes = false;
 let alreadyDeleted = false;
 let resumeError = null;
 let forkError = null;
+let eventDelayMs = 0;
 const pendingDeletes = [];
 const complete = (threadId, status = 'completed') => send({method:'turn/completed', params:{threadId, turn:{id:turns.get(threadId),status}}});
 createInterface({input:process.stdin}).on('line', line => {
@@ -84,6 +87,7 @@ createInterface({input:process.stdin}).on('line', line => {
   record(message);
   const { id, method, params = {} } = message;
   if (method === 'initialize') send({id,result:{}});
+  if (method === ${JSON.stringify(FIXTURE_SYNC_METHOD)}) send({id,result:{}});
   if (method === 'account/read') send({id,result:{account:{type:'chatgpt',planType:'test'}}});
   if (method === 'model/list') send({id,result:{data:[{id:'test',model:'test',displayName:'Test',isDefault:true,defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}],serviceTiers:[]}]}});
   if (method === 'config/read') send({id,result:{config:{model:'test'}}});
@@ -143,7 +147,11 @@ setInterval(() => {
         send(pending.response);
       }
     }
-    if (command.kind === 'event') send(command.message);
+    if (command.kind === 'delay-events') eventDelayMs = command.milliseconds;
+    if (command.kind === 'event') {
+      if (eventDelayMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, eventDelayMs);
+      send(command.message);
+    }
     if (command.kind === 'complete') complete(command.threadId);
     if (command.kind === 'disconnect') process.exit(0);
   }
@@ -199,6 +207,11 @@ setInterval(() => {
       () => readWire().some((message) => message.controlId === controlId),
       "fake server to consume command",
     );
+    if (value.kind !== "disconnect") {
+      const { rpc } = backend as unknown as { rpc: RpcPeer | null };
+      assert.ok(rpc, "The fake server has no active client transport.");
+      await rpc.request(FIXTURE_SYNC_METHOD, {});
+    }
   };
   const event = (message: RpcMessage) => command({ kind: "event", message });
   return {
@@ -1084,78 +1097,83 @@ test("Astra has a persistent hidden agent and exposes app tools only on its acti
   }));
 
 test("voice negotiates through Codex and delegated turns retain the Home app tools", () =>
-  withBackend(async ({ backend, event, requests, session, a, readWire }) => {
-    const received: RpcMessage[] = [];
-    const unsubscribe = backend.subscribeRealtime((message) =>
-      received.push(message),
-    );
-    await backend.startRealtimeVoice("voice-offer");
-    const assistant = backend.state.assistant;
-    if (!assistant?.threadId) throw new Error("Missing voice assistant");
-    const started = requests("thread/realtime/start")[0]?.params;
-    expect(started).toMatchObject({
-      threadId: assistant.threadId,
-      transport: { type: "webrtc", sdp: "voice-offer" },
-      model: "gpt-live-1.1-codex",
-      voice: "aube",
-      version: "v3",
-      clientManagedHandoffs: false,
-    });
-    expect(started?.prompt).toContain(
-      'The standalone spoken command "Home" is handled directly by Astra',
-    );
-    expect(started?.prompt).toContain("generate <|SpawnThinking|> immediately");
-    expect(started?.prompt).not.toContain(
-      'The standalone spoken requests "pause"',
-    );
-    expect(started?.prompt).toContain(
-      "Requests to explain, diagnose or fix pausing are not pause commands",
-    );
-    await event({
-      method: "thread/realtime/sdp",
-      params: { threadId: assistant.threadId, sdp: "voice-answer" },
-    });
-    expect(received.at(-1)?.params?.sdp).toBe("voice-answer");
-    await event({
-      method: "turn/started",
-      params: { threadId: assistant.threadId, turn: { id: "voice-turn" } },
-    });
-    expect(session(assistant.id)?.busy).toBe(true);
-    expect(session(a)?.busy ?? false).toBe(false);
-    await event({
-      id: "voice-tool",
-      method: "item/tool/call",
-      params: {
+  withBackend(
+    async ({ backend, event, requests, session, a, readWire, command }) => {
+      const received: RpcMessage[] = [];
+      const unsubscribe = backend.subscribeRealtime((message) =>
+        received.push(message),
+      );
+      await backend.startRealtimeVoice("voice-offer");
+      await command({ kind: "delay-events", milliseconds: EVENT_DELAY_MS });
+      const assistant = backend.state.assistant;
+      if (!assistant?.threadId) throw new Error("Missing voice assistant");
+      const started = requests("thread/realtime/start")[0]?.params;
+      expect(started).toMatchObject({
         threadId: assistant.threadId,
-        turnId: "voice-turn",
-        tool: "astra",
-        arguments: { action: "list" },
-      },
-    });
-    await waitFor(
-      () => readWire().some((message) => message.id === "voice-tool"),
-      "voice tool response",
-    );
-    expect(
-      readWire().find((message) => message.id === "voice-tool")?.result,
-    ).toMatchObject({ success: true });
-    await event({
-      method: "turn/completed",
-      params: {
-        threadId: assistant.threadId,
-        turn: { id: "voice-turn", status: "completed" },
-      },
-    });
-    expect(session(assistant.id)?.busy).toBe(false);
-    await backend.stopRealtimeVoice();
-    const count = received.length;
-    await event({
-      method: "thread/realtime/sdp",
-      params: { threadId: assistant.threadId, sdp: "stale-answer" },
-    });
-    expect(received).toHaveLength(count);
-    unsubscribe();
-  }));
+        transport: { type: "webrtc", sdp: "voice-offer" },
+        model: "gpt-live-1.1-codex",
+        voice: "aube",
+        version: "v3",
+        clientManagedHandoffs: false,
+      });
+      expect(started?.prompt).toContain(
+        'The standalone spoken command "Home" is handled directly by Astra',
+      );
+      expect(started?.prompt).toContain(
+        "generate <|SpawnThinking|> immediately",
+      );
+      expect(started?.prompt).not.toContain(
+        'The standalone spoken requests "pause"',
+      );
+      expect(started?.prompt).toContain(
+        "Requests to explain, diagnose or fix pausing are not pause commands",
+      );
+      await event({
+        method: "thread/realtime/sdp",
+        params: { threadId: assistant.threadId, sdp: "voice-answer" },
+      });
+      expect(received.at(-1)?.params?.sdp).toBe("voice-answer");
+      await event({
+        method: "turn/started",
+        params: { threadId: assistant.threadId, turn: { id: "voice-turn" } },
+      });
+      expect(session(assistant.id)?.busy).toBe(true);
+      expect(session(a)?.busy ?? false).toBe(false);
+      await event({
+        id: "voice-tool",
+        method: "item/tool/call",
+        params: {
+          threadId: assistant.threadId,
+          turnId: "voice-turn",
+          tool: "astra",
+          arguments: { action: "list" },
+        },
+      });
+      await waitFor(
+        () => readWire().some((message) => message.id === "voice-tool"),
+        "voice tool response",
+      );
+      expect(
+        readWire().find((message) => message.id === "voice-tool")?.result,
+      ).toMatchObject({ success: true });
+      await event({
+        method: "turn/completed",
+        params: {
+          threadId: assistant.threadId,
+          turn: { id: "voice-turn", status: "completed" },
+        },
+      });
+      expect(session(assistant.id)?.busy).toBe(false);
+      await backend.stopRealtimeVoice();
+      const count = received.length;
+      await event({
+        method: "thread/realtime/sdp",
+        params: { threadId: assistant.threadId, sdp: "stale-answer" },
+      });
+      expect(received).toHaveLength(count);
+      unsubscribe();
+    },
+  ));
 
 test("saved assistant tool declarations remain callable after the astra rename", () =>
   withBackend(async ({ backend, event, readWire }) => {

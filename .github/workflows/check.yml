@@ -87,6 +87,12 @@ jobs:
       - uses: ./.github/actions/setup-desktop
       - run: bun run check
       - run: bun run build
+      - name: Retain the verified Mac voice build before running tests
+        if: runner.os == 'macOS'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.cache/astra-voice
+          key: voice-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-voice.ts', 'src/vosk.ts', '.github/actions/setup-desktop/action.yml') }}
       - if: runner.os == 'Linux'
         run: xvfb-run -a bun test
       - if: runner.os == 'macOS'

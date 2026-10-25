@@ -292,9 +292,10 @@ test.skipIf(process.platform !== "darwin")(
     const appPath = join(f.cache, "Astra.app/Contents/Resources/app");
     mkdirSync(join(appPath, "dist"), { recursive: true });
     const marker = join(f.cache, "installed-version");
+    const markerDelaySeconds = 0.1;
     writeFileSync(
       join(appPath, "dist/install.sh"),
-      '#!/bin/bash\nset -eu\nprintf "%s" "$ASTRA_UPDATE_VERSION" > "$ASTRA_UPDATE_TEST_MARKER"\n',
+      `#!/bin/bash\nset -eu\n: > "$ASTRA_UPDATE_TEST_MARKER"\nsleep ${markerDelaySeconds}\nprintf "%s" "$ASTRA_UPDATE_VERSION" > "$ASTRA_UPDATE_TEST_MARKER"\n`,
     );
     const parent = Bun.spawn(
       [process.execPath, "-e", "setTimeout(()=>{},1500)"],
@@ -316,7 +317,9 @@ test.skipIf(process.platform !== "darwin")(
       await f.updater.dispose();
       await parent.exited;
       const deadline = Date.now() + 3000;
-      while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(25);
+      const installed = () =>
+        existsSync(marker) && readFileSync(marker, "utf8") === "v0.6.0";
+      while (!installed() && Date.now() < deadline) await Bun.sleep(25);
       expect(readFileSync(marker, "utf8")).toBe("v0.6.0");
     } finally {
       parent.kill();
