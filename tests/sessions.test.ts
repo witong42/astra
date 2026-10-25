@@ -941,6 +941,10 @@ test("names are short, streamed naming stays out of chat, and a manual rename wi
         delta: "```codexos-name\nStar Atlas\n```\nReady.\n",
       },
     });
+    await waitFor(
+      () => workspace(a).name === "Star Atlas",
+      "streamed app name",
+    );
     expect(workspace(a).name).toBe("Star Atlas");
     expect(workspace(a).messages.at(-1)?.text).toBe("Ready.\n");
     await command({ kind: "complete", threadId });
