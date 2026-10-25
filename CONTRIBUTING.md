@@ -1,12 +1,12 @@
 # Contributing to Astra
 
-Start with the [README](README.md#try-astra). Astra is a small personal project; setup reliability and clear bug reports are especially welcome.
+Start with the [README](README.md#installation). Astra is a small personal project; setup reliability and clear bug reports are especially welcome.
 
 ## Before changing code
 
 - For a bug, include reproduction steps, expected and actual behavior, macOS/chip, Bun and Codex versions.
 - For a larger feature, open an issue first so we can agree on scope.
-- Use an isolated profile for experiments: `CODEXOS_DATA_DIR=/absolute/path/to/test-profile bun start`. This keeps your normal saved apps separate. Codex still uses your existing account and configuration.
+- Use an isolated profile for experiments: `ASTRA_DATA_DIR=/absolute/path/to/test-profile bun start`. This keeps your normal saved apps separate. Codex still uses your existing account and configuration.
 - Keep personal output in `~/.astra/`, outside the source checkout. Never commit credentials, `.env` files, hosting IDs, local paths, journals or generated personal apps.
 
 ## Checks
@@ -20,7 +20,7 @@ bun run build
 ASTRA_REMOTE_URL=https://astra-backend.example.com bun run build:web
 ```
 
-Native voice and Electron integration checks run on macOS; they are skipped on other platforms. Tests use fixtures rather than making model requests. A passing suite doesn't establish voice availability for every Codex account or CLI release.
+The native build requires macOS or Windows x64. Mac builds also require Homebrew's `autoconf`, `automake` and `libtool`. Tests use fixtures rather than making model requests. The native capture test uses a real microphone on macOS; CI runs the remaining software tests with `bun test --test-name-pattern '^(?!native capture isolates microphone channels)'`. A passing suite doesn't establish voice availability for every Codex account or CLI release.
 
 Keep each pull request focused. Describe the user-visible change, checks actually run, and remaining limits. Screenshots or a short recording help with UI changes; use anonymous data.
 

@@ -37,9 +37,10 @@ App state and journal live in ~/Library/Application Support/Astra/; created file
 <details>
 <summary>Build from source</summary>
 
-Install [Bun](https://bun.sh/docs/installation), Apple Command Line Tools and Codex CLI. Sign in with Codex, then:
+Install [Bun](https://bun.sh/docs/installation), Homebrew, Apple Command Line Tools and Codex CLI. Sign in with Codex, then build on your Mac:
 
 ```sh
+brew install autoconf automake libtool
 git clone https://github.com/witong42/Astra.git
 cd Astra
 bun install --frozen-lockfile

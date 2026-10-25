@@ -37,9 +37,10 @@ Les apps et le journal sont stockés dans ~/Library/Application Support/Astra/. 
 <details>
 <summary>Compiler depuis les sources</summary>
 
-Installez [Bun](https://bun.sh/docs/installation), les outils en ligne de commande Apple et Codex CLI. Connectez-vous à Codex, puis :
+Installez [Bun](https://bun.sh/docs/installation), Homebrew, les outils en ligne de commande Apple et Codex CLI. Connectez-vous à Codex, puis compilez sur votre Mac :
 
 ```sh
+brew install autoconf automake libtool
 git clone https://github.com/witong42/Astra.git
 cd Astra
 bun install --frozen-lockfile
