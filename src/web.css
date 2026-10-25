@@ -47,9 +47,6 @@
   padding: 8px 10px;
   cursor: pointer;
 }
-html[data-platform="web"] .window-controls-space {
-  display: none;
-}
 html[data-platform="web"] body {
   overscroll-behavior: none;
 }
