@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import type { AppControl } from "../src/app-control";
 import {
   APP_TOOL,
@@ -116,4 +116,29 @@ test("invalid app actions are rejected before reaching the desktop", async () =>
   ])
     await expect(backend.appAction(request)).rejects.toThrow();
   expect(calls).toHaveLength(0);
+});
+
+test("ask sends literal text to Astra without changing the active mini-app", async () => {
+  const { backend, workspace, calls } = fixture();
+  const send = spyOn(backend, "sendAssistant").mockResolvedValue();
+  const text = 'Commence notre échange. $(whoami) `test` "étoile"';
+  try {
+    expect(await backend.appAction({ action: "ask", text })).toEqual({
+      sent: true,
+    });
+    expect(send).toHaveBeenCalledWith(text);
+    expect(backend.state.activeId).toBe(workspace.id);
+    expect(calls).toEqual([]);
+    for (const invalid of [undefined, "", "   ", "x".repeat(24_001)])
+      await expect(
+        backend.appAction({ action: "ask", text: invalid }),
+      ).rejects.toThrow();
+    expect(send).toHaveBeenCalledTimes(1);
+    send.mockRejectedValueOnce(new Error("Reconnect to Codex"));
+    await expect(
+      backend.appAction({ action: "ask", text: "Reprends notre échange" }),
+    ).rejects.toThrow("Reconnect to Codex");
+  } finally {
+    send.mockRestore();
+  }
 });

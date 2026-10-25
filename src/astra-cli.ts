@@ -6,6 +6,7 @@ const HELP = `Astra — control your running desktop app
 astra status
 astra home
 astra pause
+astra ask <message>
 astra apps list
 astra apps open|read|inspect <app name or id>
 astra apps create <short name>
@@ -14,6 +15,7 @@ astra apps fill <app name or id> <selector> <value>
 astra call --stdin
 
 Commands return JSON. Inspect an app before selecting its controls.
+ask sends one message to Astra's conversation; it confirms dispatch, not the reply.
 call --stdin accepts the astra tool's JSON action, including canvas updates.
 `;
 
@@ -29,6 +31,8 @@ async function main(args: string[]) {
   const [group, action, target, selector, value] = args;
   if (args.length === 1 && ["status", "home", "pause"].includes(group))
     request = { action: group };
+  else if (group === "ask" && args.length === 2)
+    request = { action: "ask", text: action };
   else if (group === "call" && action === "--stdin" && args.length === 2)
     request = JSON.parse(readFileSync(0, "utf8"));
   else if (group === "apps") {

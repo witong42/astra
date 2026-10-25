@@ -137,6 +137,7 @@ test("the astra CLI resolves app names, passes values as data and reports failur
     expect(help.code).toBe(0);
     expect(help.stdout).toContain("astra apps open");
     expect(help.stdout).toContain("astra pause");
+    expect(help.stdout).toContain("astra ask <message>");
     expect(calls).toHaveLength(0);
     const paused = await cli(["pause"]);
     expect(paused.code).toBe(0);
@@ -158,6 +159,19 @@ test("the astra CLI resolves app names, passes values as data and reports failur
       selector: "#title",
       value,
     });
+    const asked = await cli(["ask", value]);
+    expect({ code: asked.code, stderr: asked.stderr }).toEqual({
+      code: 0,
+      stderr: "",
+    });
+    expect(JSON.parse(asked.stdout)).toEqual({
+      confirmed: { action: "ask", text: value },
+    });
+    for (const args of [["ask"], ["ask", "one", "two"]]) {
+      const before = calls.length;
+      expect((await cli(args)).code).toBe(1);
+      expect(calls.length).toBe(before);
+    }
     const missing = await cli(["apps", "open", "missing"]);
     expect(missing.code).toBe(1);
     expect(missing.stdout).toBe("");

@@ -8,6 +8,7 @@ Early builds were used locally or through private sites; the dates below do not 
 ### Added
 
 - Background checks and verified downloads from GitHub Releases, with an explicit restart to install an update.
+- `astra ask` lets mini-app buttons send a message to Astra without changing the active app or starting the microphone.
 - Update controls in French and English. Restart is available once responses are finished and voice is paused.
 - Cross-platform CI for macOS ARM64, Windows x64, and Linux x64 and ARM64, plus package verification and tag-based release publication.
 
