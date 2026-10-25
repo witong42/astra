@@ -6,7 +6,7 @@
 
 ## Installation
 
-Uses your existing [Codex CLI](https://developers.openai.com/codex/cli/) and ChatGPT sign-in; your Codex usage limits still apply.
+Requires [Codex CLI](https://developers.openai.com/codex/cli/) with ChatGPT sign-in.
 
 ### macOS and Linux
 
@@ -16,7 +16,7 @@ curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash
 
 **macOS:** Apple Silicon, macOS 14 or later. First launch requires the usual macOS permissions. Early builds are locally signed and are not Apple notarized.
 
-**Linux:** x64 or ARM64 Debian/Ubuntu with APT. The same command detects your architecture, verifies the release checksum and installs the matching `.deb`; sudo may ask for your password. The offline voice runtime and `astra` CLI are included.
+**Linux:** Debian/Ubuntu on x64 or ARM64, with APT.
 
 [Download manually](https://github.com/witong42/Astra/releases) · [Read the installer](install.sh)
 
@@ -30,19 +30,17 @@ Run in PowerShell:
 irm https://getastra.halcytron.chatgpt.site/install.ps1 | iex
 ```
 
-The script verifies the release checksum before running the bundled installer. [Read the PowerShell script](install.ps1).
-
-For a manual installation:
+[Read the PowerShell installer](install.ps1).
 
 Download the **Windows x64 ZIP** from [Releases](https://github.com/witong42/Astra/releases), extract the complete archive, then run **`Install.cmd`**. Open Astra from the Start menu after installation.
 
-The packaged app includes its offline voice runtime. Bun and Docker are only needed when building from source. Early Windows builds are not code-signed.
+Early Windows builds are not code-signed.
 
 ## Meet Astra
 
 [![A real Astra voice demo in English](.github/assets/film-poster.png)](.github/assets/astra-demo-en.mp4)
 
-**Your assistant. Your tools. Your way.** Ask for a daily dashboard, hear Astra reply, then use its priorities and focus timer. Thirty seconds of real Astra, with generation waits shortened. [Watch the demo](.github/assets/astra-demo-en.mp4).
+Ask Astra to create a daily dashboard, then use its task list and focus timer. [Watch the demo](.github/assets/astra-demo-en.mp4).
 
 - **Talk naturally.** Speak with Astra or type when you prefer.
 - **Make your own mini-apps.** A project tracker, a trip planner, a quiz, or the small tool you need.

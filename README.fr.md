@@ -6,7 +6,7 @@
 
 ## Installation
 
-Astra utilise votre [Codex CLI](https://developers.openai.com/codex/cli/) et votre connexion ChatGPT ; les limites de votre abonnement restent applicables.
+Nécessite [Codex CLI](https://developers.openai.com/codex/cli/) et une connexion ChatGPT.
 
 ### macOS et Linux
 
@@ -16,7 +16,7 @@ curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash
 
 **macOS :** Apple Silicon, macOS 14 ou ultérieur. Autorisez les accès macOS nécessaires au premier lancement. Les premières versions sont signées localement, sans notarisation Apple.
 
-**Linux :** Debian/Ubuntu x64 ou ARM64 avec APT. La même commande détecte votre architecture, vérifie la somme de contrôle et installe le `.deb` correspondant ; sudo peut demander votre mot de passe. Le moteur vocal local et la commande `astra` sont inclus.
+**Linux :** Debian/Ubuntu sur x64 ou ARM64, avec APT.
 
 [Télécharger directement](https://github.com/witong42/Astra/releases) · [Lire le script d’installation](install.sh)
 
@@ -30,19 +30,17 @@ Dans PowerShell :
 irm https://getastra.halcytron.chatgpt.site/install.ps1 | iex
 ```
 
-Le script vérifie la somme de contrôle avant de lancer l’installateur inclus. [Lire le script PowerShell](install.ps1).
-
-Pour une installation manuelle :
+[Lire le script PowerShell](install.ps1).
 
 Téléchargez le **ZIP Windows x64** depuis les [versions](https://github.com/witong42/Astra/releases), décompressez toute l’archive, puis lancez **`Install.cmd`**. Retrouvez ensuite Astra dans le menu Démarrer.
 
-Le moteur vocal local est inclus. Bun et Docker servent uniquement à compiler depuis les sources. Les premières versions Windows ne sont pas signées.
+Les premières versions Windows ne sont pas signées.
 
 ## Découvrir Astra
 
 [![Démonstration vocale réelle d’Astra en anglais](.github/assets/film-poster.png)](.github/assets/astra-demo-en.mp4)
 
-**Votre assistant. Vos outils. À votre façon.** Demandez un tableau de bord pour votre journée, écoutez la réponse d’Astra, puis utilisez ses priorités et son minuteur de concentration. Trente secondes dans la vraie application, en anglais, avec les temps de génération raccourcis. [Voir la démo](.github/assets/astra-demo-en.mp4).
+Demandez à Astra un tableau de bord pour votre journée, puis utilisez sa liste de tâches et son minuteur. [Voir la démo](.github/assets/astra-demo-en.mp4).
 
 - **Parlez naturellement.** Discutez avec Astra, ou écrivez quand vous préférez.
 - **Créez vos mini-apps.** Un suivi de projet, un programme de voyage, un quiz, ou le petit outil dont vous avez besoin.

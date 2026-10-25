@@ -155,14 +155,7 @@ figure {
 .hero-platforms {
   margin: 20px 0 0;
   color: var(--muted);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-}
-.eyebrow {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--muted);
-  margin-bottom: 25px;
+  font-size: 14px;
 }
 h1 {
   font-size: clamp(58px, 5.7vw, 83px);
@@ -214,19 +207,6 @@ h1 span {
   color: #b4c3cf;
   font-size: 12px;
 }
-.play-symbol {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid #ffffff27;
-  border-radius: 50%;
-  font-size: 9px;
-  padding-left: 2px;
-}
-.film-action:hover .play-symbol {
-  border-color: var(--blue);
-}
 h2 {
   font-size: clamp(36px, 4vw, 54px);
   line-height: 1.12;
@@ -263,7 +243,7 @@ h2 span {
 }
 .request-label {
   display: block;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   margin-bottom: 12px;
 }
@@ -274,25 +254,8 @@ h2 span {
   quotes: none;
   color: #cddbe5;
 }
-.conversation-line {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 60px;
-  margin: 17px 0 11px;
-}
-.conversation-line span {
-  display: block;
-  width: 2px;
-  height: 8px;
-  background: var(--blue);
-  border-radius: 3px;
-}
-.conversation-line span:nth-child(2n) {
-  height: 16px;
-}
-.conversation-line span:nth-child(3n) {
-  height: 25px;
+.spoken-response {
+  margin-top: 36px;
 }
 .spoken-response > span:last-child {
   font-size: 16px;
@@ -318,7 +281,7 @@ h2 span {
   display: flex;
   align-items: center;
   gap: 18px;
-  min-height: 99px;
+  min-height: 68px;
   border: 0;
   border-left: 1px solid transparent;
   text-align: left;
@@ -334,32 +297,12 @@ h2 span {
 .app-choices button:hover {
   background: #ffffff04;
 }
-.app-choices .example-index {
-  font-size: 10px;
-  color: #73899b;
-  align-self: flex-start;
-  padding-top: 4px;
-}
-.app-choices button > span:nth-child(2) {
-  flex: 1;
-}
 .app-choices strong {
   display: block;
   font-size: 14px;
   line-height: 1.4;
   font-weight: 450;
   color: #c5d2dc;
-}
-.app-choices small {
-  display: block;
-  font-size: 12px;
-  color: #8598a9;
-  margin-top: 8px;
-  line-height: 1.5;
-}
-.app-choices button > span:last-child {
-  font-size: 18px;
-  color: #8099ad;
 }
 .app-preview {
   min-width: 0;
@@ -371,13 +314,6 @@ h2 span {
   border: 1px solid #ffffff17;
   border-radius: 9px;
   box-shadow: 0 24px 70px #0003;
-}
-.app-preview .preview-caption,
-.evolution-preview figcaption {
-  font-size: 11px;
-  color: #71889b;
-  margin-top: 17px;
-  text-align: center;
 }
 .evolution {
   display: grid;
@@ -394,17 +330,11 @@ h2 span {
   color: var(--gold);
   letter-spacing: -0.25px;
 }
-.evolution-preview {
-  transform: rotate(-2deg);
-}
 .film-section {
   padding: 90px 0 105px;
 }
 .film-heading {
   text-align: center;
-}
-.film-heading p {
-  margin-inline: auto;
 }
 .film-frame {
   margin-top: 44px;
@@ -419,12 +349,6 @@ h2 span {
   aspect-ratio: 16 / 9;
   background: #0b1119;
   border-radius: 6px;
-}
-.film-caption {
-  font-size: 11px;
-  color: #7f94a7;
-  text-align: center;
-  margin-top: 20px;
 }
 .your-mac {
   display: grid;
@@ -478,7 +402,7 @@ h2 span {
   gap: 12px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--line);
-  font-size: 10px;
+  font-size: 13px;
   color: #839aac;
 }
 .install-box-heading a {
@@ -527,7 +451,7 @@ h2 span {
   margin: 0;
   padding: 0 20px 20px;
   color: #8299ad;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .platform-install {
@@ -544,17 +468,6 @@ h2 span {
   font-size: 16px;
   font-weight: 500;
 }
-.platform-install p {
-  margin: 0;
-  max-width: 440px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.8;
-}
-.platform-install code {
-  color: var(--ink);
-  white-space: nowrap;
-}
 .platform-install .primary-action {
   flex-shrink: 0;
 }
@@ -562,12 +475,6 @@ h2 span {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-}
-.requirements {
-  font-size: 11px;
-  line-height: 1.7;
-  color: #8299ad;
-  margin-top: 22px;
 }
 .install-links {
   display: flex;
@@ -578,16 +485,9 @@ h2 span {
   font-size: 12px;
   margin-top: 29px;
 }
-.access-note {
-  font-size: 11px;
-  line-height: 1.8;
-  color: #8194a5;
-  max-width: 640px;
-  margin: 32px auto 0;
-}
 .footer {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 20px;
   padding: 30px 0 34px;
@@ -596,21 +496,11 @@ h2 span {
 .footer .brand {
   font-size: 24px;
 }
-.footer > p {
-  font-size: 11px;
-  color: #7e93a4;
-}
 .footer > div {
   display: flex;
   gap: 24px;
-  font-size: 11px;
+  font-size: 13px;
   color: #95aaba;
-}
-.footer .affiliation {
-  grid-column: 2 / 4;
-  font-size: 10px;
-  color: #677d90;
-  margin-top: -4px;
 }
 @media (min-width: 1600px) {
   .hero {
@@ -715,10 +605,6 @@ h2 span {
     align-items: flex-start;
     gap: 20px;
   }
-  .eyebrow {
-    font-size: 10px;
-    margin-bottom: 18px;
-  }
   .hero h1 {
     font-size: 65px;
     line-height: 1.02;
@@ -787,15 +673,11 @@ h2 span {
     gap: 0;
   }
   .app-choices button {
-    min-height: 82px;
+    min-height: 64px;
     padding: 18px 14px;
   }
   .app-choices strong {
     font-size: 13px;
-  }
-  .app-choices small {
-    font-size: 11px;
-    margin-top: 5px;
   }
   .app-preview {
     width: 100%;
@@ -805,10 +687,6 @@ h2 span {
   }
   .evolution-copy blockquote {
     font-size: 17px;
-  }
-  .evolution-preview {
-    transform: rotate(-1deg);
-    margin-inline: 4px;
   }
   .film-section {
     padding: 50px 0 60px;
@@ -820,10 +698,6 @@ h2 span {
   }
   .film-frame video {
     border-radius: 4px;
-  }
-  .film-caption {
-    font-size: 10px;
-    line-height: 1.7;
   }
   .your-mac {
     padding-top: 70px;
@@ -846,7 +720,7 @@ h2 span {
   }
   .install-box-heading {
     padding: 15px 14px;
-    font-size: 9px;
+    font-size: 12px;
   }
   .install-command {
     padding: 18px 14px;
@@ -861,18 +735,9 @@ h2 span {
     min-width: 50px;
     padding-inline: 9px;
   }
-  .requirements {
-    font-size: 10px;
-    max-width: 290px;
-    margin-inline: auto;
-  }
   .install-links {
     gap: 18px;
     font-size: 11px;
-  }
-  .access-note {
-    font-size: 10px;
-    line-height: 1.8;
   }
   .footer {
     grid-template-columns: 1fr auto;
@@ -882,20 +747,9 @@ h2 span {
   .footer .brand {
     font-size: 23px;
   }
-  .footer > p {
-    grid-column: 1 / 3;
-    grid-row: 2;
-    font-size: 10px;
-  }
   .footer > div {
     gap: 18px;
-    font-size: 10px;
-  }
-  .footer .affiliation {
-    grid-column: 1 / 3;
-    grid-row: 3;
-    margin-top: -7px;
-    font-size: 9px;
+    font-size: 12px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -907,8 +761,5 @@ h2 span {
   *::after {
     animation: none;
     transition: none;
-  }
-  .evolution-preview {
-    transform: none;
   }
 }

@@ -37,16 +37,26 @@ test("French covers every public-site message, including accessible control name
   expect(copy.fr.videoLabel).toContain("anglais");
 });
 
+test("public copy omits ornamental arrows in both languages and HTML fallbacks", async () => {
+  const arrows = /[↗↘↙↖→←▶]/;
+  for (const language of ["en", "fr"] as const)
+    for (const text of Object.values(copy[language]))
+      expect(text).not.toMatch(arrows);
+  const html = await Bun.file(
+    new URL("../website/index.html", import.meta.url),
+  ).text();
+  expect(html).not.toMatch(arrows);
+});
+
 test("both languages present macOS, Windows and Linux with distinct installation steps", async () => {
   for (const language of ["en", "fr"] as const) {
     expect(copy[language].platforms).toContain("macOS");
     expect(copy[language].platforms).toContain("Windows");
     expect(copy[language].platforms).toContain("Linux");
     expect(copy[language].installAction).not.toMatch(/Mac/);
-    expect(copy[language].windowsInstructions).toContain("Install.cmd");
     expect(copy[language].windowsDownload).toContain("Windows");
     expect(copy[language].windowsTerminal).toContain("PowerShell");
-    expect(copy[language].linuxInstructions).toContain(".deb");
+    expect(copy[language].linuxDownload).toContain(".deb");
     expect(copy[language].linuxDownload).toContain("ARM64");
     expect(copy[language].linuxX64Download).toContain("x64");
     expect(copy[language].terminalRequirements).toContain("Apple Silicon");
