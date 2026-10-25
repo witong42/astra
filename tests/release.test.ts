@@ -1,8 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { runInNewContext } from "node:vm";
 import {
   assertReleaseAssets,
@@ -15,6 +24,56 @@ const temporary: string[] = [];
 afterEach(() => {
   for (const directory of temporary.splice(0))
     rmSync(directory, { recursive: true, force: true });
+});
+
+test("Windows checkouts preserve native cache input bytes and binary voice fixtures", () => {
+  const directory = mkdtempSync(join(tmpdir(), "astra-checkout-test-"));
+  temporary.push(directory);
+  const source = join(directory, "source");
+  const checkout = join(directory, "checkout");
+  mkdirSync(source);
+  mkdirSync(checkout);
+  const files = [
+    "scripts/build-voice-windows.ts",
+    "native/VoskWindows.Dockerfile",
+    "src/vosk.ts",
+    "tests/fixtures/voice/en-astra.wav",
+  ];
+  for (const file of files) {
+    const destination = join(source, file);
+    mkdirSync(dirname(destination), { recursive: true });
+    copyFileSync(new URL(`../${file}`, import.meta.url), destination);
+  }
+  const attributes = new URL("../.gitattributes", import.meta.url);
+  const staged = [...files];
+  if (existsSync(attributes)) {
+    copyFileSync(attributes, join(source, ".gitattributes"));
+    staged.push(".gitattributes");
+  }
+  const git = (args: string[]) =>
+    execFileSync("git", ["-C", source, "-c", "core.autocrlf=true", ...args], {
+      stdio: "pipe",
+    });
+  git(["init"]);
+  git(["add", "--", ...staged]);
+  git([
+    "checkout-index",
+    `--prefix=${checkout.replaceAll("\\", "/")}/`,
+    "--",
+    ...files,
+  ]);
+  for (const file of files)
+    expect({
+      file,
+      sha256: createHash("sha256")
+        .update(readFileSync(join(checkout, file)))
+        .digest("hex"),
+    }).toEqual({
+      file,
+      sha256: createHash("sha256")
+        .update(readFileSync(new URL(`../${file}`, import.meta.url)))
+        .digest("hex"),
+    });
 });
 
 test.each([
