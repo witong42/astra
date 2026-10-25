@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -34,6 +35,33 @@ test("French covers every public-site message, including accessible control name
   }
   expect(copy.fr.copyLabel).toContain("Copier");
   expect(copy.fr.videoLabel).toContain("anglais");
+});
+
+test("both languages present macOS and Windows with distinct installation steps", async () => {
+  for (const language of ["en", "fr"] as const) {
+    expect(copy[language].platforms).toContain("macOS");
+    expect(copy[language].platforms).toContain("Windows");
+    expect(copy[language].installAction).not.toMatch(/Mac/);
+    expect(copy[language].windowsInstructions).toContain("Install.cmd");
+    expect(copy[language].windowsDownload).toContain("Windows");
+    expect(copy[language].macRequirements).toContain("Apple Silicon");
+  }
+  const html = await Bun.file(
+    new URL("../website/index.html", import.meta.url),
+  ).text();
+  expect(html).toContain('id="windows-download"');
+  const description = html.match(/property="og:description" content="([^"]+)"/);
+  expect(description?.[1]).toContain("macOS and Windows");
+  for (const file of ["README.md", "README.fr.md"]) {
+    const readme = await Bun.file(
+      new URL(`../${file}`, import.meta.url),
+    ).text();
+    expect(readme).toContain("### Windows");
+    expect(readme).toContain("Install.cmd");
+    expect(readme).not.toMatch(
+      /Windows version is in development|version Windows est en développement/,
+    );
+  }
 });
 
 test("the gallery uses English demonstration content with identified sample data", async () => {
@@ -100,7 +128,11 @@ test("the public build excludes uncurated assets and stale output", () => {
     );
     writeFileSync(
       join(fixture, "website/index.html"),
-      "<!doctype html><title>Astra</title>",
+      readFileSync(new URL("../website/index.html", import.meta.url), "utf8"),
+    );
+    writeFileSync(
+      join(fixture, "package.json"),
+      JSON.stringify({ version: "99.1.2" }),
     );
     writeFileSync(join(fixture, "website/site.css"), "body{margin:0}");
     writeFileSync(join(fixture, "install.sh"), "#!/bin/bash\n");
@@ -113,6 +145,11 @@ test("the public build excludes uncurated assets and stale output", () => {
     expect(existsSync(join(output, "assets/private-journal.json"))).toBe(false);
     expect(existsSync(join(output, "assets/desktop.png"))).toBe(false);
     expect(existsSync(join(output, "old-private-preview.html"))).toBe(false);
+    const html = readFileSync(join(output, "index.html"), "utf8");
+    expect(html).toContain(
+      "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-windows-x64.zip",
+    );
+    expect(html).not.toContain("__ASTRA_WINDOWS_DOWNLOAD_URL__");
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

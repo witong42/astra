@@ -17,7 +17,8 @@ export const copy = {
     heroTitle: "Your personal<br /><span>Jarvis.</span>",
     heroDescription:
       "Powered by Codex. A personal assistant with mini-apps that change when you ask.",
-    installAction: "Get Astra for Mac",
+    installAction: "Get Astra",
+    platforms: "macOS · Windows",
     watchAction: "Meet Astra",
     conversationTitle: "An idea is enough<br />to start a conversation.",
     conversationDescription:
@@ -47,22 +48,26 @@ export const copy = {
     filmCaption:
       "30 seconds of real Astra, with a spoken request in English. Generation waits shortened.",
     videoFallback: "Your browser cannot play this video.",
-    localTitle: "Your Mac.<br />Your Codex.<br /><span>Your way.</span>",
+    localTitle: "Your computer.<br />Your Codex.<br /><span>Your way.</span>",
     localDescription:
-      "Astra runs on your Mac and uses your own Codex account. Your mini-apps and journal stay in your local workspace.",
+      "Astra runs on macOS and Windows with your own Codex account. Your mini-apps and journal stay in your local workspace.",
     phoneDescription:
-      "Want to pick up from your phone? Connect it privately to the same Mac. Astra stays with you, while your Mac stays on.",
+      "Want to pick up from your phone? Connect it privately to your computer. Astra stays with you, while your computer stays on.",
     dataLink: "How access and data work ↗",
     installTitle: "Meet your<br /><span>next little universe.</span>",
     installDescription:
-      "Install Astra in one line. Bring your Codex sign-in and an idea.",
-    installTerminal: "In your Mac's Terminal",
+      "Choose macOS or Windows. Bring your Codex sign-in and an idea.",
+    installTerminal: "macOS · Terminal",
+    macRequirements: "macOS 14+ · Apple Silicon",
+    windowsTitle: "Windows",
+    windowsInstructions:
+      "Download the x64 ZIP, extract it, then run <code>Install.cmd</code>.",
+    windowsDownload: "Get Windows x64 ↗",
     inspectInstaller: "Inspect the script ↗",
     copy: "Copy",
     copied: "Installation command copied.",
     copyFailed: "Select and copy the command above.",
-    requirements:
-      "macOS 14+ · Apple Silicon · Codex CLI with ChatGPT sign-in · Experimental software",
+    requirements: "Codex CLI with ChatGPT sign-in · Experimental software",
     manualDownload: "Download manually ↗",
     sourceCode: "Explore the source ↗",
     codexSetup: "Need Codex? ↗",
@@ -91,7 +96,8 @@ export const copy = {
     heroTitle: "Votre Jarvis<br /><span>personnel.</span>",
     heroDescription:
       "Propulsé par Codex. Un assistant personnel dont les mini-apps évoluent à votre demande.",
-    installAction: "Installer sur Mac",
+    installAction: "Installer Astra",
+    platforms: "macOS · Windows",
     watchAction: "Découvrir Astra",
     conversationTitle: "Une idée suffit<br />pour en parler.",
     conversationDescription:
@@ -121,22 +127,27 @@ export const copy = {
     filmCaption:
       "30 secondes dans la vraie application, avec une demande vocale en anglais. Temps de génération raccourcis.",
     videoFallback: "Votre navigateur ne peut pas lire cette vidéo.",
-    localTitle: "Votre Mac.<br />Votre Codex.<br /><span>À votre façon.</span>",
+    localTitle:
+      "Votre ordinateur.<br />Votre Codex.<br /><span>À votre façon.</span>",
     localDescription:
-      "Astra fonctionne sur votre Mac avec votre propre compte Codex. Vos mini-apps et votre journal restent dans votre espace local.",
+      "Astra fonctionne sur macOS et Windows avec votre propre compte Codex. Vos mini-apps et votre journal restent dans votre espace local.",
     phoneDescription:
-      "Envie de continuer sur votre téléphone ? Reliez-le au même Mac de façon privée. Astra vous accompagne, pendant que votre Mac reste allumé.",
+      "Envie de continuer sur votre téléphone ? Reliez-le à votre ordinateur de façon privée. Astra vous accompagne, pendant que votre ordinateur reste allumé.",
     dataLink: "Comprendre les accès et les données ↗",
     installTitle: "Entrez dans votre<br /><span>prochain petit univers.</span>",
     installDescription:
-      "Une ligne pour installer Astra. Votre compte Codex et une idée pour commencer.",
-    installTerminal: "Dans le Terminal de votre Mac",
+      "Choisissez macOS ou Windows. Votre compte Codex et une idée pour commencer.",
+    installTerminal: "macOS · Terminal",
+    macRequirements: "macOS 14+ · Apple Silicon",
+    windowsTitle: "Windows",
+    windowsInstructions:
+      "Téléchargez le ZIP x64, décompressez-le, puis lancez <code>Install.cmd</code>.",
+    windowsDownload: "Installer sur Windows x64 ↗",
     inspectInstaller: "Lire le script ↗",
     copy: "Copier",
     copied: "Commande d’installation copiée.",
     copyFailed: "Sélectionnez et copiez la commande ci-dessus.",
-    requirements:
-      "macOS 14+ · Apple Silicon · Codex CLI connecté à ChatGPT · Logiciel expérimental",
+    requirements: "Codex CLI connecté à ChatGPT · Logiciel expérimental",
     manualDownload: "Télécharger directement ↗",
     sourceCode: "Explorer le code ↗",
     codexSetup: "Installer Codex ↗",

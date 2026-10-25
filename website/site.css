@@ -152,6 +152,12 @@ figure {
 .hero-copy {
   padding-bottom: 5px;
 }
+.hero-platforms {
+  margin: 20px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
 .eyebrow {
   font-size: 12px;
   line-height: 1.6;
@@ -517,6 +523,41 @@ h2 span {
   height: auto;
   padding: 0 20px 15px;
 }
+.platform-requirements {
+  margin: 0;
+  padding: 0 20px 20px;
+  color: #8299ad;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.windows-install {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 24px 20px;
+  border-top: 1px solid var(--line);
+  background: #ffffff02;
+}
+.windows-install h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+}
+.windows-install p {
+  margin: 0;
+  max-width: 440px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.windows-install code {
+  color: var(--ink);
+  white-space: nowrap;
+}
+.windows-install .primary-action {
+  flex-shrink: 0;
+}
 .requirements {
   font-size: 11px;
   line-height: 1.7;
@@ -663,6 +704,11 @@ h2 span {
   .hero-copy {
     text-align: center;
     width: 100%;
+  }
+  .windows-install {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
   }
   .eyebrow {
     font-size: 10px;

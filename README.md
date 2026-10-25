@@ -1,18 +1,30 @@
 <p align="center"><img src=".github/assets/banner.png" alt="Astra — Your personal Jarvis, powered by Codex" width="100%" /></p>
 
 <p align="center"><strong>English</strong> · <a href="README.fr.md">Français</a></p>
-<p align="center">A voice-first assistant for your Mac, with mini-apps you can build and reshape through conversation.</p>
+<p align="center">A voice-first assistant for macOS and Windows, with mini-apps you can build and reshape through conversation.</p>
 <p align="center"><a href="https://getastra.halcytron.chatgpt.site">Website</a> · <a href="#installation">Install</a> · <a href="#meet-astra">Watch the demo</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
 ## Installation
+
+Uses your existing [Codex CLI](https://developers.openai.com/codex/cli/) and ChatGPT sign-in; your Codex usage limits still apply.
+
+### macOS
 
 ```sh
 curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash
 ```
 
-For **Apple Silicon Macs running macOS 14 or later**. A Windows version is in development. Uses your existing [Codex CLI](https://developers.openai.com/codex/cli/) and ChatGPT sign-in; your Codex usage limits still apply. First launch requires the usual macOS permissions. Early builds are locally signed and are not Apple notarized.
+For **Apple Silicon Macs running macOS 14 or later**. First launch requires the usual macOS permissions. Early builds are locally signed and are not Apple notarized.
 
 [Download manually](https://github.com/witong42/Astra/releases) · [Read the installer](install.sh)
+
+### Windows
+
+Download the **Windows x64 ZIP** from [Releases](https://github.com/witong42/Astra/releases), extract the complete archive, then run **`Install.cmd`**. Open Astra from the Start menu after installation.
+
+The packaged app includes its offline voice runtime. Bun and Docker are only needed when building from source. Early Windows builds are not code-signed.
+
+Linux builds are not available yet.
 
 ## Meet Astra
 
@@ -24,23 +36,35 @@ For **Apple Silicon Macs running macOS 14 or later**. A Windows version is in de
 - **Make your own mini-apps.** A project tracker, a trip planner, a quiz, or the small tool you need.
 - **Change them by asking.** Add a button, simplify a view, reshape a workflow. Codex updates the app with you.
 - **Keep using them.** Reopen saved apps, use their local controls, and keep your work in one place.
-- **Pick up from your phone.** Optionally connect to the same awake Mac through your private network.
+- **Pick up from your phone.** Optionally connect to your desktop through your private network while it stays on.
 
 Try: **“Make a mini-app to track my project and its next steps.”** Then: **“Add a simpler view so I can focus.”**
 
 ## Access and data
 
-Astra currently gives Codex **full file and command access on your Mac without approval prompts**. Generated mini-apps run in isolated frames; this does not restrict Codex's system tools.
+Astra currently gives Codex **full file and command access on your computer without approval prompts**. Generated mini-apps run in isolated frames; this does not restrict Codex's system tools.
 
-App state and journal live in ~/Library/Application Support/Astra/; created files default to ~/.astra/. Model requests use your configured Codex provider. Your existing Codex authentication stays in place. Voice uses experimental Codex interfaces and is version-sensitive.
+Default local storage:
+
+| Platform | App state and journal | Created files |
+| --- | --- | --- |
+| macOS | `~/Library/Application Support/Astra/` | `~/.astra/` |
+| Windows | `%APPDATA%\Astra\` | `%USERPROFILE%\.astra\` |
+
+Model requests use your configured Codex provider. Your existing Codex authentication stays in place. Voice uses experimental Codex interfaces and is version-sensitive.
 
 <details>
 <summary>Build from source</summary>
 
-Install [Bun](https://bun.sh/docs/installation), Homebrew, Apple Command Line Tools and Codex CLI. Sign in with Codex, then build on your Mac:
+Install [Bun](https://bun.sh/docs/installation) and Codex CLI, then sign in with Codex. On macOS, install Homebrew, Apple Command Line Tools and the native voice build tools:
 
 ```sh
 brew install autoconf automake libtool
+```
+
+On Windows, use x64 Bun and Docker Desktop with Linux containers for the native voice build. Then, on either platform:
+
+```sh
 git clone https://github.com/witong42/Astra.git
 cd Astra
 bun install --frozen-lockfile
@@ -54,7 +78,7 @@ For realtime voice, use the complete [official Codex distribution](https://githu
 ## Phone access
 
 <details>
-<summary>Optional private phone setup</summary>
+<summary>Optional private phone setup on macOS</summary>
 
 This is an optional setup for your own devices. Astra's web client connects to the same Mac backend over your private Tailscale network; it doesn't move the agent to the cloud.
 
@@ -91,6 +115,6 @@ Open the frontend on your phone while connected to Tailscale. The configured Tai
 
 ## Contributing
 
-Try Astra on your Mac, report a reproducible issue, or propose a focused change. See [CONTRIBUTING.md](CONTRIBUTING.md). Never upload authentication, your private journal or a whole saved workspace.
+Try Astra on macOS or Windows, report a reproducible issue, or propose a focused change. See [CONTRIBUTING.md](CONTRIBUTING.md). Never upload authentication, your private journal or a whole saved workspace.
 
 Astra is an independent project, unaffiliated with OpenAI. Original code: [MIT](LICENSE). Third-party licenses and [Solar Icons / 480 Design attribution](THIRD_PARTY_NOTICES.md) are preserved.

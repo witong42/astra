@@ -4,7 +4,7 @@ Start with the [README](README.md#installation). Astra is a small personal proje
 
 ## Before changing code
 
-- For a bug, include reproduction steps, expected and actual behavior, macOS/chip, Bun and Codex versions.
+- For a bug, include reproduction steps, expected and actual behavior, OS/architecture, Bun and Codex versions.
 - For a larger feature, open an issue first so we can agree on scope.
 - Use an isolated profile for experiments: `ASTRA_DATA_DIR=/absolute/path/to/test-profile bun start`. This keeps your normal saved apps separate. Codex still uses your existing account and configuration.
 - Keep personal output in `~/.astra/`, outside the source checkout. Never commit credentials, `.env` files, hosting IDs, local paths, journals or generated personal apps.
