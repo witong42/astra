@@ -31,6 +31,7 @@ test("desktop packages omit stale phone and marketing builds while retaining the
   mkdirSync(join(source, "voice"), { recursive: true });
   writeFileSync(join(source, "main.cjs"), "desktop main");
   writeFileSync(join(source, "voice/runtime.json"), "desktop voice");
+  writeFileSync(join(source, "voice-helper"), "obsolete native capture");
   for (const directory of ["client", "server", "website"]) {
     mkdirSync(join(source, directory));
     writeFileSync(join(source, directory, "private.txt"), "private web build");
@@ -44,6 +45,7 @@ test("desktop packages omit stale phone and marketing builds while retaining the
   );
   for (const directory of ["client", "server", "website"])
     expect(existsSync(join(destination, directory))).toBe(false);
+  expect(existsSync(join(destination, "voice-helper"))).toBe(false);
 });
 
 test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(

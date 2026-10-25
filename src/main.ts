@@ -28,7 +28,6 @@ import {
   type InterfaceLanguage,
   messages,
 } from "./locale";
-import { NativeAudio } from "./native-speech";
 import { externalWebUrl } from "./navigation";
 import { PhoneInput } from "./phone-input";
 import { runPowerShell } from "./powershell";
@@ -622,9 +621,7 @@ app
       },
     );
     const desktopInput = new LocalInput(
-      process.platform === "darwin"
-        ? new NativeAudio(join(app.getAppPath(), "dist/voice-helper"))
-        : new RendererAudio(audioWindow(join(app.getAppPath(), "dist"))),
+      new RendererAudio(audioWindow(join(app.getAppPath(), "dist"))),
       createDecoder,
       () => voice.snapshot().language,
       (openAudio, onEvent) =>

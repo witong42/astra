@@ -1,47 +1,13 @@
-import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { buildCanvas } from "./build-canvas";
-import { buildVoice, VOICE_MINIMUM_MACOS } from "./build-voice";
+import { buildVoice } from "./build-voice";
 import { appIcon, copyBrand } from "./icon";
 
 const root = join(import.meta.dir, "..");
 const outdir = join(root, "dist");
 mkdirSync(outdir, { recursive: true });
-if (process.platform === "darwin") {
-  execFileSync(
-    "xcrun",
-    [
-      "swiftc",
-      "-parse-as-library",
-      "-swift-version",
-      "5",
-      "-O",
-      "-target",
-      `${process.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos${VOICE_MINIMUM_MACOS}`,
-      join(root, "native/Voice.swift"),
-      "-o",
-      join(outdir, "voice-helper"),
-      "-Xlinker",
-      "-sectcreate",
-      "-Xlinker",
-      "__TEXT",
-      "-Xlinker",
-      "__info_plist",
-      "-Xlinker",
-      join(root, "native/Voice-Info.plist"),
-    ],
-    { stdio: "inherit" },
-  );
-  execFileSync("/usr/bin/codesign", [
-    "--force",
-    "--sign",
-    "-",
-    "--identifier",
-    "io.github.witong42.astra.voice",
-    join(outdir, "voice-helper"),
-  ]);
-}
+rmSync(join(outdir, "voice-helper"), { force: true });
 const main = await Bun.build({
   entrypoints: [
     join(root, "src/main.ts"),

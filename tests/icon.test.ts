@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appIcon, BRAND_FILES, copyBrand } from "../scripts/icon";
 
-const ICON_SWIFT_TIMEOUT_MS = 45_000;
-const ICON_TEST_TIMEOUT_MS = 60_000;
+const ICON_PROCESS_TIMEOUT_MS = 20_000;
+const ICON_TEST_TIMEOUT_MS = 30_000;
 
 test("branding ships the same offline font, artwork and license to every client", () => {
   const directory = mkdtempSync(join(tmpdir(), "astra-brand-test-"));
@@ -57,20 +57,31 @@ test.skipIf(process.platform !== "darwin")(
       expect(information).toContain("pixelWidth: 1024");
       expect(information).toContain("pixelHeight: 1024");
       expect(information).toContain("hasAlpha: yes");
-      const bounds = execFileSync(
-        "/usr/bin/swift",
+      const probe = join(directory, "bounds.cjs");
+      writeFileSync(
+        probe,
         [
-          "-e",
-          String.raw`import AppKit
-import Foundation
-let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments.last!))
-let image = NSBitmapImageRep(data: data)!
-let middle = image.pixelsHigh / 2
-let opaque = (0..<image.pixelsWide).filter { (image.colorAt(x: $0, y: middle)?.alphaComponent ?? 0) >= 0.5 }
-print("\(opaque.first ?? -1) \(opaque.last ?? -1)")`,
-          decoded,
-        ],
-        { encoding: "utf8", timeout: ICON_SWIFT_TIMEOUT_MS },
+          "const {app,nativeImage}=require('electron');",
+          "app.dock?.hide();",
+          "app.whenReady().then(()=>{",
+          "const image=nativeImage.createFromBuffer(require('node:fs').readFileSync(process.argv[2]));",
+          "const {width,height}=image.getSize();const bitmap=image.toBitmap();",
+          "const opaque=[];const middle=Math.floor(height/2);",
+          "for(let x=0;x<width;x++)if(bitmap[(middle*width+x)*4+3]>=128)opaque.push(x);",
+          "console.log(opaque[0]+' '+opaque.at(-1));app.quit();",
+          "}).catch(error=>{console.error(error);app.exit(1)});",
+        ].join("\n"),
+      );
+      const environment = { ...process.env };
+      delete environment.ELECTRON_RUN_AS_NODE;
+      const bounds = execFileSync(
+        require("electron"),
+        [probe, decoded, `--user-data-dir=${join(directory, "profile")}`],
+        {
+          encoding: "utf8",
+          env: environment,
+          timeout: ICON_PROCESS_TIMEOUT_MS,
+        },
       );
       expect(bounds.trim()).toBe("100 923");
     } finally {
