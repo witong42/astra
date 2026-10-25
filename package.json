@@ -1,15 +1,15 @@
 {
   "name": "astra",
   "productName": "Astra",
-  "version": "0.5.1",
-  "astraBuild": 16,
+  "version": "0.6.0",
+  "astraBuild": 17,
   "description": "A personal desktop assistant that turns conversations into mini-apps.",
   "license": "MIT",
   "repository": "https://github.com/witong42/astra",
   "private": true,
   "type": "module",
   "main": "dist/main.cjs",
-  "packageManager": "bun@1.4.3",
+  "packageManager": "bun@1.4.4",
   "scripts": {
     "postinstall": "bun node_modules/electron/install.js",
     "build": "bun scripts/build.ts",

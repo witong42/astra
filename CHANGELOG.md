@@ -3,6 +3,25 @@
 Astra's history, from the first CodexOS prototype to the current release.
 Early builds were used locally or through private sites; the dates below do not imply a public GitHub release. Local builds without distinct source revisions are grouped where their changes cannot be separated reliably.
 
+## 0.6.0 — 2026-10-25
+
+### Added
+
+- Background checks and verified downloads from GitHub Releases, with an explicit restart to install an update.
+- Update controls in French and English. Restart is available once responses are finished and voice is paused.
+- Cross-platform CI for macOS ARM64, Windows x64, and Linux x64 and ARM64, plus package verification and tag-based release publication.
+
+### Changed
+
+- macOS uses the same Electron/WebAudio microphone capture as Windows and Linux. Swift is no longer required to build or test Astra.
+- In-app updates reuse the current installers. Mac updates retain the prior bundle; Windows updates replace the complete application while preserving the installed path and pinned shortcuts; Linux updates use APT with graphical authorization.
+- Source builds and CI pin Bun 1.4.4.
+
+### Fixed
+
+- Desktop packages reject obsolete microphone-helper output left by an older build.
+- Download errors remain recoverable when the update cache is removed during a request.
+
 ## 0.5.1 — 2026-10-25
 
 ### Added

@@ -1,32 +1,231 @@
-name: Checks
+name: Checks and releases
 
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      packages:
+        description: Build and verify all desktop packages without publishing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: astra-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
-  check:
+  identity:
     if: github.event.repository.private == false
-    runs-on: macos-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - run: bun install --frozen-lockfile
+        with:
+          bun-version-file: package.json
+      - id: identity
+        run: |
+          bun - <<'BUN'
+          import { releaseMetadata } from "./scripts/release";
+          const metadata = releaseMetadata(await Bun.file("package.json").json(),
+            process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_REF_NAME : undefined);
+          await Bun.write(process.env.GITHUB_OUTPUT, "version=" + metadata.version + "\n");
+          BUN
+
+  windows-voice:
+    needs: identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - id: runtime
+        run: bun -e 'import { VOSK_VERSION } from "./src/vosk"; await Bun.write(process.env.GITHUB_OUTPUT, "path=node_modules/.cache/astra-voice/"+VOSK_VERSION+"-win32-x64/assets\n");'
+      - id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.runtime.outputs.path }}
+          key: windows-voice-${{ hashFiles('scripts/build-voice-windows.ts', 'native/VoskWindows.Dockerfile', 'src/vosk.ts') }}
+          enableCrossOsArchive: true
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Build the pinned Windows voice runtime from source
+        run: bun -e 'import { buildWindowsVoice } from "./scripts/build-voice-windows"; import { VOSK_VERSION } from "./src/vosk"; await buildWindowsVoice(process.cwd(), "node_modules/.cache/astra-voice/"+VOSK_VERSION+"-win32-x64");'
+
+  unix:
+    needs: identity
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM64
+            runner: macos-latest
+          - name: Linux x64
+            runner: ubuntu-24.04
+          - name: Linux ARM64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-desktop
       - run: bun run check
-      - run: brew install autoconf automake libtool
       - run: bun run build
-      - name: Run software tests (microphone capture requires hardware)
-        run: bun test --test-name-pattern '^(?!native capture isolates microphone channels)'
-      - run: bun run build:web
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a bun test
+      - if: runner.os == 'macOS'
+        run: bun test
+      - if: runner.os == 'macOS'
+        name: Build the phone client with a local test backend URL
+        run: bun run build:web
         env:
-          ASTRA_REMOTE_URL: https://astra-backend.example.com
-      - run: bun run build:site
-      - run: bun audit
+          ASTRA_REMOTE_URL: https://127.0.0.1:8787
+      - if: runner.os == 'macOS'
+        run: bun run build:site
+      - if: runner.os == 'macOS'
+        run: bun audit
+
+  windows:
+    needs: [identity, windows-voice]
+    name: Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-desktop
+      - run: bun run check
+      - run: bun run build
+      - run: bun test
+      - name: Replay the recorded voice corpus in Electron
+        env:
+          ELECTRON_RUN_AS_NODE: "1"
+        run: |
+          bun build tests/native-runtime.ts --target node --format cjs --external koffi --outfile test-results/native-runtime.cjs
+          ./node_modules/electron/dist/electron.exe test-results/native-runtime.cjs dist/voice tests/fixtures/voice
+
+  draft:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [identity, unix, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare the tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.identity.outputs.version }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --json isDraft > "$RUNNER_TEMP/release.json"; then
+            test "$(jq -r .isDraft "$RUNNER_TEMP/release.json")" = true
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Astra $RELEASE_VERSION" --notes-file CHANGELOG.md
+          fi
+
+  packages:
+    if: >-
+      always() && needs.identity.result == 'success' &&
+      needs.unix.result == 'success' && needs.windows.result == 'success' &&
+      ((startsWith(github.ref, 'refs/tags/') && needs.draft.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.packages))
+    needs: [identity, unix, windows, draft]
+    name: Package ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM64
+            runner: macos-latest
+          - name: Windows x64
+            runner: windows-2025
+          - name: Linux x64
+            runner: ubuntu-24.04
+          - name: Linux ARM64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-desktop
+      - run: bun run build
+      - run: bun scripts/package.ts
+      - name: Verify the platform packages and upload only tagged assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bun - <<'BUN'
+          import { execFileSync } from "node:child_process";
+          import { releaseMetadata, verifyRelease } from "./scripts/release";
+          const tagged = process.env.GITHUB_REF_TYPE === "tag";
+          const { version } = releaseMetadata(await Bun.file("package.json").json(),
+            tagged ? process.env.GITHUB_REF_NAME : undefined);
+          const assets = await verifyRelease("release/v"+version, version, process.platform, process.arch);
+          if (tagged) {
+            const tag = process.env.GITHUB_REF_NAME;
+            const release = JSON.parse(execFileSync("gh", ["release","view",tag,"--json","isDraft"], {encoding:"utf8"}));
+            if (!release.isDraft) throw new Error("Refusing to replace assets in a published release.");
+            execFileSync("gh", ["release","upload",tag,...assets,"--clobber"], {stdio:"inherit"});
+          }
+          console.log("Verified", assets.length, "platform release files.");
+          BUN
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [identity, packages]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - name: Verify the complete release and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/release"
+          bun - <<'BUN'
+          import { execFileSync } from "node:child_process";
+          import { join } from "node:path";
+          import { assertReleaseAssets, releaseMetadata, verifyRelease } from "./scripts/release";
+          const tag = process.env.GITHUB_REF_NAME;
+          const { version } = releaseMetadata(await Bun.file("package.json").json(), tag);
+          const release = JSON.parse(execFileSync("gh", ["release","view",tag,"--json","isDraft,assets"], {encoding:"utf8"}));
+          if (!release.isDraft) throw new Error("The release is already published.");
+          assertReleaseAssets(release.assets.map(asset=>asset.name), version);
+          await verifyRelease(join(process.env.RUNNER_TEMP,"release"), version);
+          execFileSync("gh", ["release","edit",tag,"--draft=false","--latest"], {stdio:"inherit"});
+          BUN
