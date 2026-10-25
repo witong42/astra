@@ -107,11 +107,13 @@ test.skipIf(process.platform !== "linux")(
       expect(pid).toBeGreaterThan(1);
       for (let attempt = 0; attempt < 100; attempt++) {
         const stat = `/proc/${pid}/stat`;
-        if (
-          !existsSync(stat) ||
-          readFileSync(stat, "utf8").split(") ")[1]?.startsWith("Z")
-        )
-          return;
+        try {
+          if (readFileSync(stat, "utf8").split(") ")[1]?.startsWith("Z"))
+            return;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+          throw error;
+        }
         await Bun.sleep(20);
       }
       throw new Error(`Shell descendant ${pid} survived the timeout.`);
