@@ -20,7 +20,7 @@ bun run build
 ASTRA_REMOTE_URL=https://astra-backend.example.com bun run build:web
 ```
 
-The native build supports macOS, Windows x64 and Linux. The packaged Linux release is ARM64 (`.deb`). Mac builds also require Homebrew's `autoconf`, `automake` and `libtool`. Tests use fixtures rather than making model requests. The native capture test uses a real microphone on macOS; CI runs the remaining software tests with `bun test --test-name-pattern '^(?!native capture isolates microphone channels)'`. A passing suite doesn't establish voice availability for every Codex account or CLI release.
+The native build supports macOS, Windows x64 and Linux. The packaged Linux releases support x64 and ARM64 (`.deb`). Mac builds also require Homebrew's `autoconf`, `automake` and `libtool`. Tests use fixtures rather than making model requests. The native capture test uses a real microphone on macOS; CI runs the remaining software tests with `bun test --test-name-pattern '^(?!native capture isolates microphone channels)'`. A passing suite doesn't establish voice availability for every Codex account or CLI release.
 
 Keep each pull request focused. Describe the user-visible change, checks actually run, and remaining limits. Screenshots or a short recording help with UI changes; use anonymous data.
 

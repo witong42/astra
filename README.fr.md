@@ -2,7 +2,7 @@
 
 <p align="center"><a href="README.md">English</a> · <strong>Français</strong></p>
 <p align="center">Un assistant vocal pour macOS, Windows et Linux, avec des mini-apps que vous créez et faites évoluer par la conversation.</p>
-<p align="center"><a href="https://getastra.halcytron.chatgpt.site/?lang=fr">Site web</a> · <a href="#installation">Installer</a> · <a href="#découvrir-astra">Voir la démo</a> · <a href="CONTRIBUTING.md">Contribuer</a></p>
+<p align="center"><a href="https://getastra.halcytron.chatgpt.site/?lang=fr">Site web</a> · <a href="#installation">Installer</a> · <a href="#découvrir-astra">Voir la démo</a> · <a href="CHANGELOG.md">Historique</a> · <a href="CONTRIBUTING.md">Contribuer</a></p>
 
 ## Installation
 

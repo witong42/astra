@@ -9,9 +9,9 @@ import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const output = join(root, "dist/website");
-const { version } = JSON.parse(
+const { version, astraBuild } = JSON.parse(
   readFileSync(join(root, "package.json"), "utf8"),
-) as { version: string };
+) as { version: string; astraBuild: number };
 const windowsDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-windows-x64.zip`;
 const macDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-macos-arm64.dmg`;
 const linuxDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-linux-arm64.deb`;
@@ -42,6 +42,8 @@ if (!result.success)
 writeFileSync(
   join(output, "index.html"),
   readFileSync(join(root, "website/index.html"), "utf8")
+    .replaceAll("__ASTRA_VERSION__", version)
+    .replaceAll("__ASTRA_BUILD__", String(astraBuild))
     .replaceAll("__ASTRA_WINDOWS_DOWNLOAD_URL__", windowsDownload)
     .replaceAll("__ASTRA_MAC_DOWNLOAD_URL__", macDownload)
     .replaceAll("__ASTRA_LINUX_DOWNLOAD_URL__", linuxDownload)
@@ -50,6 +52,7 @@ writeFileSync(
 copyFileSync(join(root, "website/site.css"), join(output, "site.css"));
 copyFileSync(join(root, "install.sh"), join(output, "install.sh"));
 copyFileSync(join(root, "install.ps1"), join(output, "install.ps1"));
+copyFileSync(join(root, "CHANGELOG.md"), join(output, "changelog.md"));
 for (const file of PUBLIC_ASSETS)
   copyFileSync(
     join(root, ".github/assets", file),

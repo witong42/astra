@@ -166,8 +166,11 @@ test("the public build excludes uncurated assets and stale output", () => {
     );
     writeFileSync(
       join(fixture, "package.json"),
-      JSON.stringify({ version: "99.1.2" }),
+      JSON.stringify({ version: "99.1.2", astraBuild: 42 }),
     );
+    const changelog =
+      "# Changelog\n\n## [99.1.2]\nCurrent release.\n\n## [0.1.0]\nFirst prototype.\n";
+    writeFileSync(join(fixture, "CHANGELOG.md"), changelog);
     writeFileSync(join(fixture, "website/site.css"), "body{margin:0}");
     writeFileSync(join(fixture, "install.sh"), "#!/bin/bash\n");
     writeFileSync(join(fixture, "install.ps1"), "& { 'fixture' }\n");
@@ -184,6 +187,10 @@ test("the public build excludes uncurated assets and stale output", () => {
     expect(existsSync(join(output, "assets/desktop.png"))).toBe(false);
     expect(existsSync(join(output, "old-private-preview.html"))).toBe(false);
     const html = readFileSync(join(output, "index.html"), "utf8");
+    expect(html).toContain('name="application-version" content="99.1.2"');
+    expect(html).toContain('name="astra-build" content="42"');
+    expect(html).toContain('href="./changelog.md"');
+    expect(readFileSync(join(output, "changelog.md"), "utf8")).toBe(changelog);
     expect(html).toContain(
       "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-windows-x64.zip",
     );

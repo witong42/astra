@@ -63,6 +63,7 @@ export const copy = {
       "Codex can edit files and run commands without approval prompts.",
     license: "MIT license",
     credits: "Credits",
+    changelog: "Changelog",
     manualDownloads: "Downloads",
   },
   fr: {
@@ -130,6 +131,7 @@ export const copy = {
       "Codex peut modifier des fichiers et exécuter des commandes sans confirmation.",
     license: "Licence MIT",
     credits: "Crédits",
+    changelog: "Historique",
     manualDownloads: "Téléchargements",
   },
 } as const;

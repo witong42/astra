@@ -6,6 +6,9 @@ import { appIcon } from "./icon";
 
 const root = join(import.meta.dir, "..");
 const outdir = join(root, "dist/client");
+const { version, astraBuild } = JSON.parse(
+  readFileSync(join(root, "package.json"), "utf8"),
+) as { version: string; astraBuild: number };
 const remote = process.env.ASTRA_REMOTE_URL;
 if (!remote)
   throw new Error(
@@ -51,7 +54,7 @@ const html = readFileSync(join(root, "src/index.html"), "utf8")
   )
   .replace(
     "</head>",
-    '<meta name="theme-color" content="#090a10" /><link rel="icon" href="./icon.png" /><link rel="apple-touch-icon" href="./icon.png" /><link rel="stylesheet" href="./web.css" /></head>',
+    `<meta name="application-version" content="${version}" /><meta name="astra-build" content="${astraBuild}" /><meta name="theme-color" content="#090a10" /><link rel="icon" href="./icon.png" /><link rel="apple-touch-icon" href="./icon.png" /><link rel="stylesheet" href="./web.css" /></head>`,
   );
 await Bun.write(join(outdir, "index.html"), html);
 for (const file of ["styles.css", "web.css"])

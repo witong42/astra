@@ -2,7 +2,7 @@
 
 <p align="center"><strong>English</strong> · <a href="README.fr.md">Français</a></p>
 <p align="center">A voice-first assistant for macOS, Windows and Linux, with mini-apps you can build and reshape through conversation.</p>
-<p align="center"><a href="https://getastra.halcytron.chatgpt.site">Website</a> · <a href="#installation">Install</a> · <a href="#meet-astra">Watch the demo</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
+<p align="center"><a href="https://getastra.halcytron.chatgpt.site">Website</a> · <a href="#installation">Install</a> · <a href="#meet-astra">Watch the demo</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
 ## Installation
 
