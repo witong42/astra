@@ -20,6 +20,8 @@ curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash
 
 [Download manually](https://github.com/witong42/Astra/releases) · [Read the installer](install.sh)
 
+For a manual macOS installation, open the **macOS `.dmg`** from [Releases](https://github.com/witong42/Astra/releases) and drag **Astra** into **Applications**.
+
 For a manual Linux installation, download the **x64 or ARM64 `.deb`** matching your system from [Releases](https://github.com/witong42/Astra/releases) and install it with your package manager.
 
 ### Windows

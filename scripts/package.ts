@@ -34,7 +34,13 @@ execFileSync("/usr/bin/ditto", [
 ]);
 const resources = join(output, "Contents/Resources");
 cpSync(join(root, "dist/icon.icns"), join(resources, "icon.icns"));
-cpSync(join(root, "dist"), join(resources, "app/dist"), { recursive: true });
+const webOutputs = ["client", "server", "website"].map((name) =>
+  join(root, "dist", name),
+);
+cpSync(join(root, "dist"), join(resources, "app/dist"), {
+  recursive: true,
+  filter: (path) => !webOutputs.includes(path),
+});
 for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.md"])
   cpSync(join(root, file), join(resources, "app", file));
 for (const file of ["LICENSE", "LICENSES.chromium.html"])
@@ -83,3 +89,5 @@ execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", output]);
 const packagedAt = new Date();
 utimesSync(output, packagedAt, packagedAt);
 console.log(output);
+const { packageMacArchives } = await import("./package-macos");
+console.log(packageMacArchives(output, release, source.version));

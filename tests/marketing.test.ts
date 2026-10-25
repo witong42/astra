@@ -54,6 +54,8 @@ test("both languages present macOS, Windows and Linux with distinct installation
     expect(copy[language].platforms).toContain("Windows");
     expect(copy[language].platforms).toContain("Linux");
     expect(copy[language].installAction).not.toMatch(/Mac/);
+    expect(copy[language].macDownload).toContain("macOS");
+    expect(copy[language].macDownload).toContain(".dmg");
     expect(copy[language].windowsDownload).toContain("Windows");
     expect(copy[language].windowsTerminal).toContain("PowerShell");
     expect(copy[language].linuxDownload).toContain(".deb");
@@ -67,6 +69,7 @@ test("both languages present macOS, Windows and Linux with distinct installation
     new URL("../website/index.html", import.meta.url),
   ).text();
   expect(html).toContain('id="windows-download"');
+  expect(html).toContain('id="mac-download"');
   expect(html).toContain('id="windows-install-command"');
   expect(html).toContain(
     "irm https://getastra.halcytron.chatgpt.site/install.ps1 | iex",
@@ -84,6 +87,8 @@ test("both languages present macOS, Windows and Linux with distinct installation
     expect(readme).toMatch(/### macOS (?:and|et) Linux/);
     expect(readme).toContain("ARM64");
     expect(readme).toContain("Install.cmd");
+    expect(readme).toContain(".dmg");
+    expect(readme).toContain("Applications");
     expect(readme).toContain(
       "irm https://getastra.halcytron.chatgpt.site/install.ps1 | iex",
     );
@@ -183,6 +188,10 @@ test("the public build excludes uncurated assets and stale output", () => {
       "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-windows-x64.zip",
     );
     expect(html).not.toContain("__ASTRA_WINDOWS_DOWNLOAD_URL__");
+    expect(html).toContain(
+      "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-macos-arm64.dmg",
+    );
+    expect(html).not.toContain("__ASTRA_MAC_DOWNLOAD_URL__");
     expect(html).toContain(
       "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-linux-arm64.deb",
     );

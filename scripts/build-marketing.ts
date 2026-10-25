@@ -13,6 +13,7 @@ const { version } = JSON.parse(
   readFileSync(join(root, "package.json"), "utf8"),
 ) as { version: string };
 const windowsDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-windows-x64.zip`;
+const macDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-macos-arm64.dmg`;
 const linuxDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-linux-arm64.deb`;
 const linuxX64Download = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-linux-x64.deb`;
 const PUBLIC_ASSETS = [
@@ -42,6 +43,7 @@ writeFileSync(
   join(output, "index.html"),
   readFileSync(join(root, "website/index.html"), "utf8")
     .replaceAll("__ASTRA_WINDOWS_DOWNLOAD_URL__", windowsDownload)
+    .replaceAll("__ASTRA_MAC_DOWNLOAD_URL__", macDownload)
     .replaceAll("__ASTRA_LINUX_DOWNLOAD_URL__", linuxDownload)
     .replaceAll("__ASTRA_LINUX_X64_DOWNLOAD_URL__", linuxX64Download),
 );

@@ -1,24 +1,28 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { packageMacArchives } from "../scripts/package-macos";
 
 const temporary: string[] = [];
+const DISK_IMAGE_TEST_TIMEOUT = 60_000;
 afterEach(() => {
   for (const directory of temporary.splice(0))
     rmSync(directory, { recursive: true });
 });
 
-test.skipIf(process.platform !== "darwin")(
+test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
   "packaging preserves older releases and signs the selected version with its native permissions",
   () => {
     const root = mkdtempSync(join(tmpdir(), "codexos package-test-"));
@@ -53,6 +57,13 @@ test.skipIf(process.platform !== "darwin")(
     );
     writeFileSync(join(root, "dist/icon.icns"), "fixture");
     writeFileSync(join(root, "dist/main.cjs"), "// fixture");
+    for (const name of ["client", "server", "website"]) {
+      mkdirSync(join(root, "dist", name));
+      writeFileSync(
+        join(root, "dist", name, "private.txt"),
+        "private web build",
+      );
+    }
     writeFileSync(
       join(root, "package.json"),
       JSON.stringify({ version: "9.8.7", astraBuild: 42 }),
@@ -62,6 +73,8 @@ test.skipIf(process.platform !== "darwin")(
     writeFileSync(join(previous, "preserve"), "previous release");
     const packageScript = join(root, "scripts/package.ts");
     cpSync(join(import.meta.dir, "../scripts/package.ts"), packageScript);
+    const archivesScript = join(import.meta.dir, "../scripts/package-macos.ts");
+    cpSync(archivesScript, join(root, "scripts/package-macos.ts"));
     execFileSync(process.execPath, [packageScript], { cwd: root });
     const app = join(root, "release/v9.8.7/Astra.app");
     for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.md"])
@@ -118,7 +131,64 @@ test.skipIf(process.platform !== "darwin")(
       readFileSync(join(app, "Contents/Resources/app/dist/main.cjs"), "utf8"),
     ).toBe("// fixture");
     execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", app]);
+    const release = join(root, "release/v9.8.7");
+    for (const name of ["client", "server", "website"])
+      expect(existsSync(join(app, "Contents/Resources/app/dist", name))).toBe(
+        false,
+      );
+    const image = join(release, "Astra-9.8.7-macos-arm64.dmg");
+    const zip = join(release, "Astra-macos-arm64.zip");
+    for (const archive of [image, zip]) {
+      expect(existsSync(archive)).toBe(true);
+      const digest = createHash("sha256")
+        .update(readFileSync(archive))
+        .digest("hex");
+      expect(readFileSync(`${archive}.sha256`, "utf8")).toStartWith(digest);
+    }
+    const imageDigest = readFileSync(`${image}.sha256`, "utf8");
+    expect(() => packageMacArchives(app, release, "9.8.7")).toThrow(
+      "already exists",
+    );
+    expect(readFileSync(`${image}.sha256`, "utf8")).toBe(imageDigest);
+    const wrongRelease = join(root, "wrong-version");
+    expect(() => packageMacArchives(app, wrongRelease, "9.8.8")).toThrow(
+      "the app contains 9.8.7",
+    );
+    expect(existsSync(wrongRelease)).toBe(false);
+    const unpacked = join(root, "unpacked");
+    execFileSync("/usr/bin/ditto", ["-xk", zip, unpacked]);
+    execFileSync("/usr/bin/codesign", [
+      "--verify",
+      "--deep",
+      "--strict",
+      join(unpacked, "Astra.app"),
+    ]);
+    const mount = join(root, "mounted");
+    mkdirSync(mount);
+    execFileSync("/usr/bin/hdiutil", [
+      "attach",
+      image,
+      "-readonly",
+      "-nobrowse",
+      "-mountpoint",
+      mount,
+    ]);
+    try {
+      expect(readlinkSync(join(mount, "Applications"))).toBe("/Applications");
+      expect(
+        readFileSync(join(mount, "Astra.app/Contents/Info.plist")),
+      ).toEqual(readFileSync(plist));
+      execFileSync("/usr/bin/codesign", [
+        "--verify",
+        "--deep",
+        "--strict",
+        join(mount, "Astra.app"),
+      ]);
+    } finally {
+      execFileSync("/usr/bin/hdiutil", ["detach", mount]);
+    }
   },
+  DISK_IMAGE_TEST_TIMEOUT,
 );
 
 test("packaging rejects missing or invalid release identity before creating output", () => {
