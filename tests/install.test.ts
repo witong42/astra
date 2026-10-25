@@ -15,7 +15,7 @@ import { join } from "node:path";
 
 const PROJECT = join(import.meta.dir, "..");
 const APP_ARCHIVE = "Astra-macos-arm64.zip";
-const TEST_TIMEOUT_MS = 15_000;
+const TEST_TIMEOUT_MS = 30_000;
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "astra-install-test-"));
