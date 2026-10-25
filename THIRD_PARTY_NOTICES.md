@@ -4,6 +4,8 @@ Astra's original code is MIT licensed. Dependencies keep their own licenses. The
 
 Solar Icons artwork: 480 Design, https://www.figma.com/community/file/1166831539721848736, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Astra renders these icons with changes to size and color. The Solar React implementation is MIT licensed.
 
+Vosk 0.3.50, Kaldi, OpenFst and the Vosk small English model 0.15 and French model 0.22 are bundled for offline keyword recognition under Apache-2.0. SimpleJSON, included by Vosk, declares WTFPL. Koffi 3.3.4 is MIT licensed. Their license texts and the pinned runtime provenance accompany the native assets in `dist/voice/licenses/` and `dist/voice/runtime.json`; Koffi's package also retains its own notices. The English model is Copyright 2020 Alpha Cephei Inc. The Windows runtime also includes OpenBLAS (BSD-3-Clause), CLAPACK and the MinGW POSIX thread runtime; their notices accompany the Windows voice assets. The Linux runtime includes OpenBLAS and LAPACKE (BSD-3-Clause); their notices accompany the Linux voice assets.
+
 ## @json-render/core 0.21.1
 
 Declared license: Apache-2.0
