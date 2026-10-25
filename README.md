@@ -8,27 +8,35 @@
 
 Uses your existing [Codex CLI](https://developers.openai.com/codex/cli/) and ChatGPT sign-in; your Codex usage limits still apply.
 
-### macOS
+### macOS and Linux
 
 ```sh
 curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash
 ```
 
-For **Apple Silicon Macs running macOS 14 or later**. First launch requires the usual macOS permissions. Early builds are locally signed and are not Apple notarized.
+**macOS:** Apple Silicon, macOS 14 or later. First launch requires the usual macOS permissions. Early builds are locally signed and are not Apple notarized.
+
+**Linux:** x64 or ARM64 Debian/Ubuntu with APT. The same command detects your architecture, verifies the release checksum and installs the matching `.deb`; sudo may ask for your password. The offline voice runtime and `astra` CLI are included.
 
 [Download manually](https://github.com/witong42/Astra/releases) · [Read the installer](install.sh)
 
+For a manual Linux installation, download the **x64 or ARM64 `.deb`** matching your system from [Releases](https://github.com/witong42/Astra/releases) and install it with your package manager.
+
 ### Windows
+
+Run in PowerShell:
+
+```powershell
+irm https://getastra.halcytron.chatgpt.site/install.ps1 | iex
+```
+
+The script verifies the release checksum before running the bundled installer. [Read the PowerShell script](install.ps1).
+
+For a manual installation:
 
 Download the **Windows x64 ZIP** from [Releases](https://github.com/witong42/Astra/releases), extract the complete archive, then run **`Install.cmd`**. Open Astra from the Start menu after installation.
 
 The packaged app includes its offline voice runtime. Bun and Docker are only needed when building from source. Early Windows builds are not code-signed.
-
-### Linux
-
-Download the **Linux ARM64 `.deb`** from [Releases](https://github.com/witong42/Astra/releases). Install it with your distribution’s package manager, then launch Astra from your applications menu.
-
-The current packaged Linux download is ARM64. Its offline voice runtime and the `astra` CLI are included.
 
 ## Meet Astra
 

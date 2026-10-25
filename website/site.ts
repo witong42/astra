@@ -34,10 +34,8 @@ const applyLanguage = (next: SiteLanguage) => {
     "alt",
     copy[language].evolutionAlt,
   );
-  requiredElement("#copy-install").setAttribute(
-    "aria-label",
-    copy[language].copyLabel,
-  );
+  for (const button of document.querySelectorAll("[data-copy-command]"))
+    button.setAttribute("aria-label", copy[language].copyLabel);
   requiredElement(".languages").setAttribute(
     "aria-label",
     copy[language].languageLabel,
@@ -68,7 +66,8 @@ const applyLanguage = (next: SiteLanguage) => {
   selectDemo(
     requiredElement<HTMLButtonElement>('[data-demo][aria-selected="true"]'),
   );
-  requiredElement("#copy-feedback").textContent = "";
+  for (const status of document.querySelectorAll(".copy-feedback"))
+    status.textContent = "";
 };
 
 for (const link of document.querySelectorAll<HTMLAnchorElement>(
@@ -111,16 +110,19 @@ for (const [index, tab] of tabs.entries()) {
   });
 }
 
-requiredElement("#copy-install").addEventListener("click", async () => {
-  const status = requiredElement("#copy-feedback");
-  try {
-    await navigator.clipboard.writeText(
-      requiredElement("#install-command").textContent ?? "",
-    );
-    status.textContent = copy[language].copied;
-  } catch {
-    status.textContent = copy[language].copyFailed;
-  }
-});
+for (const button of document.querySelectorAll<HTMLButtonElement>(
+  "[data-copy-command]",
+))
+  button.addEventListener("click", async () => {
+    const status = requiredElement(`#${button.dataset.copyFeedback}`);
+    try {
+      await navigator.clipboard.writeText(
+        requiredElement(`#${button.dataset.copyCommand}`).textContent ?? "",
+      );
+      status.textContent = copy[language].copied;
+    } catch {
+      status.textContent = copy[language].copyFailed;
+    }
+  });
 
 applyLanguage(language);

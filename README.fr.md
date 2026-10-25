@@ -8,27 +8,35 @@
 
 Astra utilise votre [Codex CLI](https://developers.openai.com/codex/cli/) et votre connexion ChatGPT ; les limites de votre abonnement restent applicables.
 
-### macOS
+### macOS et Linux
 
 ```sh
 curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash
 ```
 
-Pour les **Mac Apple Silicon sous macOS 14 ou ultérieur**. Autorisez les accès macOS nécessaires au premier lancement. Les premières versions sont signées localement, sans notarisation Apple.
+**macOS :** Apple Silicon, macOS 14 ou ultérieur. Autorisez les accès macOS nécessaires au premier lancement. Les premières versions sont signées localement, sans notarisation Apple.
+
+**Linux :** Debian/Ubuntu x64 ou ARM64 avec APT. La même commande détecte votre architecture, vérifie la somme de contrôle et installe le `.deb` correspondant ; sudo peut demander votre mot de passe. Le moteur vocal local et la commande `astra` sont inclus.
 
 [Télécharger directement](https://github.com/witong42/Astra/releases) · [Lire le script d’installation](install.sh)
 
+Pour une installation manuelle sur Linux, téléchargez le **`.deb` x64 ou ARM64** adapté à votre système depuis les [versions](https://github.com/witong42/Astra/releases) et installez-le avec votre gestionnaire de paquets.
+
 ### Windows
+
+Dans PowerShell :
+
+```powershell
+irm https://getastra.halcytron.chatgpt.site/install.ps1 | iex
+```
+
+Le script vérifie la somme de contrôle avant de lancer l’installateur inclus. [Lire le script PowerShell](install.ps1).
+
+Pour une installation manuelle :
 
 Téléchargez le **ZIP Windows x64** depuis les [versions](https://github.com/witong42/Astra/releases), décompressez toute l’archive, puis lancez **`Install.cmd`**. Retrouvez ensuite Astra dans le menu Démarrer.
 
 Le moteur vocal local est inclus. Bun et Docker servent uniquement à compiler depuis les sources. Les premières versions Windows ne sont pas signées.
-
-### Linux
-
-Téléchargez le **`.deb` Linux ARM64** depuis les [versions](https://github.com/witong42/Astra/releases). Installez-le avec le gestionnaire de paquets de votre distribution, puis ouvrez Astra depuis le menu des applications.
-
-Le téléchargement Linux actuel est prévu pour ARM64. Le moteur vocal local et la commande `astra` sont inclus.
 
 ## Découvrir Astra
 

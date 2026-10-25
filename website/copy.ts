@@ -57,16 +57,20 @@ export const copy = {
     installTitle: "Meet your<br /><span>next little universe.</span>",
     installDescription:
       "Choose macOS, Windows or Linux. Bring your Codex sign-in and an idea.",
-    installTerminal: "macOS · Terminal",
-    macRequirements: "macOS 14+ · Apple Silicon",
-    windowsTitle: "Windows",
+    installTerminal: "macOS + Linux · Terminal",
+    terminalRequirements:
+      "macOS 14+ · Apple Silicon / Linux · x64 or ARM64 · Debian or Ubuntu",
+    windowsTerminal: "Windows · PowerShell",
+    windowsRequirements: "Windows 64-bit · x64 app",
+    windowsTitle: "Windows · Manual install",
     windowsInstructions:
       "Download the x64 ZIP, extract it, then run <code>Install.cmd</code>.",
     windowsDownload: "Get Windows x64 ↗",
-    linuxTitle: "Linux",
+    linuxTitle: "Linux · Manual install",
     linuxInstructions:
-      "Download the ARM64 <code>.deb</code> and install it with your package manager.",
+      "Prefer a package? Choose the <code>.deb</code> for your Linux architecture.",
     linuxDownload: "Get Linux ARM64 ↗",
+    linuxX64Download: "Get Linux x64 ↗",
     inspectInstaller: "Inspect the script ↗",
     copy: "Copy",
     copied: "Installation command copied.",
@@ -141,16 +145,20 @@ export const copy = {
     installTitle: "Entrez dans votre<br /><span>prochain petit univers.</span>",
     installDescription:
       "Choisissez macOS, Windows ou Linux. Votre compte Codex et une idée pour commencer.",
-    installTerminal: "macOS · Terminal",
-    macRequirements: "macOS 14+ · Apple Silicon",
-    windowsTitle: "Windows",
+    installTerminal: "macOS + Linux · Terminal",
+    terminalRequirements:
+      "macOS 14+ · Apple Silicon / Linux · x64 ou ARM64 · Debian ou Ubuntu",
+    windowsTerminal: "Windows · PowerShell",
+    windowsRequirements: "Windows 64 bits · Application x64",
+    windowsTitle: "Windows · Installation manuelle",
     windowsInstructions:
       "Téléchargez le ZIP x64, décompressez-le, puis lancez <code>Install.cmd</code>.",
     windowsDownload: "Installer sur Windows x64 ↗",
-    linuxTitle: "Linux",
+    linuxTitle: "Linux · Installation manuelle",
     linuxInstructions:
-      "Téléchargez le <code>.deb</code> ARM64 et installez-le avec votre gestionnaire de paquets.",
+      "Vous préférez un paquet ? Choisissez le <code>.deb</code> adapté à votre architecture Linux.",
     linuxDownload: "Installer sur Linux ARM64 ↗",
+    linuxX64Download: "Installer sur Linux x64 ↗",
     inspectInstaller: "Lire le script ↗",
     copy: "Copier",
     copied: "Commande d’installation copiée.",

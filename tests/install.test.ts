@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -73,6 +75,226 @@ function fixture() {
     });
   return { directory, release, destination, run };
 }
+
+const LINUX_VERSION = "0.5.1";
+const LINUX_ARCHIVE = `Astra-${LINUX_VERSION}-linux-arm64.deb`;
+
+function linuxFixture(architecture: "arm64" | "x64" = "arm64") {
+  const linuxArchive = `Astra-${LINUX_VERSION}-linux-${architecture}.deb`;
+  const debianArchitecture = architecture === "x64" ? "amd64" : "arm64";
+  const directory = mkdtempSync(join(tmpdir(), "astra Linux install "));
+  const bin = join(directory, "bin");
+  const release = join(directory, "release");
+  const profile = join(directory, "profile");
+  const log = join(directory, "commands.jsonl");
+  mkdirSync(bin);
+  mkdirSync(release);
+  mkdirSync(profile);
+  writeFileSync(join(profile, "workspace.json"), '{"preserved":true}');
+  writeFileSync(join(release, linuxArchive), "Linux release fixture");
+  const digest = new Bun.CryptoHasher("sha256")
+    .update(readFileSync(join(release, linuxArchive)))
+    .digest("hex");
+  writeFileSync(
+    join(release, `${linuxArchive}.sha256`),
+    `${digest}  ${linuxArchive}\n`,
+  );
+  for (const command of ["cp", "rm", "mktemp", "chmod"])
+    symlinkSync(Bun.which(command) ?? command, join(bin, command));
+  symlinkSync(process.execPath, join(bin, "bun"));
+  const script = `#!/usr/bin/env bun
+import {appendFileSync,copyFileSync,readFileSync} from 'node:fs';
+import {basename,join} from 'node:path';
+const name=basename(process.argv[1]);const args=process.argv.slice(2);const env=process.env;
+const record=()=>appendFileSync(env.ASTRA_TEST_LOG,JSON.stringify({name,args})+'\\n');
+if(name==='uname'){console.log(args[0]==='-s'?(env.ASTRA_TEST_OS??'Linux'):(env.ASTRA_TEST_ARCH??'${architecture === "x64" ? "x86_64" : "aarch64"}'));}
+else if(name==='id'){console.log(env.ASTRA_TEST_UID??'1000');}
+else if(name==='pgrep'){process.exit(Number(env.ASTRA_TEST_RUNNING??'1'));}
+else if(name==='dpkg'){console.log(env.ASTRA_TEST_DPKG_ARCH??'${debianArchitecture}');}
+else if(name==='dpkg-deb'){
+const field=args.at(-1);console.log(field==='Package'?(env.ASTRA_TEST_PACKAGE_NAME??'astra'):field==='Architecture'?(env.ASTRA_TEST_PACKAGE_ARCH??'${debianArchitecture}'):(env.ASTRA_TEST_PACKAGE_VERSION??'${LINUX_VERSION}-16'));
+}
+else if(name==='sha256sum'){console.log(new Bun.CryptoHasher('sha256').update(readFileSync(args[0])).digest('hex')+'  '+args[0]);}
+else if(name==='curl'){
+record();if(args.includes('--write-out'))console.log(env.ASTRA_TEST_RELEASE_URL??'https://github.com/witong42/Astra/releases/tag/v${LINUX_VERSION}');
+else{const output=args[args.indexOf('-o')+1];const file=args.at(-1).split('/').at(-1);copyFileSync(join(env.ASTRA_TEST_RELEASE,file),output);}
+}
+else if(name==='sudo'){record();const child=Bun.spawnSync(args,{env,stdout:'inherit',stderr:'inherit'});process.exit(child.exitCode);}
+else if(name==='apt-get'){record();process.exit(Number(env.ASTRA_TEST_APT_EXIT??'0'));}
+`;
+  for (const command of [
+    "uname",
+    "id",
+    "pgrep",
+    "dpkg",
+    "dpkg-deb",
+    "sha256sum",
+    "curl",
+    "sudo",
+    "apt-get",
+  ])
+    writeFileSync(join(bin, command), script, { mode: 0o700 });
+  const run = (extra: Record<string, string | undefined> = {}) =>
+    Bun.spawnSync(["/bin/bash"], {
+      stdin: readFileSync(join(PROJECT, "install.sh")),
+      env: {
+        ...process.env,
+        PATH: bin,
+        TMPDIR: directory,
+        ASTRA_TEST_RELEASE: release,
+        ASTRA_TEST_LOG: log,
+        ASTRA_DATA_DIR: profile,
+        ...extra,
+      },
+      timeout: TEST_TIMEOUT_MS,
+    });
+  const commands = () =>
+    existsSync(log)
+      ? readFileSync(log, "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { name: string; args: string[] })
+      : [];
+  return { directory, bin, release, profile, run, commands, linuxArchive };
+}
+
+for (const architecture of ["arm64", "x64"] as const)
+  test.skipIf(process.platform === "win32")(
+    `the same piped installer verifies Linux ${architecture} and invokes APT through sudo`,
+    () => {
+      const f = linuxFixture(architecture);
+      try {
+        const result = f.run();
+        expect({
+          code: result.exitCode,
+          error: result.stderr.toString(),
+        }).toEqual({ code: 0, error: "" });
+        const apt = f.commands().find((x) => x.name === "apt-get");
+        expect(apt?.args.slice(0, 2)).toEqual(["install", "-y"]);
+        expect(apt?.args.at(-1)).toEndWith(`/${f.linuxArchive}`);
+        expect(f.commands().filter((x) => x.name === "sudo")).toHaveLength(1);
+        expect(readFileSync(join(f.profile, "workspace.json"), "utf8")).toBe(
+          '{"preserved":true}',
+        );
+        expect(existsSync(apt?.args.at(-1) ?? "")).toBe(false);
+        expect(result.stdout.toString()).toContain("applications menu");
+      } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+test.skipIf(process.platform === "win32")(
+  "Linux validation rejects corrupt downloads and wrong package identity before elevation",
+  () => {
+    for (const extra of [
+      { corrupt: true },
+      { ASTRA_TEST_PACKAGE_NAME: "other" },
+      { ASTRA_TEST_PACKAGE_ARCH: "amd64" },
+      { ASTRA_TEST_PACKAGE_VERSION: "9.9.9-1" },
+      { ASTRA_TEST_PACKAGE_VERSION: `${LINUX_VERSION}-bad` },
+    ]) {
+      const f = linuxFixture();
+      try {
+        if ("corrupt" in extra)
+          writeFileSync(join(f.release, LINUX_ARCHIVE), "corrupt");
+        const result = f.run("corrupt" in extra ? {} : extra);
+        expect(result.exitCode).not.toBe(0);
+        expect(
+          f.commands().some((x) => x.name === "sudo" || x.name === "apt-get"),
+        ).toBe(false);
+      } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+      }
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test.skipIf(process.platform === "win32")(
+  "Linux rejects unsupported hosts and running Astra before downloading",
+  () => {
+    for (const extra of [
+      { ASTRA_TEST_ARCH: "riscv64" },
+      { ASTRA_TEST_DPKG_ARCH: "amd64" },
+      { ASTRA_TEST_RUNNING: "0" },
+      { ASTRA_TEST_OS: "MINGW64_NT-10.0" },
+    ]) {
+      const f = linuxFixture();
+      try {
+        expect(f.run(extra).exitCode).not.toBe(0);
+        expect(f.commands()).toEqual([]);
+      } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+      }
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test.skipIf(process.platform === "win32")(
+  "Linux requires APT and sudo when needed, handles root and reports install failure",
+  () => {
+    for (const scenario of ["no-apt", "no-sudo", "root", "apt-fails"]) {
+      const f = linuxFixture();
+      try {
+        if (scenario === "no-apt") rmSync(join(f.bin, "apt-get"));
+        if (scenario === "no-sudo") rmSync(join(f.bin, "sudo"));
+        const result = f.run(
+          scenario === "root"
+            ? { ASTRA_TEST_UID: "0" }
+            : scenario === "apt-fails"
+              ? { ASTRA_TEST_APT_EXIT: "100" }
+              : {},
+        );
+        expect(result.exitCode).toBe(scenario === "root" ? 0 : 1);
+        if (scenario === "root")
+          expect(f.commands().some((x) => x.name === "sudo")).toBe(false);
+        if (scenario.startsWith("no-")) expect(f.commands()).toEqual([]);
+        if (scenario === "apt-fails")
+          expect(result.stdout.toString()).not.toContain("is installed");
+      } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+      }
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test.skipIf(process.platform === "win32")(
+  "Linux rejects an unexpected release redirect and checksum filename",
+  () => {
+    for (const scenario of ["redirect", "checksum"]) {
+      const f = linuxFixture();
+      try {
+        if (scenario === "checksum") {
+          const path = join(f.release, `${LINUX_ARCHIVE}.sha256`);
+          writeFileSync(
+            path,
+            readFileSync(path, "utf8").replace(LINUX_ARCHIVE, "other.deb"),
+          );
+        }
+        const result = f.run(
+          scenario === "redirect"
+            ? {
+                ASTRA_TEST_RELEASE_URL:
+                  "https://example.com/releases/tag/v0.5.1",
+              }
+            : {},
+        );
+        expect(result.exitCode).not.toBe(0);
+        expect(
+          f.commands().some((x) => x.name === "sudo" || x.name === "apt-get"),
+        ).toBe(false);
+      } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+      }
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
 
 test.skipIf(process.platform !== "darwin")(
   "installer verifies and installs a signed release, then safely updates it",

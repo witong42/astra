@@ -14,6 +14,7 @@ const { version } = JSON.parse(
 ) as { version: string };
 const windowsDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-windows-x64.zip`;
 const linuxDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-linux-arm64.deb`;
+const linuxX64Download = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-linux-x64.deb`;
 const PUBLIC_ASSETS = [
   "icon.png",
   "banner.png",
@@ -41,10 +42,12 @@ writeFileSync(
   join(output, "index.html"),
   readFileSync(join(root, "website/index.html"), "utf8")
     .replaceAll("__ASTRA_WINDOWS_DOWNLOAD_URL__", windowsDownload)
-    .replaceAll("__ASTRA_LINUX_DOWNLOAD_URL__", linuxDownload),
+    .replaceAll("__ASTRA_LINUX_DOWNLOAD_URL__", linuxDownload)
+    .replaceAll("__ASTRA_LINUX_X64_DOWNLOAD_URL__", linuxX64Download),
 );
 copyFileSync(join(root, "website/site.css"), join(output, "site.css"));
 copyFileSync(join(root, "install.sh"), join(output, "install.sh"));
+copyFileSync(join(root, "install.ps1"), join(output, "install.ps1"));
 for (const file of PUBLIC_ASSETS)
   copyFileSync(
     join(root, ".github/assets", file),

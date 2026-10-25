@@ -558,6 +558,11 @@ h2 span {
 .platform-install .primary-action {
   flex-shrink: 0;
 }
+.platform-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
 .requirements {
   font-size: 11px;
   line-height: 1.7;
