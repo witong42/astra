@@ -330,7 +330,7 @@ export function mountGalaxy(
   const animate = (time: number) => {
     frame = 0;
     if (document.hidden) return;
-    if (time - lastFrame >= FRAME_INTERVAL_MS) {
+    if (reduced.matches || time - lastFrame >= FRAME_INTERVAL_MS) {
       draw(time);
       lastFrame = time;
     }

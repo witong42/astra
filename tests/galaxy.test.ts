@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { runInNewContext } from "node:vm";
 import { galaxyPoint } from "../src/galaxy";
 
 test("the asymmetric galaxy keeps every sampled trajectory inside its authored frame", () => {
@@ -78,5 +79,72 @@ test("the folded upper filaments follow rounded arcs rather than a flat crest", 
     expect((Math.max(...radii) - Math.min(...radii)) / mean).toBeLessThan(
       maximumRadialVariation,
     );
+  }
+});
+
+test("the galaxy paints requested static frames with reduced motion", async () => {
+  const source = await Bun.file(
+    new URL("../src/galaxy.ts", import.meta.url),
+  ).text();
+  const script = new Bun.Transpiler({ loader: "ts" })
+    .transformSync(source)
+    .replace(/export function /g, "function ");
+  const scheduled: ((time: number) => void)[] = [];
+  const observers: (() => void)[] = [];
+  let paints = 0;
+  const context = new Proxy(
+    {
+      clearRect: () => paints++,
+      createRadialGradient: () => ({ addColorStop() {} }),
+    },
+    { get: (target, key) => Reflect.get(target, key) ?? (() => {}) },
+  );
+  const canvas = {
+    getContext: () => context,
+    getBoundingClientRect: () => ({ width: 744, height: 620 }),
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const { mountGalaxy } = runInNewContext(`${script};({mountGalaxy})`, {
+    document: {
+      hidden: false,
+      createElement: () => canvas,
+      addEventListener() {},
+      removeEventListener() {},
+    },
+    devicePixelRatio: 1,
+    matchMedia: () => ({
+      matches: true,
+      addEventListener() {},
+      removeEventListener() {},
+    }),
+    requestAnimationFrame: (callback: (time: number) => void) => {
+      scheduled.push(callback);
+      return 1;
+    },
+    cancelAnimationFrame() {},
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        observers.push(callback);
+      }
+      observe() {}
+      disconnect() {}
+    },
+  }) as { mountGalaxy: (...args: unknown[]) => { dispose: () => void } };
+  const scene = mountGalaxy(canvas, () => ({ status: "idle", level: 0 }));
+  try {
+    const initialFrame = scheduled.shift();
+    expect(initialFrame).toBeDefined();
+    initialFrame?.(16);
+    expect(paints).toBe(1);
+    expect(scheduled).toHaveLength(0);
+    observers[0]();
+    const resizedFrame = scheduled.shift();
+    expect(resizedFrame).toBeDefined();
+    resizedFrame?.(20);
+    expect(paints).toBe(2);
+    expect(scheduled).toHaveLength(0);
+  } finally {
+    scene.dispose();
   }
 });
