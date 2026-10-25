@@ -96,7 +96,18 @@ test.skipIf(process.platform !== "darwin")(
       const entry = join(directory, "main.cjs");
       writeFileSync(
         entry,
-        `const {app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(profile)});app.commandLine.appendSwitch('remote-debugging-port','0');app.whenReady().then(async()=>{const window=new BrowserWindow({show:false});try{await window.loadFile(${JSON.stringify(fixture)});require('fs').writeFileSync(${JSON.stringify(ready)},'ready');}catch(error){console.error(error);app.exit(1);}});`,
+        `const {app,BrowserWindow}=require('electron');
+        const fs=require('node:fs');
+        app.setPath('userData',${JSON.stringify(profile)});
+        app.commandLine.appendSwitch('remote-debugging-port','0');
+        app.whenReady().then(async()=>{
+          const window=new BrowserWindow({show:false});
+          try{
+            await window.loadFile(${JSON.stringify(fixture)});
+            fs.rmSync(${JSON.stringify(join(profile, "DevToolsActivePort"))},{force:true});
+            fs.writeFileSync(${JSON.stringify(ready)},'ready');
+          }catch(error){console.error(error);app.exit(1)}
+        });`,
       );
       const env = { ...process.env };
       delete env.ELECTRON_RUN_AS_NODE;
@@ -110,20 +121,29 @@ test.skipIf(process.platform !== "darwin")(
         ],
         { env, stdout: "pipe", stderr: "pipe" },
       );
+      let output = "";
+      const diagnostics = (async () => {
+        const decoder = new TextDecoder();
+        for await (const chunk of browser.stderr)
+          output += decoder.decode(chunk, { stream: true });
+        return output;
+      })();
+      const debuggerPort = () =>
+        output.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//)?.[1];
       try {
-        const endpoint = join(profile, "DevToolsActivePort");
         const deadline = Date.now() + PROBE_TIMEOUT_MS;
-        while (
-          !(await Bun.file(ready).exists()) ||
-          !(await Bun.file(endpoint).exists())
-        ) {
-          if (browser.exitCode !== null)
-            throw new Error(await new Response(browser.stderr).text());
-          if (Date.now() >= deadline)
-            throw new Error("The isolated orb browser did not start.");
+        while (!(await Bun.file(ready).exists()) || !debuggerPort()) {
+          if (browser.exitCode !== null) throw new Error(await diagnostics);
+          if (Date.now() >= deadline) {
+            browser.kill();
+            await browser.exited;
+            throw new Error(
+              `The isolated orb browser did not start (page ready: ${await Bun.file(ready).exists()}, debugger ready: ${Boolean(debuggerPort())}). ${await diagnostics}`,
+            );
+          }
           await Bun.sleep(POLL_INTERVAL_MS);
         }
-        const port = Number((await Bun.file(endpoint).text()).split("\n")[0]);
+        const port = Number(debuggerPort());
         expect(port).toBeGreaterThan(0);
         const preload = join(directory, "preload.ts");
         writeFileSync(
@@ -158,6 +178,7 @@ test.skipIf(process.platform !== "darwin")(
       } finally {
         browser.kill();
         await browser.exited;
+        await diagnostics;
       }
     } finally {
       rmSync(directory, { recursive: true, force: true });
