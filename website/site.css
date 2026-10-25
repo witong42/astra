@@ -530,7 +530,7 @@ h2 span {
   font-size: 11px;
   line-height: 1.7;
 }
-.windows-install {
+.platform-install {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -539,23 +539,23 @@ h2 span {
   border-top: 1px solid var(--line);
   background: #ffffff02;
 }
-.windows-install h3 {
+.platform-install h3 {
   margin: 0 0 8px;
   font-size: 16px;
   font-weight: 500;
 }
-.windows-install p {
+.platform-install p {
   margin: 0;
   max-width: 440px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.8;
 }
-.windows-install code {
+.platform-install code {
   color: var(--ink);
   white-space: nowrap;
 }
-.windows-install .primary-action {
+.platform-install .primary-action {
   flex-shrink: 0;
 }
 .requirements {
@@ -705,7 +705,7 @@ h2 span {
     text-align: center;
     width: 100%;
   }
-  .windows-install {
+  .platform-install {
     flex-direction: column;
     align-items: flex-start;
     gap: 20px;

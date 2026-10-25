@@ -1,7 +1,7 @@
 <p align="center"><img src=".github/assets/banner.png" alt="Astra — Your personal Jarvis, powered by Codex" width="100%" /></p>
 
 <p align="center"><strong>English</strong> · <a href="README.fr.md">Français</a></p>
-<p align="center">A voice-first assistant for macOS and Windows, with mini-apps you can build and reshape through conversation.</p>
+<p align="center">A voice-first assistant for macOS, Windows and Linux, with mini-apps you can build and reshape through conversation.</p>
 <p align="center"><a href="https://getastra.halcytron.chatgpt.site">Website</a> · <a href="#installation">Install</a> · <a href="#meet-astra">Watch the demo</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
 ## Installation
@@ -24,7 +24,11 @@ Download the **Windows x64 ZIP** from [Releases](https://github.com/witong42/Ast
 
 The packaged app includes its offline voice runtime. Bun and Docker are only needed when building from source. Early Windows builds are not code-signed.
 
-Linux builds are not available yet.
+### Linux
+
+Download the **Linux ARM64 `.deb`** from [Releases](https://github.com/witong42/Astra/releases). Install it with your distribution’s package manager, then launch Astra from your applications menu.
+
+The current packaged Linux download is ARM64. Its offline voice runtime and the `astra` CLI are included.
 
 ## Meet Astra
 
@@ -50,6 +54,7 @@ Default local storage:
 | --- | --- | --- |
 | macOS | `~/Library/Application Support/Astra/` | `~/.astra/` |
 | Windows | `%APPDATA%\Astra\` | `%USERPROFILE%\.astra\` |
+| Linux | `$XDG_CONFIG_HOME/Astra/` or `~/.config/Astra/` | `~/.astra/` |
 
 Model requests use your configured Codex provider. Your existing Codex authentication stays in place. Voice uses experimental Codex interfaces and is version-sensitive.
 
@@ -62,7 +67,9 @@ Install [Bun](https://bun.sh/docs/installation) and Codex CLI, then sign in with
 brew install autoconf automake libtool
 ```
 
-On Windows, use x64 Bun and Docker Desktop with Linux containers for the native voice build. Then, on either platform:
+On Windows, use x64 Bun and Docker Desktop with Linux containers for the native voice build. Linux source builds require `autoconf`, `automake`, `g++`, `make`, `libtool`, `gfortran`, `pkg-config`, `libopenblas-pthread-dev` and `liblapacke-dev`, with the pthread OpenBLAS pkg-config entry selected. These are build dependencies; the `.deb` includes the voice runtime.
+
+Then, on any supported platform:
 
 ```sh
 git clone https://github.com/witong42/Astra.git
@@ -115,6 +122,6 @@ Open the frontend on your phone while connected to Tailscale. The configured Tai
 
 ## Contributing
 
-Try Astra on macOS or Windows, report a reproducible issue, or propose a focused change. See [CONTRIBUTING.md](CONTRIBUTING.md). Never upload authentication, your private journal or a whole saved workspace.
+Try Astra on macOS, Windows or Linux, report a reproducible issue, or propose a focused change. See [CONTRIBUTING.md](CONTRIBUTING.md). Never upload authentication, your private journal or a whole saved workspace.
 
 Astra is an independent project, unaffiliated with OpenAI. Original code: [MIT](LICENSE). Third-party licenses and [Solar Icons / 480 Design attribution](THIRD_PARTY_NOTICES.md) are preserved.

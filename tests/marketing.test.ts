@@ -37,29 +37,36 @@ test("French covers every public-site message, including accessible control name
   expect(copy.fr.videoLabel).toContain("anglais");
 });
 
-test("both languages present macOS and Windows with distinct installation steps", async () => {
+test("both languages present macOS, Windows and Linux with distinct installation steps", async () => {
   for (const language of ["en", "fr"] as const) {
     expect(copy[language].platforms).toContain("macOS");
     expect(copy[language].platforms).toContain("Windows");
+    expect(copy[language].platforms).toContain("Linux");
     expect(copy[language].installAction).not.toMatch(/Mac/);
     expect(copy[language].windowsInstructions).toContain("Install.cmd");
     expect(copy[language].windowsDownload).toContain("Windows");
+    expect(copy[language].linuxInstructions).toContain(".deb");
+    expect(copy[language].linuxDownload).toContain("ARM64");
     expect(copy[language].macRequirements).toContain("Apple Silicon");
   }
   const html = await Bun.file(
     new URL("../website/index.html", import.meta.url),
   ).text();
   expect(html).toContain('id="windows-download"');
+  expect(html).toContain('id="linux-download"');
   const description = html.match(/property="og:description" content="([^"]+)"/);
-  expect(description?.[1]).toContain("macOS and Windows");
+  for (const platform of ["macOS", "Windows", "Linux"])
+    expect(description?.[1]).toContain(platform);
   for (const file of ["README.md", "README.fr.md"]) {
     const readme = await Bun.file(
       new URL(`../${file}`, import.meta.url),
     ).text();
     expect(readme).toContain("### Windows");
+    expect(readme).toContain("### Linux");
+    expect(readme).toContain("ARM64");
     expect(readme).toContain("Install.cmd");
     expect(readme).not.toMatch(
-      /Windows version is in development|version Windows est en développement/,
+      /Windows version is in development|version Windows est en développement|Linux builds are not available|versions Linux ne sont pas encore disponibles/,
     );
   }
 });
@@ -150,6 +157,10 @@ test("the public build excludes uncurated assets and stale output", () => {
       "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-windows-x64.zip",
     );
     expect(html).not.toContain("__ASTRA_WINDOWS_DOWNLOAD_URL__");
+    expect(html).toContain(
+      "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-linux-arm64.deb",
+    );
+    expect(html).not.toContain("__ASTRA_LINUX_DOWNLOAD_URL__");
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

@@ -13,6 +13,7 @@ const { version } = JSON.parse(
   readFileSync(join(root, "package.json"), "utf8"),
 ) as { version: string };
 const windowsDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-windows-x64.zip`;
+const linuxDownload = `https://github.com/witong42/Astra/releases/download/v${version}/Astra-${version}-linux-arm64.deb`;
 const PUBLIC_ASSETS = [
   "icon.png",
   "banner.png",
@@ -38,10 +39,9 @@ if (!result.success)
   throw new AggregateError(result.logs, "Astra website build failed");
 writeFileSync(
   join(output, "index.html"),
-  readFileSync(join(root, "website/index.html"), "utf8").replaceAll(
-    "__ASTRA_WINDOWS_DOWNLOAD_URL__",
-    windowsDownload,
-  ),
+  readFileSync(join(root, "website/index.html"), "utf8")
+    .replaceAll("__ASTRA_WINDOWS_DOWNLOAD_URL__", windowsDownload)
+    .replaceAll("__ASTRA_LINUX_DOWNLOAD_URL__", linuxDownload),
 );
 copyFileSync(join(root, "website/site.css"), join(output, "site.css"));
 copyFileSync(join(root, "install.sh"), join(output, "install.sh"));

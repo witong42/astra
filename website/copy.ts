@@ -18,7 +18,7 @@ export const copy = {
     heroDescription:
       "Powered by Codex. A personal assistant with mini-apps that change when you ask.",
     installAction: "Get Astra",
-    platforms: "macOS · Windows",
+    platforms: "macOS · Windows · Linux",
     watchAction: "Meet Astra",
     conversationTitle: "An idea is enough<br />to start a conversation.",
     conversationDescription:
@@ -50,19 +50,23 @@ export const copy = {
     videoFallback: "Your browser cannot play this video.",
     localTitle: "Your computer.<br />Your Codex.<br /><span>Your way.</span>",
     localDescription:
-      "Astra runs on macOS and Windows with your own Codex account. Your mini-apps and journal stay in your local workspace.",
+      "Astra runs on macOS, Windows and Linux with your own Codex account. Your mini-apps and journal stay in your local workspace.",
     phoneDescription:
       "Want to pick up from your phone? Connect it privately to your computer. Astra stays with you, while your computer stays on.",
     dataLink: "How access and data work ↗",
     installTitle: "Meet your<br /><span>next little universe.</span>",
     installDescription:
-      "Choose macOS or Windows. Bring your Codex sign-in and an idea.",
+      "Choose macOS, Windows or Linux. Bring your Codex sign-in and an idea.",
     installTerminal: "macOS · Terminal",
     macRequirements: "macOS 14+ · Apple Silicon",
     windowsTitle: "Windows",
     windowsInstructions:
       "Download the x64 ZIP, extract it, then run <code>Install.cmd</code>.",
     windowsDownload: "Get Windows x64 ↗",
+    linuxTitle: "Linux",
+    linuxInstructions:
+      "Download the ARM64 <code>.deb</code> and install it with your package manager.",
+    linuxDownload: "Get Linux ARM64 ↗",
     inspectInstaller: "Inspect the script ↗",
     copy: "Copy",
     copied: "Installation command copied.",
@@ -97,7 +101,7 @@ export const copy = {
     heroDescription:
       "Propulsé par Codex. Un assistant personnel dont les mini-apps évoluent à votre demande.",
     installAction: "Installer Astra",
-    platforms: "macOS · Windows",
+    platforms: "macOS · Windows · Linux",
     watchAction: "Découvrir Astra",
     conversationTitle: "Une idée suffit<br />pour en parler.",
     conversationDescription:
@@ -130,19 +134,23 @@ export const copy = {
     localTitle:
       "Votre ordinateur.<br />Votre Codex.<br /><span>À votre façon.</span>",
     localDescription:
-      "Astra fonctionne sur macOS et Windows avec votre propre compte Codex. Vos mini-apps et votre journal restent dans votre espace local.",
+      "Astra fonctionne sur macOS, Windows et Linux avec votre propre compte Codex. Vos mini-apps et votre journal restent dans votre espace local.",
     phoneDescription:
       "Envie de continuer sur votre téléphone ? Reliez-le à votre ordinateur de façon privée. Astra vous accompagne, pendant que votre ordinateur reste allumé.",
     dataLink: "Comprendre les accès et les données ↗",
     installTitle: "Entrez dans votre<br /><span>prochain petit univers.</span>",
     installDescription:
-      "Choisissez macOS ou Windows. Votre compte Codex et une idée pour commencer.",
+      "Choisissez macOS, Windows ou Linux. Votre compte Codex et une idée pour commencer.",
     installTerminal: "macOS · Terminal",
     macRequirements: "macOS 14+ · Apple Silicon",
     windowsTitle: "Windows",
     windowsInstructions:
       "Téléchargez le ZIP x64, décompressez-le, puis lancez <code>Install.cmd</code>.",
     windowsDownload: "Installer sur Windows x64 ↗",
+    linuxTitle: "Linux",
+    linuxInstructions:
+      "Téléchargez le <code>.deb</code> ARM64 et installez-le avec votre gestionnaire de paquets.",
+    linuxDownload: "Installer sur Linux ARM64 ↗",
     inspectInstaller: "Lire le script ↗",
     copy: "Copier",
     copied: "Commande d’installation copiée.",
