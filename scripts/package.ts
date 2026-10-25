@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -12,6 +13,7 @@ import { copyDesktopBuild } from "./package-files";
 
 const root = join(import.meta.dir, "..");
 const MINIMUM_MACOS = "14.0";
+const MAC_EXECUTABLE = "Astra";
 const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 if (
@@ -41,6 +43,10 @@ if (process.platform === "win32") {
     join(root, "node_modules/electron/dist/Electron.app"),
     output,
   ]);
+  renameSync(
+    join(output, "Contents/MacOS/Electron"),
+    join(output, "Contents/MacOS", MAC_EXECUTABLE),
+  );
   const resources = join(output, "Contents/Resources");
   cpSync(join(root, "dist/icon.icns"), join(resources, "icon.icns"));
   copyDesktopBuild(join(root, "dist"), join(resources, "app/dist"));
@@ -77,6 +83,7 @@ if (process.platform === "win32") {
     }),
   );
   for (const [key, value] of Object.entries({
+    CFBundleExecutable: MAC_EXECUTABLE,
     CFBundleName: "Astra",
     CFBundleDisplayName: "Astra",
     CFBundleIdentifier: "io.github.witong42.astra",

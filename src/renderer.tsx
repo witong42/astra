@@ -366,30 +366,17 @@ function App() {
     remoteActive ||
     Object.values(snapshot.sessions).some((session) => session.busy) ||
     (voice.active && voice.status !== "standby");
-  const updateLabel =
-    update.status === "checking"
-      ? t.updateChecking
-      : update.status === "downloading"
-        ? t.updateDownloading(update.percent ?? 0)
-        : update.status === "current"
-          ? t.updateCurrent
-          : APP_RELEASE;
+  const updateReady =
+    update.status === "ready" || update.status === "installing";
   return (
     <div className={`desktop-app ${home ? "on-home" : "in-app"}`}>
       <header className="toolbar desktop-toolbar">
         <div className="desktop-navigation">
-          {!home && (
-            <span className="app-title" title={workspace.name}>
-              {workspace.name}
-            </span>
-          )}
-        </div>
-        <div className="toolbar-actions">
-          {update.status === "ready" && window.astra.installUpdate && (
+          {updateReady && window.astra.installUpdate && (
             <button
               type="button"
               className="text-button update-button"
-              disabled={updateBlocked}
+              disabled={update.status === "installing" || updateBlocked}
               title={
                 updateBlocked
                   ? t.updateFinishFirst
@@ -400,6 +387,13 @@ function App() {
               {t.updateRestart}
             </button>
           )}
+          {!home && (
+            <span className="app-title" title={workspace.name}>
+              {workspace.name}
+            </span>
+          )}
+        </div>
+        <div className="toolbar-actions">
           {snapshot.status === "offline" && (
             <button
               type="button"
@@ -683,28 +677,7 @@ function App() {
             )}
             <p className="journal-compose-context">
               {home ? t.talkAstra : workspace.name}
-              {window.astra.checkForUpdates ? (
-                <button
-                  type="button"
-                  className="app-release"
-                  title={update.error ?? t.checkUpdates}
-                  disabled={
-                    update.status === "checking" ||
-                    update.status === "downloading" ||
-                    update.status === "installing"
-                  }
-                  onClick={() =>
-                    void window.astra
-                      .checkForUpdates?.()
-                      .then(setUpdate)
-                      .catch(onError)
-                  }
-                >
-                  {updateLabel}
-                </button>
-              ) : (
-                <small className="app-release">{APP_RELEASE}</small>
-              )}
+              <small className="app-release">{APP_RELEASE}</small>
             </p>
             <Composer
               key={draftId}

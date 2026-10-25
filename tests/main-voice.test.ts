@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
+import { messages } from "../src/locale";
+import type { UpdateState } from "../src/updates";
 import { INITIAL_VOICE, type VoiceState } from "../src/voice";
 
 const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
@@ -16,6 +18,10 @@ const connecting = main.match(
 if (!connecting)
   throw new Error("Astra's phone connection handler is missing.");
 const connectHandler = connecting[1];
+const updating = main.match(/onChange:\s*(\(state\) => \{[\s\S]*?\n {6}\}),/);
+if (!updating)
+  throw new Error("Astra's update notification handler is missing.");
+const updateHandler = updating[1];
 const controller = new Bun.Transpiler({
   loader: "ts",
   target: "node",
@@ -42,7 +48,16 @@ function fixture() {
   };
   let desktopStarts = 0;
   let stops = 0;
-  let menu: { label?: string; enabled?: boolean; click?: () => void }[] = [];
+  let update: UpdateState = { status: "idle" };
+  let busy = false;
+  const updateCalls: string[] = [];
+  const errors: string[] = [];
+  let menu: {
+    label?: string;
+    role?: string;
+    enabled?: boolean;
+    click?: () => void;
+  }[] = [];
   const context = {
     remoteActive: false,
     phoneInput: input as typeof input | null,
@@ -51,13 +66,30 @@ function fixture() {
     desktopVoiceWasActive: true,
     quitting: false,
     installingUpdate: false,
+    HIDDEN_TEST_WINDOW: false,
+    app: { isPackaged: true },
+    updates: { snapshot: () => update },
+    messages,
+    dialog: {
+      showErrorBox: (_title: string, message: string) => errors.push(message),
+    },
     PASSIVE_METHODS: new Set(["snapshot"]),
-    methods: new Map<string, (...args: unknown[]) => unknown>(),
+    methods: new Map<string, (...args: unknown[]) => unknown>([
+      ["checkForUpdates", () => updateCalls.push("check")],
+      ["installUpdate", () => updateCalls.push("install")],
+    ]),
     trayStatus: "",
     window: null,
     remote: null,
+    get latest() {
+      return { sessions: { app: { busy } } };
+    },
     flushRenderer: async () => {},
-    backend: { state: {}, snapshot: () => ({}), setVoiceEnabled() {} },
+    backend: {
+      state: {},
+      snapshot: () => ({ sessions: { app: { busy } } }),
+      setVoiceEnabled() {},
+    },
     broadcast() {},
     voice: {
       snapshot: () => voice,
@@ -79,11 +111,14 @@ function fixture() {
       setContextMenu(value: typeof menu) {
         menu = value;
       },
-    },
+    } as {
+      setToolTip: () => void;
+      setContextMenu: (value: typeof menu) => void;
+    } | null,
     Menu: { buildFromTemplate: (value: typeof menu) => value },
   };
   const actions = runInNewContext(
-    `${controller}\n({ startVoiceInput, setRemoteActive, updateVoice, invokeRemote, connecting: ${connectHandler}, disconnected: ${disconnectHandler} })`,
+    `${controller}\n({ startVoiceInput, setRemoteActive, updateVoice, invokeRemote, connecting: ${connectHandler}, disconnected: ${disconnectHandler}, onUpdate: ${updateHandler} })`,
     context,
   ) as {
     startVoiceInput: (
@@ -92,6 +127,7 @@ function fixture() {
     ) => Promise<void>;
     setRemoteActive: (active: boolean) => void;
     updateVoice: (state: typeof voice) => void;
+    onUpdate: (state: UpdateState) => void;
     disconnected: (clientId: string) => void;
     connecting: () => Promise<void>;
     invokeRemote: (
@@ -112,6 +148,16 @@ function fixture() {
     }),
     menu: () => menu,
     snapshot: () => voice,
+    update: (state: UpdateState) => {
+      update = state;
+      actions.onUpdate(state);
+    },
+    busy: (value: boolean) => {
+      busy = value;
+      actions.updateVoice(voice);
+    },
+    updateCalls,
+    errors,
   };
 }
 
@@ -256,4 +302,67 @@ test("a stale desktop tray action cannot pause a phone conversation", () => {
   expect(
     f.menu().find((item) => item.label === "Pause microphone")?.enabled,
   ).toBe(true);
+});
+
+test("the tray update check sits immediately above Quit and never starts an installation", async () => {
+  const f = fixture();
+  f.actions.updateVoice(f.snapshot());
+  const quit = f.menu().findIndex((item) => item.role === "quit");
+  const check = f.menu()[quit - 1];
+  expect(check?.label).toBe("Check for updates");
+  expect(check?.enabled).toBe(true);
+  f.update({ status: "ready", version: "0.6.1" });
+  check?.click?.();
+  await Bun.sleep(0);
+  expect(f.updateCalls).toEqual(["check"]);
+  expect(f.state().stops).toBe(0);
+});
+
+test("the tray follows update progress without a voice-state change and guards restart while busy", async () => {
+  const f = fixture();
+  f.actions.updateVoice(f.snapshot());
+  f.update({ status: "downloading", percent: 45 });
+  expect(f.menu().at(-2)?.label).toBe("Downloading 45%");
+  expect(f.menu().at(-2)?.enabled).toBe(false);
+  f.update({ status: "ready", version: "0.6.1" });
+  expect(f.menu().at(-2)?.label).toBe("Restart to update");
+  expect(f.menu().at(-2)?.enabled).toBe(false);
+  await f.actions.startVoiceInput(true, null);
+  f.actions.updateVoice(f.snapshot());
+  expect(f.menu().at(-2)?.enabled).toBe(true);
+  f.busy(true);
+  expect(f.menu().at(-2)?.enabled).toBe(false);
+  f.busy(false);
+  f.context.installingUpdate = true;
+  f.actions.updateVoice(f.snapshot());
+  expect(f.menu().at(-2)?.enabled).toBe(false);
+  f.context.installingUpdate = false;
+  f.actions.setRemoteActive(true);
+  expect(f.menu().at(-2)?.enabled).toBe(false);
+  f.actions.setRemoteActive(false);
+  f.menu().at(-2)?.click?.();
+  await Bun.sleep(0);
+  expect(f.updateCalls).toEqual(["install"]);
+});
+
+test("a tray update error remains actionable without interrupting voice", async () => {
+  const f = fixture();
+  f.context.methods.set("checkForUpdates", () => {
+    throw new Error("Cannot reach GitHub");
+  });
+  f.actions.updateVoice(f.snapshot());
+  f.menu().at(-2)?.click?.();
+  await Bun.sleep(0);
+  expect(f.errors).toEqual(["Error: Cannot reach GitHub"]);
+  expect(f.state().stops).toBe(0);
+});
+
+test("late busy and update notifications cannot recreate a tray after Astra starts quitting", () => {
+  const f = fixture();
+  f.actions.updateVoice(f.snapshot());
+  f.context.quitting = true;
+  f.context.tray = null;
+  expect(() => f.busy(true)).not.toThrow();
+  expect(() => f.update({ status: "ready", version: "0.6.1" })).not.toThrow();
+  expect(f.context.tray).toBeNull();
 });

@@ -2,7 +2,7 @@
   "name": "astra",
   "productName": "Astra",
   "version": "0.6.0",
-  "astraBuild": 18,
+  "astraBuild": 20,
   "description": "A personal desktop assistant that turns conversations into mini-apps.",
   "license": "MIT",
   "repository": "https://github.com/witong42/astra",

@@ -179,6 +179,20 @@ async function browserProbe(config: {
     await waitFor(
       "document.querySelector('.language-switch button[aria-pressed=true]')?.textContent==='FR'&&typeof window.astraControl==='function'",
     );
+    if (device === "mac") {
+      assert.equal(
+        await evaluate(
+          "document.querySelector('.desktop-navigation .update-button')===null",
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          "document.querySelector('#chat-toggle').getAttribute('aria-expanded')",
+        ),
+        "false",
+      );
+    }
     await screenshot("fr-home");
     for (const workspace of config.snapshot.workspaces.filter(
       (entry) => entry.canvas?.generation,
@@ -400,12 +414,12 @@ async function browserProbe(config: {
     if (device === "mac") {
       await control({ action: "home" });
       if (
-        !(await evaluate(
+        await evaluate(
           "document.querySelector('#chat-toggle').getAttribute('aria-expanded')==='true'",
-        ))
+        )
       )
         await click("#chat-toggle");
-      await click("button.app-release");
+      await evaluate("window.astra.checkForUpdates()");
       await waitFor(
         "document.querySelector('.update-button')?.textContent==='Redémarrer pour mettre à jour'",
       );
@@ -435,6 +449,28 @@ async function browserProbe(config: {
         "document.querySelector('.update-button')?.textContent==='Restart to update'",
       );
       await screenshot("en-update");
+      for (const [width, height] of [
+        [960, 650],
+        [1440, 960],
+      ]) {
+        window.setContentSize(width, height);
+        const layout = await evaluate<{
+          left: number;
+          right: number;
+          language: number;
+          top: number;
+          bottom: number;
+        }>(
+          "(()=>{const r=document.querySelector('.desktop-navigation .update-button').getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,language:document.querySelector('.language-switch').getBoundingClientRect().left}})()",
+        );
+        assert.ok(
+          layout.left >= 100 &&
+            layout.right < layout.language &&
+            layout.top >= 0 &&
+            layout.bottom <= 52,
+          JSON.stringify(layout),
+        );
+      }
       await click(".update-button");
       await waitFor(
         "document.querySelector('.update-button').disabled===false",

@@ -154,6 +154,7 @@ function persist(state: SavedState, immediate = false) {
 function broadcast(snapshot: Snapshot) {
   voice?.observe(snapshot);
   latest = snapshot;
+  updateTray();
   remote?.publishSnapshot(snapshot);
   if (broadcastTimer) return;
   broadcastTimer = setTimeout(() => {
@@ -575,8 +576,31 @@ function updateVoice(state: VoiceState) {
     remote?.publishVoice(state, phoneInput?.clientId ?? null);
   if (window && !window.isDestroyed())
     window.webContents.send("astra:voice", state);
-  if (state.status === trayStatus) return;
-  trayStatus = state.status;
+  updateTray();
+}
+
+function updateTray() {
+  if (!voice || quitting) return;
+  const state = voice.snapshot();
+  const update = updates?.snapshot();
+  const updateReady =
+    update?.status === "ready" || update?.status === "installing";
+  const updateAction = updateReady ? "installUpdate" : "checkForUpdates";
+  const updateBlocked =
+    remoteActive ||
+    Object.values(latest?.sessions ?? {}).some((session) => session.busy) ||
+    (state.active && state.status !== "standby");
+  const nextStatus = JSON.stringify([
+    state.status,
+    state.active,
+    remoteActive,
+    updateBlocked,
+    update,
+    quitting,
+    installingUpdate,
+  ]);
+  if (nextStatus === trayStatus) return;
+  trayStatus = nextStatus;
   if (!tray) {
     tray = new Tray(
       nativeImage
@@ -633,6 +657,41 @@ function updateVoice(state: VoiceState) {
         },
       },
       { type: "separator" },
+      ...(app.isPackaged && !HIDDEN_TEST_WINDOW
+        ? [
+            {
+              label:
+                update?.status === "checking"
+                  ? messages.en.updateChecking
+                  : update?.status === "downloading"
+                    ? messages.en.updateDownloading(update.percent ?? 0)
+                    : updateReady
+                      ? messages.en.updateRestart
+                      : messages.en.checkUpdates,
+              enabled:
+                !quitting &&
+                !installingUpdate &&
+                update?.status !== "checking" &&
+                update?.status !== "downloading" &&
+                update?.status !== "installing" &&
+                !(updateReady && updateBlocked),
+              click: () => {
+                void Promise.resolve()
+                  .then(() => {
+                    const handler = methods.get(updateAction);
+                    if (!handler)
+                      throw new Error(
+                        "Astra's update controls are not ready. Reopen Astra.",
+                      );
+                    return handler();
+                  })
+                  .catch((error) =>
+                    dialog.showErrorBox("Astra update failed", String(error)),
+                  );
+              },
+            },
+          ]
+        : []),
       { role: "quit" },
     ]),
   );
@@ -733,6 +792,7 @@ app
       onChange: (state) => {
         if (window && !window.isDestroyed())
           window.webContents.send("astra:update", state);
+        updateTray();
       },
     });
     updates = updater;

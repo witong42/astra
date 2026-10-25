@@ -1196,6 +1196,12 @@ td {
 .desktop-navigation {
   flex: 1;
 }
+.desktop-navigation .update-button {
+  flex-shrink: 0;
+  min-height: 32px;
+  font-size: 12px;
+  white-space: nowrap;
+}
 .desktop-toolbar .toolbar-actions {
   gap: var(--space-2);
   flex-shrink: 0;
@@ -2158,13 +2164,6 @@ td {
   margin-left: auto;
   font-size: 10px;
   color: var(--muted);
-}
-button.app-release {
-  padding: 0;
-  border: 0;
-  background: none;
-  text-align: right;
-  cursor: pointer;
 }
 .journal-drawer .composer {
   border-color: #ffffff16;

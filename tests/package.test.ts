@@ -54,7 +54,10 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
     const root = mkdtempSync(join(tmpdir(), "astra package-test-"));
     temporary.push(root);
     const electron = join(root, "node_modules/electron/dist/Electron.app");
-    mkdirSync(join(electron, "Contents/MacOS"), { recursive: true });
+    execFileSync("/usr/bin/ditto", [
+      join(import.meta.dir, "../node_modules/electron/dist/Electron.app"),
+      electron,
+    ]);
     mkdirSync(join(root, "scripts"));
     mkdirSync(join(root, "dist"));
     for (const name of [
@@ -83,26 +86,37 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
         join(root, "node_modules/electron/dist", file),
         `Electron fixture ${file}`,
       );
-    cpSync("/usr/bin/true", join(electron, "Contents/MacOS/Electron"));
-    writeFileSync(
-      join(electron, "Contents/Info.plist"),
-      `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>Electron</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleName</key><string>Electron</string>
-<key>CFBundleDisplayName</key><string>Electron</string>
-<key>CFBundleIdentifier</key><string>com.example.fixture</string>
-<key>CFBundleShortVersionString</key><string>0.0.0</string>
-<key>CFBundleVersion</key><string>1</string>
-<key>CFBundleIconFile</key><string>electron.icns</string>
-<key>NSMicrophoneUsageDescription</key><string>Electron default microphone description</string>
-<key>NSSpeechRecognitionUsageDescription</key><string>Legacy Apple speech permission</string>
-</dict></plist>`,
+    const electronPlist = join(electron, "Contents/Info.plist");
+    const originalMetadata = JSON.parse(
+      execFileSync(
+        "/usr/bin/plutil",
+        ["-convert", "json", "-o", "-", electronPlist],
+        { encoding: "utf8" },
+      ),
     );
+    const speechPermission = Object.hasOwn(
+      originalMetadata,
+      "NSSpeechRecognitionUsageDescription",
+    )
+      ? "Set :NSSpeechRecognitionUsageDescription Legacy Apple speech permission"
+      : "Add :NSSpeechRecognitionUsageDescription string Legacy Apple speech permission";
+    execFileSync("/usr/libexec/PlistBuddy", [
+      "-c",
+      speechPermission,
+      electronPlist,
+    ]);
     writeFileSync(join(root, "dist/icon.icns"), "fixture");
-    writeFileSync(join(root, "dist/main.cjs"), "// fixture");
+    const fixtureMain = `const {app,BrowserWindow}=require('electron');
+app.setPath('userData',${JSON.stringify(join(root, "profile"))});
+app.whenReady().then(async()=>{
+  app.dock?.hide();
+  const window=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  await window.loadURL('data:text/html,<title>Astra package probe</title>');
+  const renderer=await window.webContents.executeJavaScript('document.readyState');
+  console.log('ASTRA_PACKAGE_PROBE '+JSON.stringify({packaged:app.isPackaged,renderer,version:app.getVersion()}));
+  window.destroy();app.quit();
+}).catch(error=>{console.error(error);app.exit(1)});`;
+    writeFileSync(join(root, "dist/main.cjs"), fixtureMain);
     for (const name of ["client", "server", "website"]) {
       mkdirSync(join(root, "dist", name));
       writeFileSync(
@@ -141,6 +155,40 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
         encoding: "utf8",
       }),
     );
+    const runtimeEnvironment = { ...process.env };
+    delete runtimeEnvironment.ELECTRON_RUN_AS_NODE;
+    delete runtimeEnvironment.ELECTRON_FORCE_IS_PACKAGED;
+    const probeApp = join(root, "runtime-probe/Astra.app");
+    execFileSync("/usr/bin/ditto", [app, probeApp]);
+    execFileSync("/usr/libexec/PlistBuddy", [
+      "-c",
+      "Set :CFBundleIdentifier io.github.witong42.astra.package-test",
+      join(probeApp, "Contents/Info.plist"),
+    ]);
+    execFileSync("/usr/bin/codesign", [
+      "--force",
+      "--deep",
+      "--sign",
+      "-",
+      probeApp,
+    ]);
+    const runtime = execFileSync(
+      join(probeApp, "Contents/MacOS", metadata.CFBundleExecutable),
+      [],
+      { encoding: "utf8", env: runtimeEnvironment, timeout: 10_000 },
+    );
+    const result = runtime
+      .split("\n")
+      .find((line) => line.startsWith("ASTRA_PACKAGE_PROBE "));
+    if (!result)
+      throw new Error(`Packaged runtime returned no probe result: ${runtime}`);
+    expect(JSON.parse(result.slice("ASTRA_PACKAGE_PROBE ".length))).toEqual({
+      packaged: true,
+      renderer: "complete",
+      version: "9.8.7",
+    });
+    expect(metadata.CFBundleExecutable).toBe("Astra");
+    expect(existsSync(join(app, "Contents/MacOS/Electron"))).toBe(false);
     expect(metadata.CFBundleShortVersionString).toBe("9.8.7");
     expect(metadata.CFBundleIdentifier).toBe("io.github.witong42.astra");
     expect(metadata.CFBundleVersion).toBe("42");
@@ -198,7 +246,7 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
       ).toBe("3.3.4");
     expect(
       readFileSync(join(app, "Contents/Resources/app/dist/main.cjs"), "utf8"),
-    ).toBe("// fixture");
+    ).toBe(fixtureMain);
     execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", app]);
     const release = join(root, "release/v9.8.7");
     for (const name of ["client", "server", "website"])
