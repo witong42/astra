@@ -26,6 +26,14 @@ const applyLanguage = (next: SiteLanguage) => {
   language = next;
   document.documentElement.lang = language;
   document.title = copy[language].title;
+  requiredElement(".brand").setAttribute(
+    "aria-label",
+    copy[language].homeLabel,
+  );
+  requiredElement(".evolution-preview img").setAttribute(
+    "alt",
+    copy[language].evolutionAlt,
+  );
   requiredElement("#copy-install").setAttribute(
     "aria-label",
     copy[language].copyLabel,
@@ -57,6 +65,9 @@ const applyLanguage = (next: SiteLanguage) => {
       "aria-current",
       String((link as HTMLElement).dataset.language === language),
     );
+  selectDemo(
+    requiredElement<HTMLButtonElement>('[data-demo][aria-selected="true"]'),
+  );
   requiredElement("#copy-feedback").textContent = "";
 };
 
@@ -72,8 +83,6 @@ for (const link of document.querySelectorAll<HTMLAnchorElement>(
     history.replaceState(null, "", url);
     applyLanguage(next);
   });
-applyLanguage(language);
-
 const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-demo]")];
 const selectDemo = (selected: HTMLButtonElement) => {
   for (const tab of tabs) {
@@ -113,3 +122,5 @@ requiredElement("#copy-install").addEventListener("click", async () => {
     status.textContent = copy[language].copyFailed;
   }
 });
+
+applyLanguage(language);

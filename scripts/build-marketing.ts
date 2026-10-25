@@ -1,8 +1,21 @@
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const output = join(root, "dist/website");
+const PUBLIC_ASSETS = [
+  "icon.png",
+  "banner.png",
+  "banner-fr.png",
+  "project.png",
+  "project-focus.png",
+  "travel.png",
+  "quiz.png",
+  "film-poster.png",
+  "astra-demo-en.mp4",
+  "astra-demo-en.vtt",
+];
+rmSync(output, { recursive: true, force: true });
 mkdirSync(join(output, "assets"), { recursive: true });
 const result = await Bun.build({
   entrypoints: [join(root, "website/site.ts")],
@@ -16,10 +29,9 @@ if (!result.success)
 for (const file of ["index.html", "site.css"])
   copyFileSync(join(root, "website", file), join(output, file));
 copyFileSync(join(root, "install.sh"), join(output, "install.sh"));
-for (const file of readdirSync(join(root, ".github/assets")))
-  if (!file.startsWith("demo.") && !file.startsWith("desktop"))
-    copyFileSync(
-      join(root, ".github/assets", file),
-      join(output, "assets", file),
-    );
+for (const file of PUBLIC_ASSETS)
+  copyFileSync(
+    join(root, ".github/assets", file),
+    join(output, "assets", file),
+  );
 console.log(`Built Astra's public website in ${output}.`);

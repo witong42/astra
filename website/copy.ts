@@ -1,14 +1,17 @@
 export const copy = {
   en: {
+    homeLabel: "Astra home",
+    evolutionAlt:
+      "The same Astra project app after switching to a simpler focus view",
     copyLabel: "Copy installation command",
     languageLabel: "Language",
     navigationLabel: "Main navigation",
     examplesLabel: "Example mini-apps",
-    videoLabel: "Astra overview, narrated in English",
+    videoLabel: "Real Astra voice demo in English",
     title: "Astra — Your personal Jarvis, powered by Codex",
     skip: "Skip to content",
     navApps: "The possibilities",
-    navFilm: "Watch the film",
+    navFilm: "Watch the demo",
     navInstall: "Get Astra ↗",
     eyebrow: "A voice. A little universe of possibilities.",
     heroTitle: "Your personal<br /><span>Jarvis.</span>",
@@ -38,10 +41,11 @@ export const copy = {
       "Ask for another button. A simpler view. A different workflow. Codex reshapes your mini-app, and you keep going.",
     evolutionRequest: "“Give me a simpler view, so I can focus.”",
     evolutionCaption: "The same mini-app. A new way to use it.",
-    filmTitle: "Astra, in a minute.",
-    filmDescription: "A short introduction to a more personal way of using AI.",
+    filmTitle: "Watch Astra in action.",
+    filmDescription:
+      "Ask for a daily dashboard. Astra builds it. Make it yours.",
     filmCaption:
-      "English narration and captions. Illustrative mini-apps with sample data.",
+      "30 seconds of real Astra, with a spoken request in English. Generation waits shortened.",
     videoFallback: "Your browser cannot play this video.",
     localTitle: "Your Mac.<br />Your Codex.<br /><span>Your way.</span>",
     localDescription:
@@ -58,7 +62,7 @@ export const copy = {
     copied: "Installation command copied.",
     copyFailed: "Select and copy the command above.",
     requirements:
-      "Apple Silicon Mac · Codex CLI with ChatGPT sign-in · Experimental software",
+      "macOS 14+ · Apple Silicon · Codex CLI with ChatGPT sign-in · Experimental software",
     manualDownload: "Download manually ↗",
     sourceCode: "Explore the source ↗",
     codexSetup: "Need Codex? ↗",
@@ -70,15 +74,18 @@ export const copy = {
     affiliation: "An independent project, not affiliated with OpenAI.",
   },
   fr: {
+    homeLabel: "Accueil Astra",
+    evolutionAlt:
+      "La même app de projet Astra après le passage à une vue plus simple",
     copyLabel: "Copier la commande d’installation",
     languageLabel: "Langue",
     navigationLabel: "Navigation principale",
     examplesLabel: "Exemples de mini-apps",
-    videoLabel: "Présentation d’Astra, avec narration en anglais",
+    videoLabel: "Démonstration vocale réelle d’Astra en anglais",
     title: "Astra — Votre Jarvis personnel, propulsé par Codex",
     skip: "Aller au contenu",
     navApps: "Les possibilités",
-    navFilm: "Voir le film",
+    navFilm: "Voir la démo",
     navInstall: "Installer Astra ↗",
     eyebrow: "Une voix. Un petit univers de possibilités.",
     heroTitle: "Votre Jarvis<br /><span>personnel.</span>",
@@ -108,11 +115,11 @@ export const copy = {
       "Un bouton en plus. Une vue plus simple. Une autre façon de travailler. Demandez : Codex adapte votre mini-app, et vous continuez.",
     evolutionRequest: "« Ajoute une vue plus simple pour me concentrer. »",
     evolutionCaption: "La même mini-app. Une nouvelle façon de l’utiliser.",
-    filmTitle: "Astra, en une minute.",
+    filmTitle: "Astra, en action.",
     filmDescription:
-      "Une courte présentation d’une façon plus personnelle d’utiliser l’IA.",
+      "Demandez un tableau de bord pour votre journée. Astra le crée pour vous.",
     filmCaption:
-      "Narration et sous-titres en anglais. Mini-apps et données de démonstration.",
+      "30 secondes dans la vraie application, avec une demande vocale en anglais. Temps de génération raccourcis.",
     videoFallback: "Votre navigateur ne peut pas lire cette vidéo.",
     localTitle: "Votre Mac.<br />Votre Codex.<br /><span>À votre façon.</span>",
     localDescription:
@@ -129,7 +136,7 @@ export const copy = {
     copied: "Commande d’installation copiée.",
     copyFailed: "Sélectionnez et copiez la commande ci-dessus.",
     requirements:
-      "Mac Apple Silicon · Codex CLI connecté à ChatGPT · Logiciel expérimental",
+      "macOS 14+ · Apple Silicon · Codex CLI connecté à ChatGPT · Logiciel expérimental",
     manualDownload: "Télécharger directement ↗",
     sourceCode: "Explorer le code ↗",
     codexSetup: "Installer Codex ↗",

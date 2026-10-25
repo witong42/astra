@@ -101,9 +101,9 @@ figure {
   font-size: 12px;
   color: #aebcc8;
 }
-.navigation .main-navigation a:hover,
 .footer a:hover,
-.install-links a:hover {
+.install-links a:hover,
+.navigation .main-navigation a:hover {
   color: #fff;
 }
 .languages {

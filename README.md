@@ -10,15 +10,15 @@
 curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash
 ```
 
-For **Apple Silicon Macs**. Uses your existing [Codex CLI](https://developers.openai.com/codex/cli/) and ChatGPT sign-in; your Codex usage limits still apply. First launch requires the usual macOS permissions. Early builds are locally signed and are not Apple notarized.
+For **Apple Silicon Macs running macOS 14 or later**. A Windows version is in development. Uses your existing [Codex CLI](https://developers.openai.com/codex/cli/) and ChatGPT sign-in; your Codex usage limits still apply. First launch requires the usual macOS permissions. Early builds are locally signed and are not Apple notarized.
 
 [Download manually](https://github.com/witong42/Astra/releases) · [Read the installer](install.sh)
 
 ## Meet Astra
 
-[![Astra: an English introduction with demonstration mini-apps](.github/assets/film-poster.png)](.github/assets/astra-pitch-en.mp4)
+[![A real Astra voice demo in English](.github/assets/film-poster.png)](.github/assets/astra-demo-en.mp4)
 
-**Your assistant. Your tools. Your way.** The film uses sample mini-apps and English narration. [Watch the video](.github/assets/astra-pitch-en.mp4).
+**Your assistant. Your tools. Your way.** Ask for a daily dashboard, hear Astra reply, then use its priorities and focus timer. Thirty seconds of real Astra, with generation waits shortened. [Watch the demo](.github/assets/astra-demo-en.mp4).
 
 - **Talk naturally.** Speak with Astra or type when you prefer.
 - **Make your own mini-apps.** A project tracker, a trip planner, a quiz, or the small tool you need.
@@ -32,7 +32,7 @@ Try: **“Make a mini-app to track my project and its next steps.”** Then: **�
 
 Astra currently gives Codex **full file and command access on your Mac without approval prompts**. Generated mini-apps run in isolated frames; this does not restrict Codex's system tools.
 
-App state and journal live in ~/Library/Application Support/CodexOS/; created files default to ~/.astra/. Model requests use your configured Codex provider. Your existing Codex authentication stays in place. Voice uses experimental Codex interfaces and is version-sensitive.
+App state and journal live in ~/Library/Application Support/Astra/; created files default to ~/.astra/. Model requests use your configured Codex provider. Your existing Codex authentication stays in place. Voice uses experimental Codex interfaces and is version-sensitive.
 
 <details>
 <summary>Build from source</summary>
@@ -46,7 +46,7 @@ bun install --frozen-lockfile
 bun start
 ```
 
-For realtime voice, use the complete [official Codex distribution](https://github.com/openai/codex/releases/latest/download/install.sh), including its voice resources. Use CODEXOS_CODEX_PATH if your executable is installed elsewhere.
+For realtime voice, use the complete [official Codex distribution](https://github.com/openai/codex/releases/latest/download/install.sh), including its voice resources. Use ASTRA_CODEX_PATH if your executable is installed elsewhere.
 
 </details>
 
@@ -59,7 +59,7 @@ This is an optional setup for your own devices. Astra's web client connects to t
 
 1. Install [Tailscale](https://tailscale.com/kb/1017/install) on the Mac and phone. Enable HTTPS for your tailnet.
 2. Choose a private HTTPS origin for the static web client, such as `https://astra.example.com`. Keep it private to you. A public static client does not authenticate users to your Mac.
-3. Create `~/Library/Application Support/CodexOS/remote-access.json` with your actual frontend origin and Tailscale login:
+3. Create `~/Library/Application Support/Astra/remote-access.json` with your actual frontend origin and Tailscale login:
 
    ```json
    {

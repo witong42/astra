@@ -1,10 +1,9 @@
 const { app, BrowserWindow } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
-const { pathToFileURL } = require("node:url");
 const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-const { root, output, assets, timeline, captions } = settings;
-app.setName("Astra media renderer");
+const { root, output, assets } = settings;
+app.setName("Astra screenshot capture");
 app.setPath("userData", path.join(output, "render-profile"));
 app.commandLine.appendSwitch("force-device-scale-factor", "1");
 app.commandLine.appendSwitch("disable-gpu");
@@ -87,9 +86,6 @@ app.whenReady().then(async () => {
     );
     await load("project-before");
     await screenshot("project-before");
-    const controls = await window.webContents.executeJavaScript(
-      `(()=>{const r=document.querySelector('[data-task="1"]').getBoundingClientRect();return {task:{x:r.x+r.width/2,y:r.y+r.height/2}}})()`,
-    );
     await window.webContents.executeJavaScript(
       `document.querySelector('[data-task="1"]').click();true`,
     );
@@ -99,9 +95,6 @@ app.whenReady().then(async () => {
     );
     await load("project");
     await screenshot("project");
-    controls.view = await window.webContents.executeJavaScript(
-      `(()=>{const r=document.querySelector('#project-view').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`,
-    );
     await window.webContents.executeJavaScript(
       `document.querySelector('#project-view').click();true`,
     );
@@ -125,93 +118,9 @@ app.whenReady().then(async () => {
       !review.quiz.startsWith("1")
     )
       throw Error(`A demo control did not work: ${JSON.stringify(review)}`);
-    const files = [
-      "icon",
-      "project-before",
-      "project-checked",
-      "project",
-      "project-focus",
-      "travel",
-      "quiz",
-      "quiz-answer",
-    ];
-    const imagePaths = Object.fromEntries(
-      files.map((name) => [
-        name,
-        pathToFileURL(path.join(assets, `${name}.png`)).href,
-      ]),
-    );
-    const film = path.join(output, "film.html");
-    fs.writeFileSync(
-      film,
-      '<!doctype html><html lang="en"><meta charset="utf-8"><style>html,body{margin:0;background:#11151c;overflow:hidden}canvas{display:block;width:1280px;height:720px}</style><canvas></canvas><script>window.GUIDE_ASSETS=' +
-        JSON.stringify(imagePaths) +
-        ";window.GUIDE_TIMING=" +
-        JSON.stringify(timeline) +
-        ";window.GUIDE_CAPTIONS=" +
-        JSON.stringify(captions) +
-        ";window.GUIDE_CONTROLS=" +
-        JSON.stringify(controls) +
-        '</script><script src="' +
-        pathToFileURL(path.join(root, "website/media/film.js")).href +
-        '"></script></html>',
-    );
-    window.setContentSize(1280, 720);
-    await window.loadFile(film);
-    await window.webContents.executeJavaScript("window.guideReady");
-    const shots = await window.webContents.executeJavaScript(
-      "window.TIMELINE.shots",
-    );
-    const violations = [];
-    fs.mkdirSync(path.join(output, "stills"), { recursive: true });
-    for (let i = 0; i < shots.length; i++) {
-      const result = await window.webContents.executeJavaScript(
-        `window.renderFrame(${shots[i]})`,
-      );
-      if (result.issues.length)
-        violations.push({ time: shots[i], issues: result.issues });
-      fs.writeFileSync(
-        path.join(output, "stills", `${String(i).padStart(2, "0")}.png`),
-        (await capture()).toPNG(),
-      );
-    }
-    if (violations.length)
-      throw Error(
-        `Storyboard text checks failed: ${JSON.stringify(violations)}`,
-      );
-    console.log(`STORYBOARD_PASSED ${shots.length} frames`);
-    if (!settings.stillsOnly) {
-      fs.mkdirSync(path.join(output, "frames"), { recursive: true });
-      const count = Math.ceil(timeline.duration * timeline.fps);
-      for (let frame = 0; frame < count; frame++) {
-        const time = frame / timeline.fps;
-        const result = await window.webContents.executeJavaScript(
-          `window.renderFrame(${time})`,
-        );
-        if (result.issues.length)
-          throw Error(
-            `Text check at ${time}: ${JSON.stringify(result.issues)}`,
-          );
-        fs.writeFileSync(
-          path.join(output, "frames", `${String(frame).padStart(5, "0")}.jpg`),
-          (await capture()).toJPEG(88),
-        );
-        if (frame % 120 === 0) console.log(`RENDER ${frame}/${count}`);
-      }
-      console.log(`FRAMES_RENDERED ${count}`);
-    }
     fs.writeFileSync(
       path.join(output, "render-review.json"),
-      JSON.stringify(
-        {
-          controls: review,
-          storyboardFrames: shots.length,
-          violations: 0,
-          frames: Math.ceil(timeline.duration * timeline.fps),
-        },
-        null,
-        2,
-      ),
+      JSON.stringify({ controls: review }, null, 2),
     );
     app.exit(0);
   } catch (error) {

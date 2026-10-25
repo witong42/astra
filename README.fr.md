@@ -10,15 +10,15 @@
 curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash
 ```
 
-Pour les **Mac Apple Silicon**. Astra utilise votre [Codex CLI](https://developers.openai.com/codex/cli/) et votre connexion ChatGPT ; les limites de votre abonnement restent applicables. Autorisez les accès macOS nécessaires au premier lancement. Les premières versions sont signées localement, sans notarisation Apple.
+Pour les **Mac Apple Silicon sous macOS 14 ou ultérieur**. Une version Windows est en développement. Astra utilise votre [Codex CLI](https://developers.openai.com/codex/cli/) et votre connexion ChatGPT ; les limites de votre abonnement restent applicables. Autorisez les accès macOS nécessaires au premier lancement. Les premières versions sont signées localement, sans notarisation Apple.
 
 [Télécharger directement](https://github.com/witong42/Astra/releases) · [Lire le script d’installation](install.sh)
 
 ## Découvrir Astra
 
-[![Présentation d’Astra en anglais, avec des mini-apps de démonstration](.github/assets/film-poster.png)](.github/assets/astra-pitch-en.mp4)
+[![Démonstration vocale réelle d’Astra en anglais](.github/assets/film-poster.png)](.github/assets/astra-demo-en.mp4)
 
-**Votre assistant. Vos outils. À votre façon.** Le film présente des mini-apps et des données fictives, avec une narration en anglais. [Voir la vidéo](.github/assets/astra-pitch-en.mp4).
+**Votre assistant. Vos outils. À votre façon.** Demandez un tableau de bord pour votre journée, écoutez la réponse d’Astra, puis utilisez ses priorités et son minuteur de concentration. Trente secondes dans la vraie application, en anglais, avec les temps de génération raccourcis. [Voir la démo](.github/assets/astra-demo-en.mp4).
 
 - **Parlez naturellement.** Discutez avec Astra, ou écrivez quand vous préférez.
 - **Créez vos mini-apps.** Un suivi de projet, un programme de voyage, un quiz, ou le petit outil dont vous avez besoin.
@@ -32,7 +32,7 @@ Essayez : **« Crée une mini-app pour suivre mon projet et ses prochaines étap
 
 Astra donne actuellement à Codex un **accès complet aux fichiers et aux commandes de votre Mac, sans confirmation**. Les mini-apps s’affichent dans des cadres isolés ; cela ne limite pas les outils système de Codex.
 
-Les apps et le journal sont stockés dans ~/Library/Application Support/CodexOS/. Les fichiers créés vont par défaut dans ~/.astra/. Les requêtes passent par votre fournisseur Codex. Votre authentification existante reste en place. La voix dépend d’interfaces expérimentales de Codex, susceptibles de changer selon sa version.
+Les apps et le journal sont stockés dans ~/Library/Application Support/Astra/. Les fichiers créés vont par défaut dans ~/.astra/. Les requêtes passent par votre fournisseur Codex. Votre authentification existante reste en place. La voix dépend d’interfaces expérimentales de Codex, susceptibles de changer selon sa version.
 
 <details>
 <summary>Compiler depuis les sources</summary>
@@ -46,7 +46,7 @@ bun install --frozen-lockfile
 bun start
 ```
 
-Pour la voix en temps réel, utilisez la [distribution officielle complète de Codex](https://github.com/openai/codex/releases/latest/download/install.sh), avec ses ressources vocales. Le chemin de l’exécutable peut être indiqué avec CODEXOS_CODEX_PATH.
+Pour la voix en temps réel, utilisez la [distribution officielle complète de Codex](https://github.com/openai/codex/releases/latest/download/install.sh), avec ses ressources vocales. Le chemin de l’exécutable peut être indiqué avec ASTRA_CODEX_PATH.
 
 </details>
 

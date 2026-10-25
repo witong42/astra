@@ -1,0 +1,51 @@
+{
+  "name": "astra-demo",
+  "title": "Astra — your voice, your apps",
+  "style": "astra-home",
+  "storyFormat": "Voice-led product film",
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "bpm": 128,
+    "duration": 30,
+    "frames": 900
+  },
+  "brief": {
+    "idea": "A clear spoken request creates a real daily dashboard; Astra replies, the dashboard appears, and its priorities and timer work.",
+    "reference": "The user-selected A layout: dark blue stage, framed real app, large left-hand typography and floating code cards.",
+    "footage": "Real native Astra recordings with fictional example tasks. Generation waits shortened; the final app state is held for the closing card.",
+    "code": "Animated excerpts from the actual generated dashboard timer implementation.",
+    "sound": "The accepted recorded request, acknowledgement, dashboard-ready reply and electronic score. The release edit retains the accepted movie audio stream without re-encoding.",
+    "direction": "User selected A and requested taste-skill refinement and more motion. Preserve the creation story and recorded voices.",
+    "motion": "Eight scenes. Reveal the dashboard at 7.5 seconds, show the real priority interaction close up, shorten the timer section and finish on the completed dashboard. The framed window moves smoothly throughout. One generated code card during the build; the accepted dialogue stays unchanged.",
+    "comprehension": "The opening request names the dashboard and its purpose before any app or feature name is introduced.",
+    "design": {
+      "mode": "preserve",
+      "variance": 7,
+      "motion": 7,
+      "density": 3,
+      "palette": "cool ink, white and muted blue",
+      "type": "system sans with monospace code"
+    }
+  },
+  "claims": [
+    {
+      "text": "Powered by Codex",
+      "source": "https://openai.com/index/unlocking-the-codex-harness/",
+      "projectEvidence": "src/backend.ts and the recorded Codex-generated mini-app"
+    },
+    {
+      "text": "Create mini-apps by voice",
+      "projectEvidence": "The recorded creation request, new Day Focus app, editable priorities and working countdown"
+    }
+  ],
+  "review": {
+    "safe": {
+      "top": 44,
+      "bottom": 44,
+      "right": 44
+    },
+    "deadMax": 4
+  }
+}

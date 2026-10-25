@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Astra — your voice, your apps</title>
+<style>html,body{margin:0;background:#090f17}canvas{display:block;width:100vw;height:auto}</style>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+"use strict";
+const W = 1920, H = 1080, FPS = 30, DURATION = 30;
+let ctx = document.getElementById("c").getContext("2d", {willReadFrequently:true});
+let frameIssues = [];
+const STYLE = {paper:"#090f17",ink:"#edf3fa",muted:"#8c9daf",accent:"#9bc9ed",panel:"#142132",line:"#2a3d53",ones:true};
+const CUT_FRAMES = [0,169,225,281,394,506,619,788,900];
+const SHOT_TITLES = ["Say what you need","Astra starts building","Your dashboard appears","Check a priority","Start your focus","Your day in one place","A working dashboard","Your voice, your apps"];
+const FULL_VIEW = [50,20,1200,675];
+const FULL_APP = [22,70,1416,796.5];
+const FRAME_BAR = 34;
+const DASHBOARD_REVEAL_FRAME = 225;
+const SHORTENED_BUILD_FRAMES = 56;
+const LAST_DASHBOARD_FRAME = 787;
+const NATIVE_FRAME = document.createElement("canvas");
+const NATIVE_PIXELS = NATIVE_FRAME.getContext("2d", {willReadFrequently:true});
+let cachedNativeName = null;
+const TIMELINE = {
+  width:W,height:H,fps:FPS,bpm:128,duration:DURATION,frames:900,loop:DURATION,
+  format:"voice-led product film",safe:{top:44,bottom:44,right:44},
+  shots:SHOT_TITLES.map((title,i)=>({id:i+1,key:`shot-${i}`,era:i,t0:CUT_FRAMES[i]/FPS,t1:CUT_FRAMES[i+1]/FPS,title})),
+  cuts:CUT_FRAMES.slice(1,-1).map(frame=>frame/FPS),morphs:[],
+  acts:[
+    {name:"Ask",role:"build",t0:0,t1:169/FPS},
+    {name:"Build",role:"build",t0:169/FPS,t1:225/FPS},
+    {name:"Reveal",role:"build",t0:225/FPS,t1:619/FPS},
+    {name:"Use",role:"gift",t0:619/FPS,t1:788/FPS},
+    {name:"Astra",role:"goodbye",t0:788/FPS,t1:30}
+  ],
+  narration:[
+    {t0:0.65,t1:4.68,text:"Create a dashboard for my day, with priorities and a focus timer."},
+    {t0:5.85,t1:6.8,text:"Building it now."},
+    {t0:9.72,t1:14.45,text:"Your dashboard is ready with editable priorities and a focus/break timer."}
+  ]
+};
+TIMELINE.board = TIMELINE.shots.map(shot=>({t:(shot.t0+shot.t1)/2,title:shot.title,sound:"The original voices and electronic score",next:"The app window carries the movement into the next view"}));
+window.TIMELINE = TIMELINE;
+function shotAtFrame(frame) {
+  return TIMELINE.shots.find(shot=>frame>=Math.round(shot.t0*FPS)&&frame<Math.round(shot.t1*FPS)) || TIMELINE.shots.at(-1);
+}
+window.shotAtFrame = shotAtFrame;
+function smoothProgress(value) {
+  const x=Math.max(0,Math.min(1,value));
+  return x*x*(3-2*x);
+}
+function blendView(a,b,progress) {
+  return a.map((value,index)=>value+(b[index]-value)*progress);
+}
+function cameraTrack(keys,phase) {
+  for(let index=1;index<keys.length;index++)
+    if(phase<=keys[index][0])return blendView(keys[index-1][1],keys[index][1],smoothProgress((phase-keys[index-1][0])/(keys[index][0]-keys[index-1][0])));
+  return keys.at(-1)[1];
+}
+function demoText(value,x,y,size=64,color=STYLE.ink,weight=550,family="system-ui",alpha=1) {
+  if(!value||alpha<=0)return 0;
+  ctx.save();ctx.globalAlpha*=alpha;ctx.fillStyle=color;
+  ctx.font=`${weight} ${size}px ${family}`;ctx.textBaseline="top";
+  ctx.fillText(value,x,y);
+  const width=ctx.measureText(value).width;
+  if(x<44||y<44||x+width>W-44||y+size*1.22>H-44)
+    frameIssues.push({text:value,x,y,width,size,reason:"outside the safe frame"});
+  ctx.restore();return width;
+}
+function rounded(x,y,width,height,radius,fill,stroke) {
+  ctx.beginPath();ctx.roundRect(x,y,width,height,radius);
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1.2;ctx.stroke();}
+}
+function footageFrame(t) {
+  const frame=Math.max(0,Math.min(899,Math.floor(t*FPS)));
+  return frame<DASHBOARD_REVEAL_FRAME?frame:Math.min(LAST_DASHBOARD_FRAME,frame+SHORTENED_BUILD_FRAMES);
+}
+function sourceImage(t) {
+  const frame=footageFrame(t);
+  const name=FOOTAGE_FILES[frame];
+  const image=ASSETS[name];
+  if(!image?.complete||!image.naturalWidth)throw new Error(`The genuine Astra recording frame is missing: ${frame}`);
+  if(cachedNativeName!==name){
+    NATIVE_FRAME.width=image.naturalWidth;NATIVE_FRAME.height=image.naturalHeight;
+    NATIVE_PIXELS.drawImage(image,0,0);
+    // Decode at native size before a camera crop can change JPEG sampling.
+    const pixels=NATIVE_PIXELS.getImageData(0,0,NATIVE_FRAME.width,NATIVE_FRAME.height);
+    NATIVE_PIXELS.putImageData(pixels,0,0);cachedNativeName=name;
+  }
+  return NATIVE_FRAME;
+}
+function nativeCrop(image,view,x,y,width,height) {
+  const sx=(image.naturalWidth||image.width)/1440,sy=(image.naturalHeight||image.height)/868;
+  const cropWidth=Math.min(1440,Math.max(1,view[2]));
+  const cropHeight=Math.min(868,Math.max(1,view[3]));
+  const left=Math.max(0,Math.min(1440-cropWidth,view[0]));
+  const top=Math.max(0,Math.min(868-cropHeight,view[1]));
+  ctx.drawImage(image,left*sx,top*sy,cropWidth*sx,cropHeight*sy,x,y,width,height);
+}
+const FRAME_TRACKS = [
+  [[0,[720,250,1090,613.125]],[0.33,[600,205,1240,697.5]],[1,[588,190,1252,704.25]]],
+  [[0,[588,190,1252,704.25]],[1,[624,208,1212,681.75]]],
+  [[0,[624,208,1212,681.75]],[1,[588,190,1252,704.25]]],
+  [[0,[650,250,1140,641.25]],[1,[568,176,1272,715.5]]],
+  [[0,[568,176,1272,715.5]],[1,[648,200,1188,668.25]]],
+  [[0,[592,190,1248,702]],[1,[566,170,1270,714.375]]],
+  [[0,[566,170,1270,714.375]],[1,[716,210,1120,630]]],
+  [[0,[650,215,1184,666]],[1,[592,190,1248,702]]]
+];
+const VIEW_TRACKS = [
+  [[0,FULL_VIEW],[1,[80,35,1140,641.25]]],
+  [[0,[80,35,1140,641.25]],[1,[105,45,1100,618.75]]],
+  [[0,FULL_APP],[1,[42,90,1370,770.625]]],
+  [[0,[85,460,715,402.1875]],[1,[105,515,570,320.625]]],
+  [[0,[640,450,735,413.4375]],[1,[680,510,620,348.75]]],
+  [[0,[42,90,1370,770.625]],[1,[100,95,1240,697.5]]],
+  [[0,FULL_APP],[1,[42,90,1370,770.625]]],
+  [[0,[42,90,1370,770.625]],[1,FULL_APP]]
+];
+const HEADLINES = [
+  ["Create a","dashboard","for my day."],
+  ["Your idea.","Taking shape."],
+  ["Dashboard ready."],
+  ["Check a priority."],
+  ["Time to focus."],
+  ["Your day.","In one place."],
+  ["Made by asking."],
+  ["Your voice.","Your apps."]
+];
+function drawStage(index,t,elapsed) {
+  const wordWidth=demoText("astra",100,68,65,STYLE.ink,600);
+  demoText(".",101+wordWidth,68,65,STYLE.accent,600);
+  demoText("POWERED BY CODEX",104,151,18,STYLE.muted,500);
+  const slide=26*(1-smoothProgress(elapsed/0.7));
+  const appear=smoothProgress(elapsed/0.3);
+  const label=index>=2&&index<=6;
+  HEADLINES[index].forEach((line,row)=>{demoText(line,104,335+row*(label?54:78)+slide,label?40:index===0?64:62,row===HEADLINES[index].length-1?STYLE.accent:STYLE.ink,550,"system-ui",appear);});
+  if(index===7)demoText("getastra.halcytron.chatgpt.site",106,625+slide,24,STYLE.muted,400,"system-ui",appear);
+  if(index===0){
+    demoText("With priorities",106,625+slide,30,STYLE.muted,400,"system-ui",appear);
+    demoText("and a focus timer.",106,668+slide,30,STYLE.muted,400,"system-ui",appear);
+    demoText("YOU",106,774,19,STYLE.muted,500);
+    const speaking=smoothProgress((t-0.5)/0.2)*(1-smoothProgress((t-4.6)/0.25));
+    for(let bar=0;bar<45;bar++){
+      const wave=(0.5+0.5*Math.sin(bar*0.83-t*5))**2;
+      const height=3+speaking*36*wave*Math.sin(Math.PI*(bar+1)/46);
+      ctx.fillStyle=STYLE.accent;ctx.fillRect(106+bar*7,830-height/2,3,height);
+    }
+  }
+  ctx.strokeStyle="#1d2b3b";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(104,972);ctx.lineTo(1816,972);ctx.stroke();
+  demoText("Real Astra recording · waits shortened",104,1001,22,STYLE.muted,400);
+  demoText(`${String(index+1).padStart(2,"0")} / 08`,1730,1001,20,STYLE.muted,500,"monospace");
+}
+function appFrame(image,index,phase) {
+  const frame=cameraTrack(FRAME_TRACKS[index],phase);
+  const [x,y,width,height]=frame;
+  ctx.save();ctx.shadowColor="#030914b0";ctx.shadowBlur=42;ctx.shadowOffsetY=22;
+  rounded(x,y,width,height+FRAME_BAR,20,"#101a27");
+  ctx.shadowColor="transparent";
+  ctx.save();ctx.beginPath();ctx.roundRect(x,y,width,height+FRAME_BAR,20);ctx.clip();
+  nativeCrop(image,cameraTrack(VIEW_TRACKS[index],phase),x,y+FRAME_BAR,width,height);
+  ctx.restore();
+  rounded(x,y,width,height+FRAME_BAR,20,null,"#2d4057");
+  ctx.fillStyle="#647b94";
+  for(let dot=0;dot<3;dot++)rounded(x+19+dot*13,y+14,5,5,2.5,ctx.fillStyle);
+  demoText("ASTRA",x+width-85,y+9,15,"#91a3b8",500,"monospace");
+  ctx.restore();
+}
+function codeCard(elapsed) {
+  const opening=smoothProgress(elapsed/0.4);
+  const leaving=smoothProgress((elapsed-1.25)/0.6);
+  const progress=opening;
+  const x=104-72*(1-progress)+170*leaving;
+  const y=644+65*(1-progress)-65*leaving;
+  const width=704,height=236;
+  ctx.save();ctx.globalAlpha=progress*(1-leaving);
+  ctx.shadowColor="#030914aa";ctx.shadowBlur=32;ctx.shadowOffsetY=16;
+  const material=ctx.createLinearGradient(x,y,x+width,y+height);
+  material.addColorStop(0,"#1a2c42");material.addColorStop(1,"#111d2d");
+  rounded(x,y,width,height,17,material,"#38516c");ctx.shadowColor="transparent";
+  demoText("mini-app.js",x+26,y+21,22,STYLE.ink,500,"monospace");
+  demoText("GENERATED CODE",x+width-176,y+26,14,STYLE.muted,500,"monospace");
+  ctx.strokeStyle="#2b4056";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x+24,y+62);ctx.lineTo(x+width-24,y+62);ctx.stroke();
+  const lines=["state.running = true;","renderTimer();"];
+  let available=Math.floor((elapsed+0.01)*35);
+  lines.forEach((line,row)=>{
+    demoText(String(row+1).padStart(2,"0"),x+27,y+88+row*57,19,"#71869c",400,"monospace");
+    const part=line.slice(0,Math.max(0,available));
+    const measured=demoText(part,x+75,y+82+row*57,34,STYLE.accent,400,"monospace");
+    if(available>=0&&available<line.length){ctx.fillStyle=STYLE.accent;ctx.fillRect(x+80+measured,y+86+row*57,2,35);}
+    available-=line.length;
+  });
+  ctx.restore();
+}
+function drawSequence(image,index,t,phase,elapsed) {
+  appFrame(image,index,phase);
+  drawStage(index,t,elapsed);
+  if(index===1)codeCard(elapsed);
+}
+function requestShot(image,t,phase,elapsed){drawSequence(image,0,t,phase,elapsed);}
+function buildingShot(image,t,phase,elapsed){drawSequence(image,1,t,phase,elapsed);}
+function codeShot(image,t,phase,elapsed){drawSequence(image,2,t,phase,elapsed);}
+function revealShot(image,t,phase,elapsed){drawSequence(image,3,t,phase,elapsed);}
+function prioritiesShot(image,t,phase,elapsed){drawSequence(image,4,t,phase,elapsed);}
+function focusShot(image,t,phase,elapsed){drawSequence(image,5,t,phase,elapsed);}
+function heroShot(image,t,phase,elapsed){drawSequence(image,6,t,phase,elapsed);}
+function outroShot(image,t,phase,elapsed){drawSequence(image,7,t,phase,elapsed);}
+const SCENE_DRAWERS=[requestShot,buildingShot,codeShot,revealShot,prioritiesShot,focusShot,heroShot,outroShot];
+function renderFrame(t,target) {
+  const previous=ctx;if(target)ctx=target.getContext("2d",{willReadFrequently:true});
+  frameIssues=[];ctx.clearRect(0,0,W,H);ctx.fillStyle=STYLE.paper;ctx.fillRect(0,0,W,H);
+  const frame=Math.min(899,Math.max(0,Math.floor(t*FPS)));
+  const shot=shotAtFrame(frame),elapsed=t-shot.t0,phase=Math.max(0,Math.min(1,elapsed/(shot.t1-shot.t0)));
+  SCENE_DRAWERS[shot.era](sourceImage(t),t,phase,elapsed);
+  ctx=previous;return {issues:frameIssues};
+}
+window.renderFrame=renderFrame;
+window.renderBoard=()=>{
+  const board=document.createElement("canvas");board.width=2080;board.height=2592;
+  const g=board.getContext("2d",{willReadFrequently:true});g.fillStyle=STYLE.paper;g.fillRect(0,0,board.width,board.height);
+  TIMELINE.board.forEach((beat,index)=>{
+    const frame=document.createElement("canvas");frame.width=W;frame.height=H;renderFrame(beat.t,frame);
+    const x=32+(index%2)*1024,y=32+Math.floor(index/2)*640;
+    g.drawImage(frame,x,y,992,558);
+    g.fillStyle=STYLE.ink;g.font="550 23px system-ui";
+    g.fillText(`${String(index+1).padStart(2,"0")} · ${beat.title}`,x,y+591);
+  });
+  return board;
+};
+</script>
+</html>
