@@ -21,7 +21,7 @@ try {
   const link = await canvas.evaluate<{ x: number; y: number }>(`(() => {
     const link = document.createElement('a');
     link.id = 'canvas-link-regression';
-    link.href = 'https://example.com/codexos-check';
+    link.href = 'https://example.com/astra-check';
     link.textContent = 'Check external link';
     link.style.cssText = 'position:fixed;top:16px;left:16px;padding:12px;background:white;color:black;z-index:2147483647';
     document.getElementById('substrate').append(link);
@@ -49,15 +49,15 @@ try {
   }
   await Bun.sleep(100);
   assert.deepEqual(await app.evaluate("window.__canvasLinks"), [
-    "https://example.com/codexos-check",
+    "https://example.com/astra-check",
   ]);
   assert.ok(
     await canvas.evaluate("location.href.endsWith('/dist/canvas.html')"),
     "Web links must keep the canvas runtime in place",
   );
-  await app.evaluate("window.codexosFlush()");
+  await app.evaluate("window.astraFlush()");
   const rejection = await app.evaluate(
-    "window.codexos.openExternal('file:///etc/passwd').then(()=>false,()=>true)",
+    "window.astra.openExternal('file:///etc/passwd').then(()=>false,()=>true)",
   );
   assert.equal(
     rejection,
@@ -83,7 +83,7 @@ try {
   await app.evaluate(
     "removeEventListener('message', window.__captureLink, true);delete window.__captureLink;delete window.__canvasLinks",
   );
-  await app.evaluate("window.codexosFlush()");
+  await app.evaluate("window.astraFlush()");
   canvas.close();
   app.close();
 }

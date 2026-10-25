@@ -38,7 +38,7 @@ test("astra advertises its real tool, CLI and navigation policy to both agent mo
   expect(APP_TOOL.name).toBe("astra");
   expect(APP_TOOL.description).toContain("instead of computer use");
   for (const instructions of [ASTRA_INSTRUCTIONS, ASTRA_CONTROL_INSTRUCTIONS]) {
-    expect(instructions).toContain("~/.local/bin/astra");
+    expect(instructions).toContain("local astra CLI");
     expect(instructions).toContain("astra status");
     expect(instructions).toContain("astra --help");
     expect(instructions).toContain("astra pause");

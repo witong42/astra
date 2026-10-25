@@ -15,6 +15,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="canonical" href="https://getastra.halcytron.chatgpt.site/" />
     <link rel="icon" href="./assets/icon.png" />
+    <link rel="stylesheet" href="./brand.css" />
     <link rel="stylesheet" href="./site.css" />
     <title>Astra — Your personal Jarvis, powered by Codex</title>
     <script type="module" src="./site.js"></script>
@@ -22,7 +23,7 @@
   <body>
     <a class="skip-link" href="#main" data-i18n="skip">Skip to content</a>
     <header class="navigation wrap">
-      <a class="brand" href="#main" aria-label="Astra home"><img src="./assets/icon.png" alt="" width="30" height="30" />astra<span class="brand-period">.</span></a>
+      <a class="brand" href="#main" aria-label="Astra home"><img src="./astra-logo.svg" alt="" width="36" height="36" />astra</a>
       <nav class="main-navigation" aria-label="Main navigation">
         <a href="#possibilities" data-i18n="navApps">Mini-apps</a>
         <a href="#film" data-i18n="navFilm">Watch the demo</a>
@@ -80,14 +81,14 @@
         <div class="film-heading"><h2 id="film-title" data-i18n="filmTitle">Watch Astra in action.</h2></div>
         <div class="film-frame"><video id="pitch" controls playsinline preload="metadata" poster="./assets/film-poster.png" aria-label="Real Astra voice demo in English"><source src="./assets/astra-demo-en.mp4" type="video/mp4" /><track kind="captions" src="./assets/astra-demo-en.vtt" srclang="en" label="English" /><p data-i18n="videoFallback">Your browser cannot play this video.</p></video></div>
       </section>
-      <section class="your-mac wrap" aria-labelledby="local-title"><h2 id="local-title" data-i18n="localTitle">Your computer.<br />Your Codex.<br /><span>Your way.</span></h2><div class="local-details"><p data-i18n="localDescription">Your mini-apps and journal are stored locally. Astra uses your Codex account.</p><p data-i18n="phoneDescription">Use Astra from your phone while your computer stays on.</p><p data-i18n="accessNote">Codex can edit files and run commands without approval prompts.</p><a href="https://github.com/witong42/Astra#access-and-data" target="_blank" rel="noreferrer" data-i18n="dataLink">Access and data</a></div></section>
+      <section class="your-mac wrap" aria-labelledby="local-title"><h2 id="local-title" data-i18n="localTitle">Your computer.<br />Your Codex.<br /><span>Your way.</span></h2><div class="local-details"><p data-i18n="localDescription">Your mini-apps and journal are stored locally. Astra uses your Codex account.</p><p data-i18n="phoneDescription">Use Astra from your phone while your computer stays on.</p><p data-i18n="accessNote">Codex can edit files and run commands without approval prompts.</p><a href="https://github.com/witong42/astra#access-and-data" target="_blank" rel="noreferrer" data-i18n="dataLink">Access and data</a></div></section>
       <section class="install-section wrap" id="install" aria-labelledby="install-title">
         <div class="install-heading"><h2 id="install-title" data-i18n="installTitle">Meet your<br /><span>next little universe.</span></h2><p data-i18n="installDescription">Requires Codex CLI with ChatGPT sign-in.</p></div>
         <div class="install-box"><div class="install-box-heading"><span data-i18n="installTerminal">macOS and Linux</span><a href="./install.sh" target="_blank" rel="noreferrer" data-i18n="inspectInstaller">View installer</a></div><div class="install-command"><code id="install-command">curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash</code><button type="button" id="copy-install" data-copy-command="install-command" data-copy-feedback="copy-feedback" aria-label="Copy installation command" data-i18n="copy">Copy</button></div><p class="copy-feedback" id="copy-feedback" role="status" aria-live="polite"></p><p class="platform-requirements" data-i18n="terminalRequirements">macOS 14+ on Apple Silicon. Debian or Ubuntu on x64 or ARM64.</p><div class="install-box-heading"><span data-i18n="windowsTerminal">Windows PowerShell</span><a href="./install.ps1" target="_blank" rel="noreferrer" data-i18n="inspectInstaller">View installer</a></div><div class="install-command"><code id="windows-install-command">irm https://getastra.halcytron.chatgpt.site/install.ps1 | iex</code><button type="button" id="copy-windows-install" data-copy-command="windows-install-command" data-copy-feedback="windows-copy-feedback" aria-label="Copy installation command" data-i18n="copy">Copy</button></div><p class="copy-feedback" id="windows-copy-feedback" role="status" aria-live="polite"></p><div class="platform-install"><h3 data-i18n="manualDownloads">Downloads</h3><div class="platform-downloads"><a class="primary-action" id="mac-download" href="__ASTRA_MAC_DOWNLOAD_URL__" data-i18n="macDownload">macOS .dmg</a><a class="primary-action" id="windows-download" href="__ASTRA_WINDOWS_DOWNLOAD_URL__" data-i18n="windowsDownload">Windows x64 ZIP</a><a class="primary-action" id="linux-x64-download" href="__ASTRA_LINUX_X64_DOWNLOAD_URL__" data-i18n="linuxX64Download">Linux x64 .deb</a><a class="primary-action" id="linux-download" href="__ASTRA_LINUX_DOWNLOAD_URL__" data-i18n="linuxDownload">Linux ARM64 .deb</a></div></div></div>
-        <div class="install-links"><a href="https://github.com/witong42/Astra/releases" target="_blank" rel="noreferrer" data-i18n="manualDownload">All downloads</a><a href="https://github.com/witong42/Astra" target="_blank" rel="noreferrer" data-i18n="sourceCode">GitHub</a><a href="https://developers.openai.com/codex/cli/" target="_blank" rel="noreferrer" data-i18n="codexSetup">Install Codex</a></div>
+        <div class="install-links"><a href="https://github.com/witong42/astra/releases" target="_blank" rel="noreferrer" data-i18n="manualDownload">All downloads</a><a href="https://github.com/witong42/astra" target="_blank" rel="noreferrer" data-i18n="sourceCode">GitHub</a><a href="https://developers.openai.com/codex/cli/" target="_blank" rel="noreferrer" data-i18n="codexSetup">Install Codex</a></div>
         
       </section>
     </main>
-    <footer class="footer wrap"><a class="brand" href="#main">astra<span class="brand-period">.</span></a><div><a href="./changelog.md" data-i18n="changelog">Changelog</a><a href="https://github.com/witong42/Astra/blob/main/LICENSE" data-i18n="license">MIT license</a><a href="https://github.com/witong42/Astra/blob/main/THIRD_PARTY_NOTICES.md" data-i18n="credits">Credits</a></div></footer>
+    <footer class="footer wrap"><a class="brand" href="#main"><img src="./astra-logo.svg" alt="" width="36" height="36" />astra</a><div><a href="./changelog.md" data-i18n="changelog">Changelog</a><a href="https://github.com/witong42/astra/blob/main/LICENSE" data-i18n="license">MIT license</a><a href="https://github.com/witong42/astra/blob/main/THIRD_PARTY_NOTICES.md" data-i18n="credits">Credits</a></div></footer>
   </body>
 </html>

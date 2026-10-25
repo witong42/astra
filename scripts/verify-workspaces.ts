@@ -1,19 +1,17 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { emptyCanvas } from "../src/canvas";
+import { astraConfig } from "../src/config";
 import { loadState, newWorkspace, saveState } from "../src/storage";
 import type { Snapshot } from "../src/types";
 import { desktopClient } from "./desktop-client";
 
-const PROFILE = "/tmp/codexos-workspaces-check";
+const PROFILE = "/tmp/astra-workspaces-check";
 const ROOT = join(import.meta.dir, "..");
 const DELETE_MARKER = "workspace-deletion-fixture-secret";
 if (process.argv.includes("--prepare")) {
   const settings = loadState(
-    join(
-      process.env.HOME ?? "",
-      "Library/Application Support/CodexOS/workspace.json",
-    ),
+    join(astraConfig().dataDirectory, "workspace.json"),
     ROOT,
   );
   const workspaces = [
@@ -56,7 +54,7 @@ if (process.argv.includes("--prepare")) {
   process.exit(0);
 }
 const client = await desktopClient();
-const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
+const snapshot = () => client.evaluate<Snapshot>("window.astra.snapshot()");
 async function wait<T>(
   read: () => Promise<T>,
   check: (value: T) => boolean,

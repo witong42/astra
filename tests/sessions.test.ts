@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import {
   appendFileSync,
   chmodSync,
@@ -28,22 +29,28 @@ async function waitFor(check: () => boolean, description: string) {
 async function withBackend(
   check: (fixture: Awaited<ReturnType<typeof startBackend>>) => Promise<void>,
 ) {
-  const previousExecutable = process.env.CODEXOS_CODEX_PATH;
+  const previousExecutable = process.env.ASTRA_CODEX_PATH;
+  const previousNodeMode = process.env.ELECTRON_RUN_AS_NODE;
   const fixture = await startBackend();
   try {
     await fixture.backend.connect();
     await check(fixture);
   } finally {
     await fixture.backend.stop();
-    if (previousExecutable === undefined) delete process.env.CODEXOS_CODEX_PATH;
-    else process.env.CODEXOS_CODEX_PATH = previousExecutable;
+    if (previousNodeMode === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
+    else process.env.ELECTRON_RUN_AS_NODE = previousNodeMode;
+    if (previousExecutable === undefined) delete process.env.ASTRA_CODEX_PATH;
+    else process.env.ASTRA_CODEX_PATH = previousExecutable;
     rmSync(fixture.directory, { recursive: true });
   }
 }
 
 async function startBackend() {
-  const directory = mkdtempSync(join(tmpdir(), "codexos-sessions-test-"));
-  const executable = join(directory, "fake-codex");
+  const directory = mkdtempSync(join(tmpdir(), "astra-sessions-test-"));
+  const executable = join(
+    directory,
+    process.platform === "win32" ? "app-server" : "fake-codex",
+  );
   const commandsPath = join(directory, "commands.jsonl");
   const wirePath = join(directory, "wire.jsonl");
   writeFileSync(commandsPath, "");
@@ -53,12 +60,13 @@ async function startBackend() {
     `#!/usr/bin/env bun
 import { appendFileSync, readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
+import { basename } from 'node:path';
 if (process.argv.includes('--version')) { console.log('codex-cli test'); process.exit(0); }
 const commandsPath = ${JSON.stringify(commandsPath)};
 const wirePath = ${JSON.stringify(wirePath)};
 const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
 const record = value => appendFileSync(wirePath, JSON.stringify(value) + '\\n');
-record({argv:process.argv.slice(2)});
+record({argv:process.platform === 'win32' ? [basename(process.argv[1]), ...process.argv.slice(2)] : process.argv.slice(2)});
 const turns = new Map();
 const pendingStarts = [];
 let holdStarts = false;
@@ -143,7 +151,16 @@ setInterval(() => {
 `,
   );
   chmodSync(executable, 0o700);
-  process.env.CODEXOS_CODEX_PATH = executable;
+  if (process.platform === "win32") {
+    writeFileSync(join(directory, "package.json"), '{"type":"module"}');
+    process.env.ELECTRON_RUN_AS_NODE = "1";
+    const electron = join(import.meta.dir, "../node_modules/electron");
+    process.env.ASTRA_CODEX_PATH = join(
+      electron,
+      "dist",
+      readFileSync(join(electron, "path.txt"), "utf8").trim(),
+    );
+  } else process.env.ASTRA_CODEX_PATH = executable;
   const saved = loadState(join(directory, "state.json"), directory);
   const a = saved.activeId;
   const second = newWorkspace(directory);
@@ -202,7 +219,7 @@ setInterval(() => {
   };
 }
 
-test("CodexOS grants full access to new and saved sessions without changing model settings", () =>
+test("Astra grants full access to new and saved sessions without changing model settings", () =>
   withBackend(async ({ backend, a, b, workspace, requests, readWire }) => {
     const startup = readWire().find((message) => "argv" in message) as
       | { argv: string[] }
@@ -298,8 +315,8 @@ test("oversized surface context does not block chat or mid-turn guidance", () =>
       const input = requests(method)[0]?.params?.input as { text: string }[];
       const text = input[0].text;
       const data = text
-        .split("<codexos_current_surface_data>\n")[1]
-        .split("\n</codexos_current_surface_data>")[0];
+        .split("<astra_current_surface_data>\n")[1]
+        .split("\n</astra_current_surface_data>")[0];
       const context = JSON.parse(data);
       expect(context.truncated).toBe(true);
       expect(context.preview).toContain("keep-me");
@@ -490,8 +507,9 @@ test("sending during generation steers the existing turn with its expected ID", 
 test("a rejected steer preserves the active turn and does not record an accepted user message", () =>
   withBackend(async ({ backend, a, workspace, session, requests, event }) => {
     await backend.send("Build A", a);
-    await expect(backend.send("reject steer please", a)).rejects.toThrow(
-      "Steering rejected by fake server",
+    await assert.rejects(
+      backend.send("reject steer please", a),
+      /Steering rejected by fake server/,
     );
     expect(session(a).busy).toBe(true);
     expect(session(a).metrics?.total).toBeNull();
@@ -521,8 +539,9 @@ test("a rejected steer preserves the active turn and does not record an accepted
 test("a completion racing with steering rejects the steer without starting a fresh turn", () =>
   withBackend(async ({ backend, a, workspace, session, requests }) => {
     await backend.send("Build A", a);
-    await expect(backend.send("race steer please", a)).rejects.toThrow(
-      "Turn already completed",
+    await assert.rejects(
+      backend.send("race steer please", a),
+      /Turn already completed/,
     );
     await waitFor(() => !session(a).busy, "raced turn completion");
     expect(requests("turn/steer")).toHaveLength(1);
@@ -938,7 +957,7 @@ test("names are short, streamed naming stays out of chat, and a manual rename wi
       params: {
         threadId,
         itemId: "title",
-        delta: "```codexos-name\nStar Atlas\n```\nReady.\n",
+        delta: "```astra-name\nStar Atlas\n```\nReady.\n",
       },
     });
     await waitFor(
@@ -955,7 +974,7 @@ test("names are short, streamed naming stays out of chat, and a manual rename wi
       params: {
         threadId,
         itemId: "late-title",
-        delta: "```codexos-name\nChanged Name\n```\n",
+        delta: "```astra-name\nChanged Name\n```\n",
       },
     });
     expect(workspace(a).name).toBe("Star Atlas");
@@ -966,7 +985,7 @@ test("names are short, streamed naming stays out of chat, and a manual rename wi
       params: {
         threadId: workspace(b).threadId,
         itemId: "late-title",
-        delta: "```codexos-name\nMusic Room\n```\n",
+        delta: "```astra-name\nMusic Room\n```\n",
       },
     });
     expect(workspace(b).name).toBe("My Radio");
@@ -999,10 +1018,14 @@ test("Astra has a persistent hidden agent and exposes app tools only on its acti
       expect.arrayContaining([expect.objectContaining({ name: "astra" })]),
     );
     expect(start?.params?.developerInstructions).toContain("You are Astra");
+    const nativeLanguage = {
+      darwin: "macOS. Use AppleScript",
+      win32: "Windows. Use PowerShell",
+      linux: "Linux. Use POSIX shell",
+    }[process.platform as "darwin" | "win32" | "linux"];
+    expect(start?.params?.developerInstructions).toContain(nativeLanguage);
     expect(backend.state.assistant?.name).toBe("Astra");
-    expect(start?.params?.developerInstructions).toContain(
-      "~/.local/bin/astra",
-    );
+    expect(start?.params?.developerInstructions).toContain("local astra CLI");
     const threadId = backend.state.assistant?.threadId;
     const turnId = requests("turn/start").at(-1)?.id;
     const turn = `turn-${threadId}-${turnId}`;
@@ -1081,8 +1104,9 @@ test("voice negotiates through Codex and delegated turns retain the Home app too
     expect(started?.prompt).toContain(
       'The standalone spoken command "Home" is handled directly by Astra',
     );
-    expect(started?.prompt).toContain(
-      'The standalone spoken requests "pause", "mets pause" and "mets en pause" are also handled directly',
+    expect(started?.prompt).toContain("generate <|SpawnThinking|> immediately");
+    expect(started?.prompt).not.toContain(
+      'The standalone spoken requests "pause"',
     );
     expect(started?.prompt).toContain(
       "Requests to explain, diagnose or fix pausing are not pause commands",
@@ -1108,6 +1132,10 @@ test("voice negotiates through Codex and delegated turns retain the Home app too
         arguments: { action: "list" },
       },
     });
+    await waitFor(
+      () => readWire().some((message) => message.id === "voice-tool"),
+      "voice tool response",
+    );
     expect(
       readWire().find((message) => message.id === "voice-tool")?.result,
     ).toMatchObject({ success: true });

@@ -1,59 +1,94 @@
 import { expect, test } from "bun:test";
 import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { CodexLiveMedia } from "../src/live-media";
+  type AudioHostCommand,
+  type AudioHostMessage,
+  BufferedLiveMedia,
+} from "../src/live-media";
+import type { AudioFrame } from "../src/local-input";
 
-test("Codex media opens muted devices after negotiation and releases the helper", async () => {
-  const root = mkdtempSync(join(tmpdir(), "astra-live-media-"));
-  const bin = join(root, "bin");
-  const helperDirectory = join(root, "codex-resources/voice/bin");
-  mkdirSync(bin, { recursive: true });
-  mkdirSync(helperDirectory, { recursive: true });
-  const cli = join(bin, "codex");
-  writeFileSync(cli, "fixture");
-  const helper = join(helperDirectory, "codex-voice-host");
-  writeFileSync(
-    helper,
-    `#!/usr/bin/env bun
-if(process.argv.includes('--build-commit')) { console.log('a'.repeat(40)); process.exit(0); }
-const send=value=>{const body=Buffer.from(JSON.stringify(value));const header=Buffer.alloc(4);header.writeUInt32BE(body.length);process.stdout.write(Buffer.concat([header,body]));};
-let buffer=Buffer.alloc(0),negotiated=false;
-process.stdin.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]);while(buffer.length>=4&&buffer.length>=4+buffer.readUInt32BE()){
- const size=buffer.readUInt32BE();const value=JSON.parse(buffer.subarray(4,size+4).toString());buffer=buffer.subarray(size+4);
- const responses={hello:'ready',initializeRuntime:'runtimeReady',startTransport:'offer',applyAnswer:'transportReady',openDevices:'devicesOpened',setAudioControls:'audioControlsApplied',inspectAudio:'audioState',close:'closed'};
- if(value.type==='applyAnswer')negotiated=true;
- if(value.type==='openDevices'&&!negotiated)process.exit(2);
- send({type:responses[value.type],...(value.type==='startTransport'?{sdp:'test-offer'}:{}),...(value.type==='inspectAudio'?{state:{microphonePeak:1000,speakerPeak:0}}:{})});
- if(value.type==='close')process.exit(0);
-}});
-`,
+test("buffered media sends the prefix and ongoing audio once, then releases capture and its isolated host", async () => {
+  const commands: AudioHostCommand[] = [];
+  let receive!: (message: AudioHostMessage) => void;
+  let append!: (frame: AudioFrame) => void;
+  let closed = false;
+  let released = false;
+  const media = new BufferedLiveMedia(
+    async (listener) => {
+      receive = listener;
+      return {
+        send: (command) => {
+          commands.push(command);
+          if (command.type === "request")
+            queueMicrotask(() =>
+              receive({
+                id: command.id,
+                result: command.action === "offer" ? "buffered-offer" : null,
+              }),
+            );
+        },
+        close: () => {
+          closed = true;
+        },
+      };
+    },
+    async (replay, frame) => {
+      expect(replay).toBe(true);
+      append = frame;
+      frame({ start: 100, pcm: new Float32Array([0.1, 0.2]) });
+      return () => {
+        released = true;
+      };
+    },
+    () => {},
   );
-  chmodSync(helper, 0o700);
-  const errors: string[] = [];
-  const media = new CodexLiveMedia(cli, (event) => {
-    if (event.method === "voice/error") errors.push(event.message);
-  });
-  try {
-    expect(await media.offer()).toBe("test-offer");
-    await media.answer("test-answer");
-    await media.muteOutput(true);
-    await media.muteOutput(false);
-    expect(errors).toEqual([]);
-  } finally {
-    media.stop();
-    rmSync(root, { recursive: true });
-  }
+  expect(media.replaysWakeAudio).toBe(true);
+  expect(await media.offer(true)).toBe("buffered-offer");
+  append({ start: 102, pcm: new Float32Array([0.3]) });
+  await media.answer("remote-answer");
+  await media.muteOutput(true);
+  expect(
+    commands
+      .filter((command) => command.type === "frame")
+      .map((command) => command.start),
+  ).toEqual([100, 102]);
+  expect(
+    commands.find(
+      (command) => command.type === "request" && command.action === "offer",
+    ),
+  ).toMatchObject({ replayFrom: 100 });
+  media.stop();
+  media.stop();
+  expect(closed && released).toBe(true);
+  const count = commands.length;
+  append({ start: 103, pcm: new Float32Array([0.4]) });
+  expect(commands).toHaveLength(count);
+  await expect(media.answer("stale")).rejects.toThrow("stopped");
 });
 
-test("missing Codex voice runtime produces an actionable error", async () => {
-  const media = new CodexLiveMedia("/missing/codex", () => {});
-  await expect(media.offer()).rejects.toThrow("Codex voice");
+test("stopping during host creation closes the late window without opening the microphone", async () => {
+  let finish!: (host: { send: () => void; close: () => void }) => void;
+  let closed = false;
+  let captures = 0;
+  const media = new BufferedLiveMedia(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    async () => {
+      captures++;
+      return () => {};
+    },
+    () => {},
+  );
+  const opening = media.offer();
   media.stop();
+  finish({
+    send() {},
+    close: () => {
+      closed = true;
+    },
+  });
+  await expect(opening).rejects.toThrow("stopped");
+  expect(closed).toBe(true);
+  expect(captures).toBe(0);
 });

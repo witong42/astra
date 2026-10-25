@@ -1,0 +1,19 @@
+FROM debian@sha256:a717a33469731894e77e912ea7d714e27c2dc38ee6554fd1a3102e92999cfc66
+ARG VOICE_BUILD_JOBS=2
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates build-essential autoconf automake libtool cmake g++-mingw-w64-x86-64-posix && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY vosk.tar.gz openfst.tar.gz openblas.tar.gz clapack.tar.gz revisions.json ./
+RUN for source in vosk openfst openblas clapack; do mkdir "$source"; tar -xzf "$source.tar.gz" --strip-components=1 -C "$source"; done
+RUN cd openfst && autoreconf -fi && CXX=x86_64-w64-mingw32-g++-posix CXXFLAGS="-O2 -g0 -std=c++17 -DFST_NO_DYNAMIC_LINKING" ./configure --prefix=/opt/voice --enable-static --disable-shared --with-pic --disable-bin --enable-lookahead-fsts --enable-ngram-fsts --host=x86_64-w64-mingw32 && make -j "$VOICE_BUILD_JOBS" && make install
+ARG VOICE_CORE_JOBS=8
+# Installation needs the same cross-compiler flags to select Windows output.
+RUN cd openblas && make HOSTCC=gcc BINARY=64 CC=x86_64-w64-mingw32-gcc-posix ONLY_CBLAS=1 NO_SHARED=1 DYNAMIC_ARCH=0 TARGET=NEHALEM USE_LOCKING=1 USE_THREAD=0 -j "$VOICE_CORE_JOBS" && make HOSTCC=gcc BINARY=64 CC=x86_64-w64-mingw32-gcc-posix ONLY_CBLAS=1 NO_SHARED=1 DYNAMIC_ARCH=0 TARGET=NEHALEM USE_LOCKING=1 USE_THREAD=0 PREFIX=/opt/voice install
+RUN mkdir clapack/build && cd clapack/build && cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_C_STANDARD=90 -DCMAKE_C_COMPILER_TARGET=x86_64-w64-mingw32 -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CROSSCOMPILING=True .. && make -j "$VOICE_CORE_JOBS" -C F2CLIBS/libf2c && make -j "$VOICE_CORE_JOBS" -C BLAS && make -j "$VOICE_CORE_JOBS" -C SRC && find . -name '*.a' -exec cp {} /opt/voice/lib/ \;
+COPY windows-kaldi.tar.gz windows-kaldi-revision.json ./
+# The ARM host archiver cannot index PE objects; index with the target tool.
+RUN x86_64-w64-mingw32-ranlib /opt/voice/lib/*.a
+# Select the CLAPACK interface actually built above, rather than LAPACKE.
+RUN cp /build/clapack/INCLUDE/f2c.h /build/clapack/INCLUDE/clapack.h /opt/voice/include/ && mkdir kaldi-windows && tar -xzf windows-kaldi.tar.gz --strip-components=1 -C kaldi-windows && cd kaldi-windows/src && CXX=x86_64-w64-mingw32-g++-posix CXXFLAGS="-O2 -g0 -DFST_NO_DYNAMIC_LINKING" ./configure --mingw=yes --use-cuda=no --mathlib=OPENBLAS_CLAPACK --host=x86_64-w64-mingw32 --openblas-clapack-root=/opt/voice --fst-root=/opt/voice --fst-version=1.8.0 --static --static-fst && sed -i 's/-DHAVE_OPENBLAS/-DHAVE_CLAPACK/g' kaldi.mk && make -j "$VOICE_CORE_JOBS" online2 lm rnnlm EXTRA_CXXFLAGS="-g0 -O2 -DFST_NO_DYNAMIC_LINKING"
+RUN mkdir -p /opt/astra-windows/licenses && cd vosk/src && make -j "$VOICE_CORE_JOBS" CXX=x86_64-w64-mingw32-g++-posix EXT=dll KALDI_ROOT=/build/kaldi-windows OPENFST_ROOT=/opt/voice OPENBLAS_ROOT=/opt/voice OUTDIR=/opt/astra-windows EXTRA_CFLAGS="-g0 -O2" EXTRA_LDFLAGS="-static-libgcc -static-libstdc++ -Wl,--out-implib,/opt/astra-windows/libvosk.lib" && x86_64-w64-mingw32-strip --strip-unneeded /opt/astra-windows/libvosk.dll
+RUN cp /usr/x86_64-w64-mingw32/lib/libwinpthread-1.dll /opt/astra-windows/ && cp /build/vosk/COPYING /opt/astra-windows/licenses/Vosk.txt && cp /build/kaldi-windows/COPYING /opt/astra-windows/licenses/Kaldi.txt && cp /build/openfst/COPYING /opt/astra-windows/licenses/OpenFst.txt && cp /build/openblas/LICENSE /opt/astra-windows/licenses/OpenBLAS.txt && cp /build/clapack/COPYING /opt/astra-windows/licenses/CLAPACK.txt && sed -n '1,7p' /build/vosk/src/json.h > /opt/astra-windows/licenses/SimpleJSON.txt && cp /usr/share/doc/mingw-w64-common/copyright /opt/astra-windows/licenses/MinGW.txt && cp /build/revisions.json /build/windows-kaldi-revision.json /opt/astra-windows/ && x86_64-w64-mingw32-objdump -p /opt/astra-windows/libvosk.dll > /opt/astra-windows/exports.txt && dpkg-query -W > /opt/astra-windows/toolchain.txt

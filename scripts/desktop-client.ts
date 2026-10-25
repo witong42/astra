@@ -12,7 +12,7 @@ export async function showWorkspace(
   chat = false,
 ) {
   const id = await client.evaluate<string>(
-    "window.codexos.snapshot().then(state=>state.activeId)",
+    "window.astra.snapshot().then(state=>state.activeId)",
   );
   let opened = false;
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -58,8 +58,9 @@ export async function desktopClient(
           surface === "app" ? "../dist/index.html" : "../dist/canvas.html",
           import.meta.url,
         ).href ||
-        entry.url.startsWith("file:///Applications/CodexOS.app/") ||
-        entry.url.startsWith("file:///Applications/Astra.app/")),
+        entry.url.startsWith("file:///Applications/Astra.app/") ||
+        (entry.url.startsWith("file:") &&
+          /\/[Rr]esources\/app\/dist\/(index|canvas)\.html$/.test(entry.url))),
   );
   if (surface === "canvas") {
     const app = await desktopClient("app");

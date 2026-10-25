@@ -52,7 +52,12 @@ test("remote audio reports blocked playback and can resume without stopping the 
     destination = {};
     audioWorklet = { addModule: async () => {} };
     createMediaStreamDestination() {
-      return { stream: { getTracks: () => [{ stop() {} }] } };
+      return {
+        stream: {
+          getTracks: () => [{ stop() {} }],
+          getAudioTracks: () => [{ stop() {} }],
+        },
+      };
     }
     createMediaStreamSource() {
       return node;
@@ -65,7 +70,7 @@ test("remote audio reports blocked playback and can resume without stopping the 
     addEventListener() {}
   }
   class Processor {
-    port = { onmessage: null, close() {} };
+    port = { onmessage: null, close() {}, postMessage() {} };
     connect() {
       return this;
     }

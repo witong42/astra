@@ -16,8 +16,10 @@ import { join } from "node:path";
 const PROJECT = join(import.meta.dir, "..");
 const APP_ARCHIVE = "Astra-macos-arm64.zip";
 const TEST_TIMEOUT_MS = 30_000;
+const BUNDLE_ID = "io.github.witong42.astra";
+const LEGACY_BUNDLE_ID = "local.astra.desktop";
 
-function fixture() {
+function fixture(identifier = BUNDLE_ID) {
   const directory = mkdtempSync(join(tmpdir(), "astra-install-test-"));
   const bin = join(directory, "bin");
   const release = join(directory, "release");
@@ -27,7 +29,7 @@ function fixture() {
   copyFileSync("/usr/bin/true", join(application, "Contents/MacOS/Astra"));
   writeFileSync(
     join(application, "Contents/Info.plist"),
-    `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>local.codexos.desktop</string><key>CFBundleExecutable</key><string>Astra</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string></dict></plist>`,
+    `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${identifier}</string><key>CFBundleExecutable</key><string>Astra</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string></dict></plist>`,
   );
   execFileSync("codesign", ["--force", "--sign", "-", application]);
   execFileSync("ditto", [
@@ -52,12 +54,12 @@ function fixture() {
   );
   writeFileSync(
     join(bin, "pgrep"),
-    '#!/bin/sh\nexit "${ASTRA_TEST_RUNNING:-1}"\n',
+    `#!/bin/sh\nexit "\${ASTRA_TEST_RUNNING:-1}"\n`,
     { mode: 0o700 },
   );
   writeFileSync(
     join(bin, "uname"),
-    '#!/bin/sh\nif [ "$1" = -s ]; then echo Darwin; else echo "${ASTRA_TEST_ARCH:-arm64}"; fi\n',
+    `#!/bin/sh\nif [ "$1" = -s ]; then echo Darwin; else echo "\${ASTRA_TEST_ARCH:-arm64}"; fi\n`,
     { mode: 0o700 },
   );
   const destination = join(directory, "Applications");
@@ -116,7 +118,7 @@ const field=args.at(-1);console.log(field==='Package'?(env.ASTRA_TEST_PACKAGE_NA
 }
 else if(name==='sha256sum'){console.log(new Bun.CryptoHasher('sha256').update(readFileSync(args[0])).digest('hex')+'  '+args[0]);}
 else if(name==='curl'){
-record();if(args.includes('--write-out'))console.log(env.ASTRA_TEST_RELEASE_URL??'https://github.com/witong42/Astra/releases/tag/v${LINUX_VERSION}');
+record();if(args.includes('--write-out'))console.log(env.ASTRA_TEST_RELEASE_URL??'https://github.com/witong42/astra/releases/tag/v${LINUX_VERSION}');
 else{const output=args[args.indexOf('-o')+1];const file=args.at(-1).split('/').at(-1);copyFileSync(join(env.ASTRA_TEST_RELEASE,file),output);}
 }
 else if(name==='sudo'){record();const child=Bun.spawnSync(args,{env,stdout:'inherit',stderr:'inherit'});process.exit(child.exitCode);}
@@ -354,6 +356,61 @@ test.skipIf(process.platform !== "darwin")(
       expect(running.stderr.toString()).toContain("Quit Astra");
     } finally {
       rmSync(f.directory, { recursive: true, force: true });
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test.skipIf(process.platform !== "darwin")(
+  "installer migrates a signed legacy Astra bundle to the GitHub identity and prevents an identity downgrade",
+  () => {
+    const current = fixture();
+    const legacy = fixture(LEGACY_BUNDLE_ID);
+    try {
+      expect(current.run({ ASTRA_TEST_RELEASE: legacy.release }).exitCode).toBe(
+        0,
+      );
+      expect(current.run().exitCode).toBe(0);
+      const installed = join(current.destination, "Astra.app");
+      const identifier = () =>
+        execFileSync(
+          "/usr/bin/plutil",
+          [
+            "-extract",
+            "CFBundleIdentifier",
+            "raw",
+            "-o",
+            "-",
+            join(installed, "Contents/Info.plist"),
+          ],
+          { encoding: "utf8" },
+        ).trim();
+      expect(identifier()).toBe(BUNDLE_ID);
+      const downgrade = current.run({ ASTRA_TEST_RELEASE: legacy.release });
+      expect(downgrade.exitCode).not.toBe(0);
+      expect(downgrade.stderr.toString()).toContain("previous identity");
+      expect(identifier()).toBe(BUNDLE_ID);
+      execFileSync("codesign", ["--verify", "--deep", "--strict", installed]);
+    } finally {
+      rmSync(current.directory, { recursive: true, force: true });
+      rmSync(legacy.directory, { recursive: true, force: true });
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test.skipIf(process.platform !== "darwin")(
+  "installer rejects signed applications outside both Astra identities",
+  () => {
+    const valid = fixture();
+    const unrelated = fixture("com.example.unrelated");
+    try {
+      const result = valid.run({ ASTRA_TEST_RELEASE: unrelated.release });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("wrong identity");
+    } finally {
+      rmSync(valid.directory, { recursive: true, force: true });
+      rmSync(unrelated.directory, { recursive: true, force: true });
     }
   },
   TEST_TIMEOUT_MS,

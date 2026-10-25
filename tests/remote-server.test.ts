@@ -1,65 +1,29 @@
 import { afterEach, expect, test } from "bun:test";
-import { startRemoteServer } from "../src/remote-server";
-import { newWorkspace } from "../src/storage";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { startRemoteServer } from "../src/remote-server";
 import { MAX_CANVAS_BYTES } from "../src/substrate-protocol";
-import type { Snapshot } from "../src/types";
 import { INITIAL_VOICE } from "../src/voice";
+import {
+  ORIGIN,
+  REMOTE_STREAM_ARGUMENT,
+  remoteFixture,
+  SLOW_PHONE_TIMEOUT_MS,
+  slowPhone,
+} from "./remote-stream";
 
-const ORIGIN = "https://astra.example.chatgpt.site";
-const OWNER = "owner@example.com";
+const NATIVE_REPLAY_TIMEOUT_MS = 20_000;
+const NATIVE_TEST_TIMEOUT_MS = 25_000;
 const servers: Awaited<ReturnType<typeof startRemoteServer>>[] = [];
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
 });
 
 async function fixture(connecting?: () => Promise<void>) {
-  const calls: unknown[] = [];
-  const workspace = newWorkspace("/tmp");
-  const snapshot: Snapshot = {
-    version: 1,
-    activeId: workspace.id,
-    workspaces: [workspace],
-    sessions: {},
-    model: "test",
-    reasoningEffort: "low",
-    serviceTier: "default",
-    status: "ready",
-    activity: "Ready",
-    account: "ChatGPT",
-    backendVersion: "test",
-    models: [],
-    approval: null,
-    error: null,
-    metrics: null,
-  };
-  const server = await startRemoteServer(
-    { origin: ORIGIN, user: OWNER, port: 0 },
-    {
-      connecting,
-      snapshot: () => snapshot,
-      voice: () => ({ state: INITIAL_VOICE, owner: null }),
-      invoke: async (method, args, clientId) => {
-        calls.push({ method, args, clientId });
-        return method === "snapshot" ? snapshot : { confirmed: method };
-      },
-    },
-  );
-  servers.push(server);
-  const address = server.server.address();
-  if (!address || typeof address === "string") throw new Error("No test port");
-  const url = `http://127.0.0.1:${address.port}`;
-  const headers = {
-    Origin: ORIGIN,
-    "Tailscale-User-Login": OWNER,
-    "Content-Type": "application/json",
-  };
-  const call = (body: unknown, extra: Record<string, string> = {}) =>
-    fetch(`${url}/call`, {
-      method: "POST",
-      headers: { ...headers, ...extra },
-      body: JSON.stringify(body),
-    });
-  return { server, calls, snapshot, url, headers, call };
+  const context = await remoteFixture(connecting);
+  servers.push(context.server);
+  return context;
 }
 
 async function stream(context: Awaited<ReturnType<typeof fixture>>) {
@@ -231,6 +195,72 @@ test("phone clients receive the same initial state and subsequent workspace and 
   });
   phone.close();
 });
+
+for (const compressed of [false, true])
+  test(
+    `assistant replies preserve a slow phone connection and its latest state (${compressed ? "gzip" : "plain"})`,
+    async () => {
+      if (process.platform !== "win32") {
+        await slowPhone(compressed);
+        return;
+      }
+      const directory = mkdtempSync(join(tmpdir(), "astra-remote-stream-"));
+      let child: ReturnType<typeof Bun.spawn> | undefined;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const built = await Bun.build({
+          entrypoints: [join(import.meta.dir, "remote-stream.ts")],
+          target: "node",
+          format: "esm",
+        });
+        if (!built.success) throw new AggregateError(built.logs);
+        const script = join(directory, "remote-stream.mjs");
+        writeFileSync(script, await built.outputs[0].text());
+        const electron = join(import.meta.dir, "../node_modules/electron");
+        const executable = join(
+          electron,
+          "dist",
+          readFileSync(join(electron, "path.txt"), "utf8").trim(),
+        );
+        // The app uses Node; Bun's Windows HTTP pause/resume stalls this replay.
+        const replay = Bun.spawn(
+          [
+            executable,
+            script,
+            REMOTE_STREAM_ARGUMENT,
+            compressed ? "gzip" : "plain",
+          ],
+          {
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+            stdout: "pipe",
+            stderr: "pipe",
+          },
+        );
+        child = replay;
+        timeout = setTimeout(() => child?.kill(), NATIVE_REPLAY_TIMEOUT_MS);
+        const [code, stdout, stderr] = await Promise.all([
+          replay.exited,
+          new Response(replay.stdout).text(),
+          new Response(replay.stderr).text(),
+        ]);
+        expect({ code, stdout, stderr }).toEqual({
+          code: 0,
+          stdout: "",
+          stderr: "",
+        });
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        if (child && child.exitCode === null) {
+          child.kill();
+          await child.exited;
+        }
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+    process.platform === "win32"
+      ? NATIVE_TEST_TIMEOUT_MS
+      : SLOW_PHONE_TIMEOUT_MS,
+  );
 
 test("UI commands require their targeted client receipt and fail when the phone disconnects", async () => {
   const f = await fixture();

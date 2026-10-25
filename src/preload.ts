@@ -4,14 +4,14 @@ import type { Bridge, Snapshot } from "./types";
 import type { VoiceState } from "./voice";
 
 const invoke = (name: string, ...args: unknown[]) =>
-  ipcRenderer.invoke(`codexos:${name}`, ...args);
+  ipcRenderer.invoke(`astra:${name}`, ...args);
 const bridge: Bridge = {
   remoteActive: () => invoke("remoteActive"),
   subscribeRemoteActive: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, active: boolean) =>
       callback(active);
-    ipcRenderer.on("codexos:remoteActive", listener);
-    return () => ipcRenderer.removeListener("codexos:remoteActive", listener);
+    ipcRenderer.on("astra:remoteActive", listener);
+    return () => ipcRenderer.removeListener("astra:remoteActive", listener);
   },
   voiceSnapshot: () => invoke("voiceSnapshot"),
   startVoice: (standby) => invoke("startVoice", standby),
@@ -21,17 +21,21 @@ const bridge: Bridge = {
   subscribeVoice: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, state: VoiceState) =>
       callback(state);
-    ipcRenderer.on("codexos:voice", listener);
-    return () => ipcRenderer.removeListener("codexos:voice", listener);
+    ipcRenderer.on("astra:voice", listener);
+    return () => ipcRenderer.removeListener("astra:voice", listener);
   },
   runAppleScript: (workspaceId, request) =>
     invoke("runAppleScript", workspaceId, request),
+  runPowerShell: (workspaceId, request) =>
+    invoke("runPowerShell", workspaceId, request),
+  runShellScript: (workspaceId, request) =>
+    invoke("runShellScript", workspaceId, request),
   snapshot: () => invoke("snapshot"),
   subscribe: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: Snapshot) =>
       callback(snapshot);
-    ipcRenderer.on("codexos:snapshot", listener);
-    return () => ipcRenderer.removeListener("codexos:snapshot", listener);
+    ipcRenderer.on("astra:snapshot", listener);
+    return () => ipcRenderer.removeListener("astra:snapshot", listener);
   },
   send: (text, workspaceId) => invoke("send", text, workspaceId),
   sendAssistant: (text) => invoke("sendAssistant", text),
@@ -57,4 +61,4 @@ const bridge: Bridge = {
   reconnect: () => invoke("reconnect"),
   openExternal: (url) => invoke("openExternal", url),
 };
-contextBridge.exposeInMainWorld("codexos", bridge);
+contextBridge.exposeInMainWorld("astra", bridge);

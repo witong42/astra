@@ -10,7 +10,9 @@ function fixture(
     wakeError?: Error;
     shortcutError?: Error;
     homeError?: Error;
+    pauseError?: Error;
     autoSdp?: boolean;
+    replay?: boolean;
   } = {},
 ) {
   const app = newWorkspace("/tmp");
@@ -46,8 +48,15 @@ function fixture(
   let homeRequests = 0;
   let shortcutStarts = 0;
   let shortcutStops = 0;
-  const voice = new VoiceSession(
+  let voice: VoiceSession;
+  voice = new VoiceSession(
     {
+      appAction: async (request) => {
+        expect(request).toEqual({ action: "pause" });
+        if (options.pauseError) throw options.pauseError;
+        await voice.pause();
+        return { voice: voice.snapshot().status };
+      },
       ensureAssistantWorkspace: () => assistant.id,
       subscribeRealtime: (listener) => {
         realtime = listener;
@@ -98,7 +107,9 @@ function fixture(
     (listener) => {
       mediaEvent = listener;
       return {
-        offer: async () => {
+        replaysWakeAudio: options.replay,
+        offer: async (replay) => {
+          if (options.replay) calls.push(`buffer:${replay}`);
           if (options.mediaError) throw options.mediaError;
           return "offer";
         },
@@ -140,25 +151,228 @@ function fixture(
   };
 }
 
+test("buffered wake audio connects before the utterance ends without a duplicate text turn or greeting", async () => {
+  const f = fixture({ replay: true });
+  await f.voice.start(true);
+  f.wake({ method: "voice/wake" });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(f.voice.snapshot().status).toBe("listening");
+  expect(f.calls).toEqual(["buffer:true", "offer", "answer"]);
+  expect(f.sent).toEqual([]);
+  f.wake({ method: "voice/final", text: "stale text must not be sent" });
+  expect(f.sent).toEqual([]);
+  expect(f.wakeStops()).toBe(1);
+  f.voice.stop();
+});
+
 async function tick() {
   await Bun.sleep(0);
 }
 
-test("spoken pause requests stop the live call directly without a backend handoff", async () => {
+test("a completed pause request executes the existing action without a model handoff", async () => {
   for (const text of [
-    "Pause.",
+    "Pause",
+    "OK, pause",
     "Mets pause",
-    "Astra, mets en pause s’il te plaît",
-    "Could you pause, please?",
+    "Mets en pause",
+    "Astra, mets-toi en pause, s’il te plaît.",
+    "Please pause the conversation",
   ]) {
     const f = fixture();
     try {
       await f.voice.start();
+      f.realtime("transcript/delta", { role: "user", delta: text });
+      expect(f.mediaStops()).toBe(0);
       f.realtime("transcript/done", { role: "user", text });
-      expect(f.mediaStops()).toBe(1);
       await tick();
       expect(f.voice.snapshot().status).toBe("standby");
+      expect(f.mediaStops()).toBe(1);
+      expect(f.wakeStarts()).toBe(1);
+      expect(f.homeRequests()).toBe(0);
+      f.realtime("transcript/done", {
+        role: "assistant",
+        text: "Je mets en pause.",
+      });
+      expect(f.voice.snapshot().status).toBe("standby");
+    } finally {
+      f.voice.stop();
+    }
+  }
+});
+
+test("a failed pause action is reported instead of claiming standby", async () => {
+  const f = fixture({ pauseError: new Error("Voice control is unavailable.") });
+  try {
+    await f.voice.start();
+    f.realtime("transcript/done", { role: "user", text: "Pause" });
+    await tick();
+    expect(f.voice.snapshot().status).toBe("error");
+    expect(f.voice.snapshot().error).toBe("Voice control is unavailable.");
+  } finally {
+    f.voice.stop();
+  }
+});
+
+test("short Home and Astra captions work without a late transcript-done event", async () => {
+  for (const text of ["Home", "Astra", "Astra Home"]) {
+    const f = fixture();
+    try {
+      await f.voice.start();
+      f.shortcut({ method: "voice/level", level: 0 });
+      f.realtime("transcript/delta", { role: "user", delta: text });
+      await Bun.sleep(1000);
+      if (text === "Astra") {
+        expect(f.calls).toContain("say:Oui, je t’écoute.");
+        expect(f.homeRequests()).toBe(0);
+      } else {
+        expect(f.homeRequests()).toBe(1);
+        f.shortcut({ method: "voice/home" });
+        f.realtime("transcript/done", { role: "user", text });
+        await tick();
+        expect(f.homeRequests()).toBe(1);
+      }
+      expect(f.voice.snapshot().transcript).toBe("");
       expect(f.sent).toEqual([]);
+    } finally {
+      f.voice.stop();
+    }
+  }
+});
+
+test("a short caption without microphone activity evidence never guesses a command", async () => {
+  const f = fixture();
+  try {
+    await f.voice.start();
+    f.realtime("transcript/delta", { role: "user", delta: "Home" });
+    await Bun.sleep(1000);
+    expect(f.homeRequests()).toBe(0);
+    expect(f.voice.snapshot().transcript).toBe("Home");
+  } finally {
+    f.voice.stop();
+  }
+});
+
+test("a locally confirmed name works even when the live service emits no caption", async () => {
+  const f = fixture();
+  try {
+    await f.voice.start();
+    f.shortcut({ method: "voice/level", level: 0 });
+    f.shortcut({ method: "voice/address" });
+    await tick();
+    expect(f.calls).toContain("say:Oui, je t’écoute.");
+    expect(f.voice.snapshot().task).toBe("Astra");
+    expect(f.sent).toEqual([]);
+  } finally {
+    f.voice.stop();
+  }
+});
+
+test("a local Astra call restores speech after Home without waiting for remote captions", async () => {
+  const f = fixture();
+  try {
+    await f.voice.start();
+    f.shortcut({ method: "voice/home" });
+    await tick();
+    f.shortcut({ method: "voice/address" });
+    await tick();
+    expect(f.muted).toEqual([true, false]);
+    expect(f.calls).toContain("say:Oui, je t’écoute.");
+  } finally {
+    f.voice.stop();
+  }
+});
+
+test("bare wake audio gets an acknowledgment even if its remote caption never arrives", async () => {
+  const f = fixture({ replay: true });
+  try {
+    await f.voice.start(true);
+    f.wake({ method: "voice/shortcut", text: "astra", language: "fr" });
+    f.wake({ method: "voice/wake" });
+    await tick();
+    f.shortcut({ method: "voice/level", level: 0 });
+    await Bun.sleep(1000);
+    expect(f.calls).toContain("say:Oui, je t’écoute.");
+    expect(f.sent).toEqual([]);
+  } finally {
+    f.voice.stop();
+  }
+});
+
+test("locally heard extra words reject a stale Home caption after speech ends", async () => {
+  const f = fixture();
+  try {
+    await f.voice.start();
+    f.realtime("transcript/delta", { role: "user", delta: "Home" });
+    f.shortcut({ method: "voice/level", level: 0.5 });
+    f.shortcut({
+      method: "voice/shortcut",
+      text: "home [unk]",
+      language: "fr",
+    });
+    f.shortcut({ method: "voice/level", level: 0 });
+    f.shortcut({ method: "voice/shortcut", text: "", language: "fr" });
+    await Bun.sleep(1000);
+    expect(f.homeRequests()).toBe(0);
+  } finally {
+    f.voice.stop();
+  }
+});
+
+test("continuing a short caption cancels its shortcut instead of interrupting the sentence", async () => {
+  for (const prefix of ["Home", "Astra"]) {
+    const f = fixture();
+    try {
+      await f.voice.start();
+      f.realtime("transcript/delta", { role: "user", delta: prefix });
+      f.realtime("transcript/delta", {
+        role: "user",
+        delta: " Assistant, pourquoi ça bloque ?",
+      });
+      await Bun.sleep(1000);
+      expect(f.homeRequests()).toBe(0);
+      expect(f.calls).toEqual(["offer", "answer"]);
+      expect(f.voice.snapshot().transcript).toBe(
+        `${prefix} Assistant, pourquoi ça bloque ?`,
+      );
+    } finally {
+      f.voice.stop();
+    }
+  }
+});
+
+test("delayed captions cannot trigger Home while microphone speech continues", async () => {
+  const f = fixture();
+  try {
+    await f.voice.start();
+    f.realtime("transcript/delta", { role: "user", delta: "Home" });
+    for (let index = 0; index < 10; index++) {
+      f.shortcut({ method: "voice/level", level: 0.5 });
+      await Bun.sleep(100);
+    }
+    expect(f.homeRequests()).toBe(0);
+    f.realtime("transcript/delta", { role: "user", delta: " Assistant" });
+    f.shortcut({ method: "voice/level", level: 0 });
+    await Bun.sleep(1000);
+    expect(f.homeRequests()).toBe(0);
+  } finally {
+    f.voice.stop();
+  }
+});
+
+test("stopping, pausing or an existing spoken answer cancels a pending name acknowledgment", async () => {
+  for (const action of ["stop", "pause", "answer"]) {
+    const f = fixture();
+    try {
+      await f.voice.start();
+      f.realtime("transcript/delta", { role: "user", delta: "Astra" });
+      if (action === "stop") f.voice.stop();
+      else if (action === "pause") await f.voice.pause();
+      else
+        f.realtime("transcript/delta", {
+          role: "assistant",
+          delta: "Oui, je suis là.",
+        });
+      await Bun.sleep(1000);
       expect(f.calls.some((call) => call.startsWith("say:"))).toBe(false);
     } finally {
       f.voice.stop();
@@ -176,6 +390,9 @@ test("discussing pause, negating it, partial speech and assistant speech do not 
       "Pause is too slow",
       "Don't pause",
       "On fait une pause café ?",
+      "Ça marche, pause d’ailleurs ou pas ?",
+      "Pause, pourquoi tu ne le fais pas ?",
+      "Ne mets pas pause",
     ])
       f.realtime("transcript/done", { role: "user", text });
     f.realtime("transcript/delta", { role: "user", delta: "Pause" });

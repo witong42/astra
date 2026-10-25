@@ -1,4 +1,5 @@
 import { getCopy } from "./locale";
+import { PcmHistory } from "./pcm-buffer";
 import { PHONE_FRAME_SAMPLES, PHONE_SAMPLE_RATE } from "./phone-audio";
 import type { RemoteCommand } from "./remote-server";
 import type { AudioStatus } from "./types";
@@ -7,6 +8,15 @@ const MAX_QUEUED_FRAMES = PHONE_SAMPLE_RATE / PHONE_FRAME_SAMPLES;
 const MILLISECONDS_PER_SECOND = 1000;
 const AUDIO_LOWPASS_HZ = 7200;
 const ICE_TIMEOUT_MS = 8000;
+const AUDIO_HISTORY_SECONDS = 30;
+type AudioFrame = { pcm: Float32Array; start: number };
+type Peer = {
+  id: string;
+  connection: RTCPeerConnection;
+  processor: AudioWorkletNode;
+  destination: MediaStreamAudioDestinationNode;
+  replay: { bufferedMs: number; playbackRate: number } | null;
+};
 type AudioCommand = Extract<RemoteCommand, { kind: "audio" }>;
 type Capture = {
   id: string;
@@ -17,25 +27,34 @@ type Capture = {
   priming: MediaStreamAudioDestinationNode;
   playbackEpoch: number;
   playbackError: string | null;
-  peer: { id: string; connection: RTCPeerConnection } | null;
+  peer: Peer | null;
+  history: PcmHistory;
   streaming: boolean;
-  queue: Float32Array[];
+  queue: AudioFrame[];
   uploading: boolean;
   discardedSamples: number;
 };
 export class WebAudio {
   private capture: Capture | null = null;
   constructor(
-    private upload: (captureId: string, pcm: string) => Promise<unknown>,
+    private upload: (
+      captureId: string,
+      pcm: string,
+      startSample: number,
+    ) => Promise<unknown>,
     private level: (value: number) => void,
     private failure: (error: Error) => void,
     private playback: (error: string | null) => void = () => {},
+    private frame?: (pcm: Float32Array) => void,
   ) {}
-  async prepare() {
+  async prepare(external = false) {
     this.stop();
-    if (!navigator.mediaDevices?.getUserMedia)
+    if (!external && !navigator.mediaDevices?.getUserMedia)
       throw new Error(getCopy().micHttps);
-    const context = new AudioContext({ latencyHint: "interactive" });
+    const context = new AudioContext({
+      latencyHint: "interactive",
+      sampleRate: PHONE_SAMPLE_RATE,
+    });
     const player = new Audio();
     player.autoplay = true;
     player.setAttribute("playsinline", "");
@@ -51,6 +70,7 @@ export class WebAudio {
       stream: null,
       processor: null,
       peer: null,
+      history: new PcmHistory(PHONE_SAMPLE_RATE * AUDIO_HISTORY_SECONDS),
       streaming: false,
       queue: [],
       uploading: false,
@@ -60,6 +80,11 @@ export class WebAudio {
     void this.playOutput(capture);
     try {
       await context.resume();
+      await context.audioWorklet.addModule(
+        new URL("./audio-worklet.js", import.meta.url),
+      );
+      if (this.capture !== capture) throw new Error(getCopy().micStopped);
+      if (external) return capture.id;
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -79,10 +104,6 @@ export class WebAudio {
           if (this.capture === capture)
             this.fail(new Error(getCopy().micEnded));
         });
-      await context.audioWorklet.addModule(
-        new URL("./audio-worklet.js", import.meta.url),
-      );
-      if (this.capture !== capture) throw new Error(getCopy().micStopped);
       const processor = new AudioWorkletNode(context, "astra-phone-audio", {
         numberOfInputs: 1,
         numberOfOutputs: 1,
@@ -99,12 +120,15 @@ export class WebAudio {
       ) => {
         if (this.capture !== capture) return;
         this.level(event.data.level);
+        this.frame?.(event.data.pcm);
+        const start = capture.history.end;
+        this.appendFrame(event.data.pcm, start);
         if (!capture.streaming) return;
         if (capture.queue.length >= MAX_QUEUED_FRAMES) {
           // Stale local-recognition audio must not stop the independent live call.
-          capture.discardedSamples += capture.queue.shift()?.length ?? 0;
+          capture.discardedSamples += capture.queue.shift()?.pcm.length ?? 0;
         }
-        capture.queue.push(event.data.pcm);
+        capture.queue.push({ pcm: event.data.pcm, start });
         void this.flush(capture);
       };
       context.addEventListener("statechange", () => {
@@ -120,6 +144,19 @@ export class WebAudio {
   enable(captureId: string) {
     if (this.capture?.id === captureId) this.capture.streaming = true;
   }
+  appendFrame(pcm: Float32Array, start: number) {
+    const capture = this.capture;
+    if (!capture) throw new Error(getCopy().micInactive);
+    if (capture.history.end === 0 && start > 0)
+      capture.history = new PcmHistory(
+        PHONE_SAMPLE_RATE * AUDIO_HISTORY_SECONDS,
+        start,
+      );
+    if (start !== capture.history.end)
+      throw new Error("Microphone audio lost its position. Restart voice.");
+    capture.history.append(pcm);
+    capture.peer?.processor.port.postMessage({ type: "pcm", pcm });
+  }
   private async flush(capture: Capture) {
     if (capture.uploading) return;
     capture.uploading = true;
@@ -127,12 +164,12 @@ export class WebAudio {
       while (this.capture === capture && capture.queue.length) {
         const frames = capture.queue.splice(0);
         const frame = new Float32Array(
-          frames.reduce((length, chunk) => length + chunk.length, 0),
+          frames.reduce((length, chunk) => length + chunk.pcm.length, 0),
         );
         let offset = 0;
         for (const chunk of frames) {
-          frame.set(chunk, offset);
-          offset += chunk.length;
+          frame.set(chunk.pcm, offset);
+          offset += chunk.pcm.length;
         }
         const bytes = new Uint8Array(
           frame.buffer,
@@ -141,7 +178,7 @@ export class WebAudio {
         );
         let binary = "";
         for (const byte of bytes) binary += String.fromCharCode(byte);
-        await this.upload(capture.id, btoa(binary));
+        await this.upload(capture.id, btoa(binary), frames[0].start);
       }
     } catch (error) {
       if (this.capture === capture)
@@ -159,12 +196,56 @@ export class WebAudio {
     if (command.action === "offer") {
       this.closePeer(capture);
       const connection = new RTCPeerConnection();
-      const peer = { id: command.callId, connection };
+      const processor = new AudioWorkletNode(
+        capture.context,
+        "astra-buffered-audio",
+        {
+          numberOfInputs: 0,
+          numberOfOutputs: 1,
+          outputChannelCount: [1],
+        },
+      );
+      const destination = capture.context.createMediaStreamDestination();
+      processor.connect(destination);
+      const peer: Peer = {
+        id: command.callId,
+        connection,
+        processor,
+        destination,
+        replay: null,
+      };
       capture.peer = peer;
       capture.streaming = true;
-      if (!capture.stream) throw new Error(getCopy().micNotReady);
-      for (const track of capture.stream.getAudioTracks())
-        connection.addTrack(track, capture.stream);
+      const initial = capture.history.read(
+        command.replayFrom ?? capture.history.end,
+      );
+      processor.port.postMessage({ type: "pcm", pcm: initial });
+      processor.port.onmessage = (
+        event: MessageEvent<{
+          error?: string;
+          bufferedSamples?: number;
+          playbackRate?: number;
+        }>,
+      ) => {
+        if (this.capture !== capture || capture.peer !== peer) return;
+        const { bufferedSamples, playbackRate } = event.data;
+        if (event.data.error) this.fail(new Error(event.data.error));
+        else if (
+          typeof bufferedSamples === "number" &&
+          Number.isFinite(bufferedSamples) &&
+          bufferedSamples >= 0 &&
+          typeof playbackRate === "number" &&
+          Number.isFinite(playbackRate) &&
+          playbackRate >= 1
+        )
+          peer.replay = {
+            bufferedMs:
+              (bufferedSamples / PHONE_SAMPLE_RATE) * MILLISECONDS_PER_SECOND,
+            playbackRate,
+          };
+      };
+      for (const track of destination.stream.getAudioTracks())
+        connection.addTrack(track, destination.stream);
       connection.addEventListener("track", (event) => {
         if (this.capture !== capture || capture.peer !== peer) return;
         const stream = event.streams[0] ?? new MediaStream([event.track]);
@@ -172,6 +253,12 @@ export class WebAudio {
         void this.playOutput(capture);
       });
       connection.addEventListener("connectionstatechange", () => {
+        if (
+          this.capture === capture &&
+          capture.peer === peer &&
+          connection.connectionState === "connected"
+        )
+          processor.port.postMessage({ type: "start" });
         if (
           this.capture === capture &&
           capture.peer === peer &&
@@ -201,6 +288,8 @@ export class WebAudio {
       await capture.context.resume();
       if (capture.context.state !== "running")
         throw new Error(getCopy().allowAudio);
+      if (capture.peer.connection.connectionState === "connected")
+        capture.peer.processor.port.postMessage({ type: "start" });
     } else if (command.action === "mute") capture.player.muted = command.muted;
     else this.closePeer(capture);
     return null;
@@ -229,6 +318,10 @@ export class WebAudio {
     capture.peer = null;
     peer?.connection.close();
     if (peer) {
+      peer.processor.disconnect();
+      peer.processor.port.onmessage = null;
+      peer.processor.port.close();
+      for (const track of peer.destination.stream.getTracks()) track.stop();
       capture.playbackEpoch++;
       capture.player.pause();
       capture.player.srcObject = null;
@@ -290,9 +383,13 @@ export class WebAudio {
       });
     return {
       active: true,
+      replay: capture.peer?.replay ?? null,
       localInput: {
         queuedMs:
-          (capture.queue.reduce((samples, frame) => samples + frame.length, 0) /
+          (capture.queue.reduce(
+            (samples, frame) => samples + frame.pcm.length,
+            0,
+          ) /
             PHONE_SAMPLE_RATE) *
           MILLISECONDS_PER_SECOND,
         discardedMs:

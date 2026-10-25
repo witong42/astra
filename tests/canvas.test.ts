@@ -121,26 +121,35 @@ test("normal code examples remain in the conversation and runaway patch streams 
 });
 
 test("streamed app names are bounded metadata and never become canvas operations or chat", () => {
-  const names: string[] = [],
-    text: string[] = [],
-    ops: unknown[] = [],
-    errors: string[] = [];
-  const stream = new CanvasStream(
-    (op) => ops.push(op),
-    (line) => text.push(line),
-    (error) => errors.push(error),
-    undefined,
-    (name) => names.push(name),
-  );
-  stream.push("```codexos-na");
-  stream.push("me\nOrbit Lab\n");
-  expect(names).toEqual([]);
-  stream.push(
-    ["```", "Ready.", "```codexos-name", "a".repeat(100), "```", ""].join("\n"),
-  );
-  stream.flush();
-  expect(names).toEqual(["Orbit Lab"]);
-  expect(ops).toEqual([]);
-  expect(text.join("")).toBe("Ready.\n");
-  expect(errors).toHaveLength(1);
+  for (const namespace of ["astra", "codexos"]) {
+    const names: string[] = [],
+      text: string[] = [],
+      ops: unknown[] = [],
+      errors: string[] = [];
+    const stream = new CanvasStream(
+      (op) => ops.push(op),
+      (line) => text.push(line),
+      (error) => errors.push(error),
+      undefined,
+      (name) => names.push(name),
+    );
+    stream.push(`\`\`\`${namespace}-na`);
+    stream.push("me\nOrbit Lab\n");
+    expect(names).toEqual([]);
+    stream.push(
+      [
+        "```",
+        "Ready.",
+        `\`\`\`${namespace}-name`,
+        "a".repeat(100),
+        "```",
+        "",
+      ].join("\n"),
+    );
+    stream.flush();
+    expect(names).toEqual(["Orbit Lab"]);
+    expect(ops).toEqual([]);
+    expect(text.join("")).toBe("Ready.\n");
+    expect(errors).toHaveLength(1);
+  }
 });

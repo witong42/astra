@@ -1,7 +1,7 @@
 & {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
-    $repository = 'https://github.com/witong42/Astra'
+    $repository = 'https://github.com/witong42/astra'
     $archiveRoot = 'Astra-win32-x64'
 
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or ![Environment]::Is64BitOperatingSystem) {
@@ -19,7 +19,7 @@
     New-Item -ItemType Directory -Path $temporary | Out-Null
     try {
         Write-Host 'Finding the latest Astra release...'
-        $release = Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/witong42/Astra/releases/latest' -Headers @{ 'User-Agent' = 'Astra-Installer' } -TimeoutSec 60
+        $release = Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/witong42/astra/releases/latest' -Headers @{ 'User-Agent' = 'Astra-Installer' } -TimeoutSec 60
         $tag = [string]$release.tag_name
         if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
             throw "No stable Astra release was found. Download manually from $repository/releases."

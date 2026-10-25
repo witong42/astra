@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   font-size: 13px;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
@@ -1867,7 +1867,7 @@ td {
   padding: 0;
   border-radius: 50%;
   overflow: visible;
-  background: #08131f;
+  background: #fff;
   box-shadow: 0 2px 16px #0002;
 }
 .astra-home-orb::before,
@@ -1910,11 +1910,11 @@ td {
   clip-path: circle(50%);
 }
 .astra-home-orb:hover {
-  background: #08131f;
+  background: #fff;
   filter: none;
 }
 .astra-home-orb:hover .astra-galaxy {
-  filter: brightness(1.14);
+  filter: none;
 }
 .astra-home-orb:focus-visible {
   outline-color: #89bdd7;

@@ -103,7 +103,7 @@ test("phone dialogs and audio recovery use the phone's preference without sendin
 
 test("interface labels and dates follow the selected locale while app names, drafts, history and speech keep their language", () => {
   const previous = globalThis.window;
-  globalThis.window = { codexos: {} } as typeof window;
+  globalThis.window = { astra: {} } as typeof window;
   const app = newWorkspace("/tmp");
   app.name = "Mon app française";
   const snapshot: Snapshot = {

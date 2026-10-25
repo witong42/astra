@@ -76,7 +76,9 @@ export function controlSurface(root: HTMLElement, request: SurfaceControl) {
           ? { checked: node.checked }
           : {}),
         disabled: node.matches(":disabled,[aria-disabled=true]"),
-        native: node.matches("[data-applescript],[data-astra-native]"),
+        native: node.matches(
+          "[data-applescript],[data-powershell],[data-shell],[data-astra-native]",
+        ),
       })),
       truncated: controls.length > MAX_CONTROLS || text.length > MAX_TEXT,
     };
@@ -98,9 +100,13 @@ export function controlSurface(root: HTMLElement, request: SurfaceControl) {
     throw new Error("Select an interactive app control.");
   if (node.matches(":disabled,[aria-disabled=true]"))
     throw new Error("This control is disabled.");
-  if (node.matches("[data-applescript],[data-astra-native]"))
+  if (
+    node.matches(
+      "[data-applescript],[data-powershell],[data-shell],[data-astra-native]",
+    )
+  )
     throw new Error(
-      "This native action requires a direct user gesture. Use the agent's Mac automation tools for a spoken request.",
+      "This native action requires a direct user gesture. Use the agent's desktop automation tools for a spoken request.",
     );
   if (request.action === "click") node.click();
   else {

@@ -31,6 +31,8 @@ export const REMOTE_METHODS = [
   "pauseVoice",
   "interruptVoice",
   "runAppleScript",
+  "runPowerShell",
+  "runShellScript",
   "send",
   "sendAssistant",
   "interrupt",
@@ -65,7 +67,7 @@ export type RemoteCommand =
   | { kind: "flush" }
   | { kind: "capture"; action: "stop"; captureId: string }
   | ({ kind: "audio"; captureId: string; callId: string } & (
-      | { action: "offer" }
+      | { action: "offer"; replayFrom?: number }
       | { action: "answer"; sdp: string }
       | { action: "mute"; muted: boolean }
       | { action: "stop" }
@@ -81,6 +83,11 @@ type Handlers = {
     clientId: string,
   ) => Promise<unknown>;
 };
+type ClientEvent =
+  | { type: "ready"; clientId: string }
+  | { type: "snapshot"; snapshot: Snapshot }
+  | { type: "voice"; state: VoiceState; owner: string | null }
+  | { type: "command"; id: string | null; command: RemoteCommand };
 const resultSchema = z
   .object({
     id: z.string().uuid(),
@@ -149,6 +156,8 @@ export async function startRemoteServer(
       response: ServerResponse;
       output: Writable;
       heartbeat: ReturnType<typeof setInterval>;
+      queue: { event: ClientEvent; encoded: string | null }[];
+      queuedCommandBytes: number;
     }
   >();
   const pending = new Map<
@@ -182,14 +191,44 @@ export async function startRemoteServer(
     }
     handlers.disconnected?.(clientId);
   };
-  const send = (clientId: string, event: unknown) => {
+  const flush = (clientId: string) => {
     const client = clients.get(clientId);
     if (!client) return;
-    if (client.output.writableLength > MAX_BUFFERED_BYTES) {
+    while (!client.output.writableNeedDrain && client.queue.length) {
+      const entry = client.queue.shift();
+      if (!entry) return;
+      if (entry.encoded)
+        client.queuedCommandBytes -= Buffer.byteLength(entry.encoded);
+      if (
+        entry.event.type === "command" &&
+        entry.event.id &&
+        !pending.has(entry.event.id)
+      )
+        continue;
+      const encoded =
+        entry.encoded ?? `data: ${JSON.stringify(entry.event)}\n\n`;
+      if (!client.output.write(encoded)) return;
+    }
+  };
+  const send = (clientId: string, event: ClientEvent) => {
+    const client = clients.get(clientId);
+    if (!client) return;
+    const replace =
+      event.type === "snapshot" || event.type === "voice"
+        ? client.queue.findIndex((entry) => entry.event.type === event.type)
+        : -1;
+    const encoded =
+      event.type === "snapshot" || event.type === "voice"
+        ? null
+        : `data: ${JSON.stringify(event)}\n\n`;
+    if (replace >= 0) client.queue[replace] = { event, encoded };
+    else client.queue.push({ event, encoded });
+    if (encoded) client.queuedCommandBytes += Buffer.byteLength(encoded);
+    if (client.queuedCommandBytes > MAX_BUFFERED_BYTES) {
       disconnect(clientId);
       return;
     }
-    client.output.write(`data: ${JSON.stringify(event)}\n\n`);
+    flush(clientId);
   };
   const server = createServer(async (request, response) => {
     response.setHeader("Cache-Control", "private, no-store");
@@ -264,14 +303,24 @@ export async function startRemoteServer(
         output = gzip;
       }
       response.flushHeaders();
-      const heartbeat = setInterval(
-        () => output.write(": heartbeat\n\n"),
-        HEARTBEAT_INTERVAL_MS,
-      );
+      const heartbeat = setInterval(() => {
+        if (!output.writableNeedDrain) output.write(": heartbeat\n\n");
+      }, HEARTBEAT_INTERVAL_MS);
       heartbeat.unref?.();
-      const client = { response, output, heartbeat };
+      const client = {
+        response,
+        output,
+        heartbeat,
+        queue: [],
+        queuedCommandBytes: 0,
+      };
       clients.set(clientId, client);
-      output.on("error", () => disconnect(clientId));
+      output.on("error", () => {
+        if (clients.get(clientId) === client) disconnect(clientId);
+      });
+      output.on("drain", () => {
+        if (clients.get(clientId) === client) flush(clientId);
+      });
       activeClient = clientId;
       response.once("close", () => {
         if (clients.get(clientId) === client) disconnect(clientId);
@@ -379,7 +428,7 @@ export async function startRemoteServer(
       snapshotTimer = setTimeout(() => {
         snapshotTimer = null;
         for (const clientId of clients.keys())
-          send(clientId, { type: "snapshot", snapshot: latest });
+          send(clientId, { type: "snapshot", snapshot: latest ?? snapshot });
       }, SNAPSHOT_INTERVAL_MS);
     },
     publishVoice: (state: VoiceState, owner: string | null) => {

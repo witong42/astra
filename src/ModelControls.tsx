@@ -167,7 +167,7 @@ export function ModelControls({
           label: entry.displayName || entry.model,
         }))}
         disabled={busy}
-        onSelect={window.codexos.setModel}
+        onSelect={window.astra.setModel}
         onError={onError}
       />
       <ChoiceMenu
@@ -185,7 +185,7 @@ export function ModelControls({
           })) ?? []
         }
         disabled={busy || !model?.supportedReasoningEfforts?.length}
-        onSelect={window.codexos.setReasoningEffort}
+        onSelect={window.astra.setReasoningEffort}
         onError={onError}
       />
       <ChoiceMenu
@@ -207,7 +207,7 @@ export function ModelControls({
           })) ?? []),
         ]}
         disabled={busy || !model?.serviceTiers?.length}
-        onSelect={window.codexos.setServiceTier}
+        onSelect={window.astra.setServiceTier}
         onError={onError}
       />
     </div>

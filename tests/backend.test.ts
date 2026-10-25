@@ -12,21 +12,29 @@ import { CodexBackend, findCodex } from "../src/backend";
 import { loadState } from "../src/storage";
 
 const temporary: string[] = [];
-const previousExecutable = process.env.CODEXOS_CODEX_PATH;
+const previousExecutable = process.env.ASTRA_CODEX_PATH;
 afterEach(() => {
-  if (previousExecutable === undefined) delete process.env.CODEXOS_CODEX_PATH;
-  else process.env.CODEXOS_CODEX_PATH = previousExecutable;
+  if (previousExecutable === undefined) delete process.env.ASTRA_CODEX_PATH;
+  else process.env.ASTRA_CODEX_PATH = previousExecutable;
   for (const directory of temporary.splice(0))
-    rmSync(directory, { recursive: true });
+    rmSync(directory, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
 });
 
 test("Codex installed in Bun's global bin directory is discovered", () => {
-  delete process.env.CODEXOS_CODEX_PATH;
+  delete process.env.ASTRA_CODEX_PATH;
   const directory = mkdtempSync(join(tmpdir(), "astra-codex-discovery-"));
   temporary.push(directory);
   const bin = join(directory, ".bun/bin");
   mkdirSync(bin, { recursive: true });
-  const executable = join(bin, "codex");
+  const executable = join(
+    bin,
+    process.platform === "win32" ? "codex.exe" : "codex",
+  );
   writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
   expect(findCodex(directory)).toBe(executable);
 });
@@ -36,14 +44,17 @@ test("an explicit Codex executable takes priority over discovered installs", () 
   temporary.push(directory);
   const executable = join(directory, "codex");
   writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
-  process.env.CODEXOS_CODEX_PATH = executable;
+  process.env.ASTRA_CODEX_PATH = executable;
   expect(findCodex(directory)).toBe(executable);
 });
 
 test("concurrent Codex approval requests are reviewed individually and answered once", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "codexos-backend-test-"));
+  const directory = mkdtempSync(join(tmpdir(), "astra-backend-test-"));
   temporary.push(directory);
-  const executable = join(directory, "fake-codex");
+  const executable = join(
+    directory,
+    process.platform === "win32" ? "app-server" : "fake-codex",
+  );
   writeFileSync(
     executable,
     `#!/usr/bin/env bun
@@ -72,7 +83,9 @@ createInterface({input:process.stdin}).on('line',line=>{
 `,
   );
   chmodSync(executable, 0o700);
-  process.env.CODEXOS_CODEX_PATH = executable;
+  // Bun resolves the app-server argument to the fixture in the workspace on Windows.
+  process.env.ASTRA_CODEX_PATH =
+    process.platform === "win32" ? process.execPath : executable;
   const backend = new CodexBackend(
     loadState(join(directory, "state.json"), directory),
     () => {},
@@ -116,4 +129,4 @@ createInterface({input:process.stdin}).on('line',line=>{
   } finally {
     await backend.stop();
   }
-});
+}, 45_000);

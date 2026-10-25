@@ -74,7 +74,7 @@ function LegacySurface({
       previous = current;
       if (syncing.current) return;
       for (const [key, value] of changed)
-        window.codexos
+        window.astra
           .updateData(workspace.id, `/${escapePointer(key)}`, value)
           .catch(onError);
     });

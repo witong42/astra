@@ -19,9 +19,13 @@ export const OpenUICanvasContext = createContext<
   (inputs: CanvasInputs, height: number) => ReactNode
 >(() => null);
 export const AppleScriptContext = createContext<
-  (script: string, args: string[]) => Promise<string>
+  (
+    script: string,
+    args: string[],
+    language?: "applescript" | "powershell" | "shell",
+  ) => Promise<string>
 >(async () => {
-  throw new Error("AppleScript is unavailable outside a mini-app.");
+  throw new Error("Native actions are unavailable outside a mini-app.");
 });
 
 export const openuiLibrary = createLibrary({
@@ -190,51 +194,62 @@ export const openuiLibrary = createLibrary({
         );
       },
     }),
-    defineComponent({
-      ...ui.AppleScriptButton,
-      component: function AppleScriptButton({ props }) {
-        const run = useContext(AppleScriptContext);
-        const streaming = useIsStreaming();
-        const [running, setRunning] = useState(false);
-        const [result, setResult] = useState("");
-        const [error, setError] = useState(false);
-        return (
-          <div>
-            <button
-              data-astra-native=""
-              type="button"
-              className="secondary-button openui-button"
-              disabled={streaming || running}
-              aria-busy={running}
-              onClick={async () => {
-                setRunning(true);
-                setError(false);
-                try {
-                  setResult(await run(props.script, props.args ?? []));
-                } catch (error) {
-                  setError(true);
-                  setResult(
-                    error instanceof Error ? error.message : String(error),
-                  );
-                } finally {
-                  setRunning(false);
-                }
-              }}
-            >
-              {props.label}
-            </button>
-            {result && (
-              <pre
-                role={error ? "alert" : "status"}
-                style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+    ...(
+      [
+        [ui.AppleScriptButton, "applescript"],
+        [ui.PowerShellButton, "powershell"],
+        [ui.ShellButton, "shell"],
+      ] as const
+    ).map(([definition, language]) =>
+      defineComponent({
+        ...definition,
+        component: function NativeScriptButton({ props }) {
+          const run = useContext(AppleScriptContext);
+          const streaming = useIsStreaming();
+          const [running, setRunning] = useState(false);
+          const [result, setResult] = useState("");
+          const [error, setError] = useState(false);
+          return (
+            <div>
+              <button
+                data-astra-native=""
+                type="button"
+                className="secondary-button openui-button"
+                disabled={streaming || running}
+                aria-busy={running}
+                onClick={async (event) => {
+                  if (!event.isTrusted) return;
+                  setRunning(true);
+                  setError(false);
+                  try {
+                    setResult(
+                      await run(props.script, props.args ?? [], language),
+                    );
+                  } catch (error) {
+                    setError(true);
+                    setResult(
+                      error instanceof Error ? error.message : String(error),
+                    );
+                  } finally {
+                    setRunning(false);
+                  }
+                }}
               >
-                {result}
-              </pre>
-            )}
-          </div>
-        );
-      },
-    }),
+                {props.label}
+              </button>
+              {result && (
+                <pre
+                  role={error ? "alert" : "status"}
+                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                >
+                  {result}
+                </pre>
+              )}
+            </div>
+          );
+        },
+      }),
+    ),
     defineComponent({
       ...ui.Table,
       component: ({ props }) => (

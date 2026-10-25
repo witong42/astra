@@ -144,6 +144,34 @@ export const uiComponents = {
     }),
     component: null,
   }),
+  PowerShellButton: defineComponent({
+    name: "PowerShellButton",
+    description:
+      "Runs PowerShell directly on Windows without an assistant turn. Arguments are passed as $args; stdout or an error appears below the button.",
+    props: z.object({
+      label,
+      script: z
+        .string()
+        .min(1)
+        .max(64 * 1024),
+      args: z.array(z.string().max(4000)).max(32).optional(),
+    }),
+    component: null,
+  }),
+  ShellButton: defineComponent({
+    name: "ShellButton",
+    description:
+      "Runs a POSIX shell script directly on Linux in the active mini-app directory. Arguments are passed as positional parameters; stdout or an error appears below the button.",
+    props: z.object({
+      label,
+      script: z
+        .string()
+        .min(1)
+        .max(64 * 1024),
+      args: z.array(z.string().max(4000)).max(32).optional(),
+    }),
+    component: null,
+  }),
   Table: defineComponent({
     name: "Table",
     description: "Table with text column headers and arrays of cell values.",

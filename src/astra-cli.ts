@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 import { readFileSync } from "node:fs";
 import { requestAstra } from "./astra-api";
 

@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useRef } from "react";
+import { mountLogo } from "./brand-avatar";
 import { mountGalaxy } from "./galaxy";
 import { useLocale } from "./LocaleProvider";
 import { INITIAL_VOICE, type VoiceState } from "./voice";
@@ -13,11 +14,13 @@ function Galaxy({
   const canvas = useRef<HTMLCanvasElement>(null);
   const current = useRef(voice);
   current.current = voice;
-  const scene = useRef<ReturnType<typeof mountGalaxy> | null>(null);
+  const scene = useRef<ReturnType<typeof mountLogo> | null>(null);
   useEffect(() => {
     const surface = canvas.current;
     if (!surface) return;
-    scene.current = mountGalaxy(surface, () => current.current, compact);
+    scene.current = compact
+      ? mountLogo(surface, () => current.current)
+      : mountGalaxy(surface, () => current.current);
     return () => {
       scene.current?.dispose();
       scene.current = null;

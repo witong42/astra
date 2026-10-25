@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { WAKE_AUDIO_LEAD_SAMPLES } from "./local-input";
 import type { RemoteCommand } from "./remote-server";
 import type { SpeechEvent, VoiceInput } from "./voice";
 
 type Recognizer = {
   start: (standby?: boolean, homeOnly?: boolean) => Promise<void>;
   stop: () => void;
-  appendAudio: (pcm: string) => Promise<boolean>;
+  appendAudio: (pcm: string, startSample?: number) => Promise<boolean>;
 };
 type Transport = {
   requestClient: (clientId: string, command: RemoteCommand) => Promise<unknown>;
@@ -17,15 +18,21 @@ export class PhoneInput {
   readonly input: VoiceInput;
   private recognition: Recognizer | null = null;
   private disposed = false;
+  private wakeStart: number | undefined;
   constructor(
     readonly clientId: string,
     readonly captureId: string,
     private transport: Transport,
-    createRecognition: (onEvent: (event: SpeechEvent) => void) => Recognizer,
+    createRecognition: (
+      onEvent: (event: SpeechEvent) => void,
+      onWakeAudioStart: (sample: number) => void,
+    ) => Recognizer,
   ) {
     this.input = {
       speech: (onEvent) => {
-        const recognition = createRecognition(onEvent);
+        const recognition = createRecognition(onEvent, (sample) => {
+          this.wakeStart = Math.max(0, sample - WAKE_AUDIO_LEAD_SAMPLES);
+        });
         this.recognition?.stop();
         this.recognition = recognition;
         return {
@@ -38,18 +45,25 @@ export class PhoneInput {
       },
       media: () => {
         const callId = crypto.randomUUID();
-        const command = (action: "offer" | "stop"): RemoteCommand => ({
-          kind: "audio",
+        const command = (action: "offer" | "stop") => ({
+          kind: "audio" as const,
           captureId,
           callId,
           action,
         });
         return {
-          offer: async () => {
+          replaysWakeAudio: true,
+          offer: async (replay = false) => {
             if (this.disposed)
               throw new Error("This phone microphone session has ended.");
             return sdpSchema.parse(
-              await transport.requestClient(clientId, command("offer")),
+              await transport.requestClient(clientId, {
+                ...command("offer"),
+                action: "offer",
+                ...(replay && this.wakeStart !== undefined
+                  ? { replayFrom: this.wakeStart }
+                  : {}),
+              }),
             );
           },
           answer: async (sdp) => {
@@ -75,7 +89,12 @@ export class PhoneInput {
       },
     };
   }
-  async appendAudio(clientId: string, captureId: string, pcm: string) {
+  async appendAudio(
+    clientId: string,
+    captureId: string,
+    pcm: string,
+    startSample?: number,
+  ) {
     if (
       this.disposed ||
       clientId !== this.clientId ||
@@ -84,7 +103,7 @@ export class PhoneInput {
       throw new Error(
         "This phone no longer owns the microphone. Start voice again.",
       );
-    return (await this.recognition?.appendAudio(pcm)) ?? false;
+    return (await this.recognition?.appendAudio(pcm, startSample)) ?? false;
   }
   dispose() {
     if (this.disposed) return;

@@ -25,18 +25,40 @@ import {
   let sendNative: ((message: unknown) => void) | null = null;
   function updateInputs(inputs: unknown) {
     inputTarget.canvasInputs = inputs ?? {};
-    dispatchEvent(
-      new CustomEvent("codexos:inputs", { detail: inputTarget.canvasInputs }),
-    );
+    for (const type of ["astra:inputs", "codexos:inputs"])
+      dispatchEvent(
+        new CustomEvent(type, { detail: inputTarget.canvasInputs }),
+      );
+  }
+  function dispatchNativeResult(
+    target: HTMLElement,
+    detail: { stdout: string; error: string | null },
+  ) {
+    const language = nativeLanguage(target);
+    for (const type of language === "applescript"
+      ? ["astra:applescript", "codexos:applescript"]
+      : [`astra:${language}`])
+      target.dispatchEvent(new CustomEvent(type, { bubbles: true, detail }));
+  }
+
+  function nativeLanguage(target: HTMLElement) {
+    if (target.dataset.shell !== undefined) return "shell";
+    return target.dataset.powershell !== undefined
+      ? "powershell"
+      : "applescript";
   }
 
   function serializeDocument() {
     const host = root();
     if (!host) throw new Error("The canvas root #substrate is missing.");
     const clone = host.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll("[data-applescript][aria-busy]").forEach((node) => {
-      node.removeAttribute("aria-busy");
-    });
+    clone
+      .querySelectorAll(
+        "[data-applescript][aria-busy],[data-powershell][aria-busy],[data-shell][aria-busy]",
+      )
+      .forEach((node) => {
+        node.removeAttribute("aria-busy");
+      });
     const fields = host.querySelectorAll("input,textarea,select");
     const clones = clone.querySelectorAll("input,textarea,select");
     fields.forEach((field, index) => {
@@ -160,14 +182,12 @@ import {
           stdout: result.stdout ?? "",
           error: result.error ?? null,
         };
-        const output = target.dataset.applescriptOutput;
+        const output = target.dataset[`${nativeLanguage(target)}Output`];
         if (output) {
           const node = root()?.querySelector(output);
           if (node) node.textContent = detail.error ?? detail.stdout;
         }
-        target.dispatchEvent(
-          new CustomEvent("codexos:applescript", { bubbles: true, detail }),
-        );
+        dispatchNativeResult(target, detail);
       };
       sendNative({ type: "canvas:native-ready" });
     } else if (message?.type === "canvas:init") {
@@ -277,7 +297,9 @@ import {
     if (!event.isTrusted || event.defaultPrevented || !initialized) return;
     const target =
       event.target instanceof Element
-        ? event.target.closest<HTMLElement>("[data-applescript]")
+        ? event.target.closest<HTMLElement>(
+            "[data-applescript],[data-powershell],[data-shell]",
+          )
         : null;
     if (
       !target ||
@@ -297,18 +319,21 @@ import {
       return;
     event.preventDefault();
     try {
-      const script = document.getElementById(target.dataset.applescript ?? "");
+      const language = nativeLanguage(target);
+      const script = document.getElementById(target.dataset[language] ?? "");
       if (
         !script ||
         !root()?.contains(script) ||
-        script.getAttribute("type") !== "text/applescript"
+        script.getAttribute("type") !== `text/${language}`
       )
         throw new Error(
-          "The AppleScript action is missing its text/applescript script element.",
+          `The native action is missing its text/${language} script element.`,
         );
-      const args: unknown = JSON.parse(target.dataset.applescriptArgs ?? "[]");
+      const args: unknown = JSON.parse(
+        target.dataset[`${language}Args`] ?? "[]",
+      );
       const selectors: unknown = JSON.parse(
-        target.dataset.applescriptInputs ?? "[]",
+        target.dataset[`${language}Inputs`] ?? "[]",
       );
       if (
         !Array.isArray(args) ||
@@ -317,7 +342,7 @@ import {
         !selectors.every((value) => typeof value === "string")
       )
         throw new Error(
-          "AppleScript arguments and input selectors must be arrays of strings.",
+          "Native action arguments and input selectors must be arrays of strings.",
         );
       const values = selectors.map((selector) => {
         const input = root()?.querySelector(selector);
@@ -328,7 +353,7 @@ import {
             input instanceof HTMLTextAreaElement
           )
         )
-          throw new Error(`AppleScript input ${selector} is missing.`);
+          throw new Error(`Native action input ${selector} is missing.`);
         return input.value;
       });
       if (!sendNative)
@@ -337,17 +362,12 @@ import {
       nativeRequests.set(requestId, target);
       target.setAttribute("aria-busy", "true");
       sendNative({
-        type: "canvas:applescript",
+        type: `canvas:${language}`,
         requestId,
         request: { script: script.textContent, args: [...args, ...values] },
       });
     } catch (error) {
-      target.dispatchEvent(
-        new CustomEvent("codexos:applescript", {
-          bubbles: true,
-          detail: { stdout: "", error: errorText(error) },
-        }),
-      );
+      dispatchNativeResult(target, { stdout: "", error: errorText(error) });
       post({ type: "canvas:error", error: errorText(error) });
     }
   }

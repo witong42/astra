@@ -18,6 +18,8 @@ Early builds were used locally or through private sites; the dates below do not 
 - Installer checks allow native x64 validation to finish under emulation.
 - Mac archives verify their signed application and release identity, include checksums, and refuse to overwrite an existing archive.
 - Desktop packages exclude separate phone-client and marketing build output.
+- Fresh source installs download the pinned Electron runtime before desktop checks and startup.
+- Linux ARM64 packages target Ubuntu 24.04 rather than requiring a newer development system's glibc.
 
 ### Changed
 

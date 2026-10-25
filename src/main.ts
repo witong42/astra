@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import type { Server } from "node:net";
-import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -17,37 +16,51 @@ import { z } from "zod";
 import type { AppController } from "./app-control";
 import { runAppleScript } from "./applescript";
 import { astraSocketPath, startAstraApi } from "./astra-api";
-import { CodexBackend, findCodex } from "./backend";
+import { audioWindow } from "./audio-window";
+import { CodexBackend } from "./backend";
 import { canvasAckSchema } from "./canvas";
-import { CodexLiveMedia } from "./live-media";
+import { astraConfig } from "./config";
+import { BufferedLiveMedia } from "./live-media";
+import { LocalInput } from "./local-input";
+import { LocalSpeech } from "./local-speech";
 import {
   INTERFACE_LANGUAGES,
   type InterfaceLanguage,
   messages,
 } from "./locale";
-import { NativeSpeech } from "./native-speech";
+import { NativeAudio } from "./native-speech";
 import { externalWebUrl } from "./navigation";
 import { PhoneInput } from "./phone-input";
+import { runPowerShell } from "./powershell";
 import { readRemoteConfig } from "./remote-config";
 import { type RemoteMethod, startRemoteServer } from "./remote-server";
+import { RendererAudio } from "./renderer-audio";
+import { runShellScript } from "./shell-script";
 import { DEFAULT_WORKSPACE_DIRECTORY, loadState, saveState } from "./storage";
 import type { SavedState, Snapshot } from "./types";
 import { APP_BUILD, APP_VERSION } from "./version";
 import { VoiceSession, type VoiceState } from "./voice";
+import { loadLocalModel, type VoskModel, voiceAssets } from "./vosk";
 import { appNameSchema } from "./workspace-name";
 
-const DATA_DIRECTORY =
-  process.env.CODEXOS_DATA_DIR ??
-  join(homedir(), "Library/Application Support/CodexOS");
+const config = astraConfig();
+const DATA_DIRECTORY = config.dataDirectory;
 const SNAPSHOT_INTERVAL_MS = 40;
 const SAVE_INTERVAL_MS = 300;
 const FLUSH_TIMEOUT_MS = 5000;
-const HIDDEN_TEST_WINDOW =
-  process.env.CODEXOS_TEST_HIDDEN === "1" &&
-  Boolean(process.env.CODEXOS_DATA_DIR);
+const HIDDEN_TEST_WINDOW = config.testHidden;
 let window: BrowserWindow | null = null;
 let backend: CodexBackend;
 let voice: VoiceSession;
+let localModel: Promise<VoskModel> | null = null;
+function createDecoder() {
+  const assets = voiceAssets(join(app.getAppPath(), "dist/voice"));
+  localModel ??= loadLocalModel(assets).catch((error) => {
+    localModel = null;
+    throw error;
+  });
+  return localModel.then((model) => model.createDecoder());
+}
 let tray: Tray | null = null;
 let trayStatus = "";
 let latest: Snapshot | null = null;
@@ -92,6 +105,7 @@ const controlInterface: AppController = (request) => {
           windowVisible: window.isVisible(),
           voice: voice.snapshot().status,
           homeShortcut: voice.shortcutDiagnostics(),
+          audio: await voice.audioDiagnostics(),
         }
       : result;
   });
@@ -136,14 +150,14 @@ function broadcast(snapshot: Snapshot) {
   broadcastTimer = setTimeout(() => {
     broadcastTimer = null;
     if (window && !window.isDestroyed())
-      window.webContents.send("codexos:snapshot", latest);
+      window.webContents.send("astra:snapshot", latest);
   }, SNAPSHOT_INTERVAL_MS);
 }
 
 function installHandlers() {
   const handle = (name: string, callback: (...args: unknown[]) => unknown) => {
     methods.set(name, callback);
-    ipcMain.handle(`codexos:${name}`, (event, ...args: unknown[]) => {
+    ipcMain.handle(`astra:${name}`, (event, ...args: unknown[]) => {
       if (
         !window ||
         event.sender !== window.webContents ||
@@ -151,11 +165,8 @@ function installHandlers() {
       )
         throw new Error("This request did not come from the Astra window.");
       if (remoteActive && PERSISTENCE_METHODS.has(name)) return;
-      if (remoteActive && !PASSIVE_METHODS.has(name))
-        throw new Error(
-          "Astra is active on the phone. Close its browser tab to resume here.",
-        );
       if (!PASSIVE_METHODS.has(name)) {
+        assertDesktopOwnership();
         if (
           phoneInput &&
           !["startVoice", "stopVoice", "pauseVoice"].includes(name)
@@ -177,17 +188,22 @@ function installHandlers() {
   handle("interruptVoice", () => voice.interrupt());
   handle("pauseVoice", () => voice.pause());
   handle("snapshot", () => backend.snapshot());
-  handle("runAppleScript", (workspaceId, request) => {
-    const id = z.string().uuid().parse(workspaceId);
-    if (
-      id !== backend.state.activeId ||
-      !backend.state.workspaces.some((entry) => entry.id === id)
-    )
-      throw new Error(
-        "AppleScript actions must come from the active mini-app.",
+  for (const [method, run] of [
+    ["runAppleScript", runAppleScript],
+    ["runPowerShell", runPowerShell],
+    ["runShellScript", runShellScript],
+  ] as const)
+    handle(method, (workspaceId, request) => {
+      const id = z.string().uuid().parse(workspaceId);
+      const workspace = backend.state.workspaces.find(
+        (entry) => entry.id === id,
       );
-    return runAppleScript(request);
-  });
+      if (id !== backend.state.activeId || !workspace)
+        throw new Error("Native actions must come from the active mini-app.");
+      return method === "runShellScript"
+        ? runShellScript(request, workspace.cwd)
+        : run(request);
+    });
   handle("send", (text, workspaceId) =>
     backend.send(
       z.string().max(24_000).parse(text),
@@ -334,7 +350,7 @@ async function flushRenderer(strict = false) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      window.webContents.executeJavaScript("window.codexosFlush?.()"),
+      window.webContents.executeJavaScript("window.astraFlush?.()"),
       new Promise((_, reject) => {
         timer = setTimeout(
           () => reject(new Error("The canvas did not respond before closing.")),
@@ -367,10 +383,18 @@ function releasePhoneInput() {
   phoneInput = null;
   source?.dispose();
 }
+function assertDesktopOwnership() {
+  if (remoteActive)
+    throw new Error(
+      "Astra is active on the phone. Close its browser tab to resume here.",
+    );
+}
 function setRemoteActive(active: boolean) {
   remoteActive = active;
   if (window && !window.isDestroyed())
-    window.webContents.send("codexos:remoteActive", active);
+    window.webContents.send("astra:remoteActive", active);
+  trayStatus = "";
+  updateVoice(voice.snapshot());
 }
 function stopVoiceInput() {
   voiceTransfer++;
@@ -379,6 +403,7 @@ function stopVoiceInput() {
   releasePhoneInput();
 }
 async function startVoiceInput(standby: boolean, source: PhoneInput | null) {
+  if (!source) assertDesktopOwnership();
   const transfer = ++voiceTransfer;
   changingVoice = transfer;
   releasePhoneInput();
@@ -414,26 +439,26 @@ async function invokeRemote(
       clientId,
       captureId,
       remote,
-      (onEvent) =>
-        new NativeSpeech(
-          join(app.getAppPath(), "dist/voice-helper"),
-          onEvent,
-          "phone",
-        ),
+      (onEvent, onWakeAudioStart) =>
+        new LocalSpeech(createDecoder, onEvent, {
+          language: () => voice.snapshot().language,
+          onWakeAudioStart,
+        }),
     );
     return startVoiceInput(standby, input);
   }
   if (method === "voiceAudio") {
-    const { captureId, pcm } = z
+    const { captureId, pcm, startSample } = z
       .object({
         captureId: z.string().uuid(),
         pcm: z.string().min(4).max(85_336),
+        startSample: z.number().int().nonnegative().optional(),
       })
       .strict()
       .parse(args[0]);
     if (!phoneInput)
       throw new Error("Start the phone microphone before sending audio.");
-    return phoneInput.appendAudio(clientId, captureId, pcm);
+    return phoneInput.appendAudio(clientId, captureId, pcm, startSample);
   }
   if (method === "stopVoice" && args[0] !== undefined) {
     const { captureId } = z
@@ -463,7 +488,7 @@ function updateVoice(state: VoiceState) {
   if (state.active || !changingVoice)
     remote?.publishVoice(state, phoneInput?.clientId ?? null);
   if (window && !window.isDestroyed())
-    window.webContents.send("codexos:voice", state);
+    window.webContents.send("astra:voice", state);
   if (state.status === trayStatus) return;
   trayStatus = state.status;
   if (!tray) {
@@ -490,7 +515,9 @@ function updateVoice(state: VoiceState) {
       { type: "separator" },
       {
         label: state.active ? "Pause microphone" : "Enable voice",
+        enabled: !remoteActive,
         click: () => {
+          if (remoteActive) return;
           if (voice.snapshot().active) {
             stopVoiceInput();
             backend.setVoiceEnabled(false);
@@ -507,13 +534,17 @@ function updateVoice(state: VoiceState) {
       },
       {
         label: "Interrupt",
-        enabled: state.status === "thinking" || state.status === "speaking",
-        click: () =>
+        enabled:
+          !remoteActive &&
+          (state.status === "thinking" || state.status === "speaking"),
+        click: () => {
+          if (remoteActive) return;
           void voice
             .interrupt()
             .catch((error) =>
               dialog.showErrorBox("Astra could not interrupt", String(error)),
-            ),
+            );
+        },
       },
       { type: "separator" },
       { role: "quit" },
@@ -524,7 +555,7 @@ function updateVoice(state: VoiceState) {
 async function createWindow() {
   const bundleDirectory = join(app.getAppPath(), "dist");
   app.dock?.setIcon(
-    nativeImage.createFromPath(join(bundleDirectory, "icon.png")),
+    nativeImage.createFromPath(join(bundleDirectory, "dock.png")),
   );
   window = new BrowserWindow({
     width: 1440,
@@ -532,6 +563,7 @@ async function createWindow() {
     minWidth: 960,
     minHeight: 650,
     title: "Astra",
+    icon: join(bundleDirectory, "icon.png"),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 18, y: 21 },
     backgroundColor: "#090a10",
@@ -589,11 +621,23 @@ app
         return { voice: voice.snapshot().status };
       },
     );
+    const desktopInput = new LocalInput(
+      process.platform === "darwin"
+        ? new NativeAudio(join(app.getAppPath(), "dist/voice-helper"))
+        : new RendererAudio(audioWindow(join(app.getAppPath(), "dist"))),
+      createDecoder,
+      () => voice.snapshot().language,
+      (openAudio, onEvent) =>
+        new BufferedLiveMedia(
+          audioWindow(join(app.getAppPath(), "dist")),
+          openAudio,
+          onEvent,
+        ),
+    );
     voice = new VoiceSession(
       backend,
-      (onEvent) =>
-        new NativeSpeech(join(app.getAppPath(), "dist/voice-helper"), onEvent),
-      (onEvent) => new CodexLiveMedia(findCodex(), onEvent),
+      desktopInput.input.speech,
+      desktopInput.input.media,
       updateVoice,
       () => controlInterface({ action: "home" }),
     );
@@ -670,7 +714,7 @@ app
             if (desktopVoiceWasActive && !quitting) {
               desktopVoiceWasActive = false;
               void startVoiceInput(true, null).catch((error) => {
-                backend.state.error = String(error);
+                backend.state.error = `Desktop voice could not resume: ${error}`;
                 broadcast(backend.snapshot());
               });
             }
@@ -748,6 +792,7 @@ app.on("before-quit", (event) => {
         }
       }
       await backend?.stop();
+      await (await localModel)?.close();
     })
     .finally(() => app.quit());
 });

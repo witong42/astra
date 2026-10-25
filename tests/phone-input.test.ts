@@ -64,3 +64,47 @@ test("phone capture survives live-call rotation, routes PCM to the current local
   );
   await expect(second.offer()).rejects.toThrow("ended");
 });
+
+test("phone wake replay uses the browser's absolute audio position and never asks the Mac to capture", async () => {
+  const commands: RemoteCommand[] = [];
+  let markWake!: (sample: number) => void;
+  const positions: (number | undefined)[] = [];
+  const source = new PhoneInput(
+    "client",
+    "capture",
+    {
+      requestClient: async (_id, command) => {
+        commands.push(command);
+        return "offer";
+      },
+      notifyClient: (_id, command) => {
+        commands.push(command);
+      },
+    },
+    (_event, onWakeAudioStart) => {
+      markWake = onWakeAudioStart;
+      return {
+        start: async () => {},
+        stop() {},
+        appendAudio: async (_pcm, startSample) => {
+          positions.push(startSample);
+          return true;
+        },
+      };
+    },
+  );
+  const speech = source.input.speech(() => {});
+  await speech.start(true);
+  await source.appendAudio("client", "capture", "frame", 16000);
+  markWake(20000);
+  const media = source.input.media(() => {});
+  expect(media.replaysWakeAudio).toBe(true);
+  await media.offer(true);
+  expect(positions).toEqual([16000]);
+  expect(commands[0]).toMatchObject({
+    kind: "audio",
+    action: "offer",
+    replayFrom: 16800,
+  });
+  source.dispose();
+});

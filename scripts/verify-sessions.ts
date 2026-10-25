@@ -5,7 +5,7 @@ import { desktopClient, showWorkspace } from "./desktop-client";
 const TIMEOUT_MS = 180_000;
 const POLL_MS = 100;
 const client = await desktopClient();
-const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
+const snapshot = () => client.evaluate<Snapshot>("window.astra.snapshot()");
 const workspace = (state: Snapshot, id = state.activeId): Workspace => {
   const found = state.workspaces.find((entry) => entry.id === id);
   assert.ok(found);
@@ -191,7 +191,7 @@ try {
   await canvas.evaluate(
     "{document.getElementById('probe-counter').click();const note=document.getElementById('probe-note');note.value='Notes survive switching';note.dispatchEvent(new Event('input',{bubbles:true}))}",
   );
-  await client.evaluate("window.codexosFlush()");
+  await client.evaluate("window.astraFlush()");
   const counter = await canvas.evaluate<string>(
     "document.getElementById('probe-counter').textContent",
   );
@@ -218,7 +218,7 @@ try {
     /2/,
   );
   restored.close();
-  await client.evaluate("window.codexosFlush()");
+  await client.evaluate("window.astraFlush()");
   await client.screenshot("test-results/concurrent-sessions.png");
   assert.equal(client.errors.length, 0);
   const final = await snapshot();

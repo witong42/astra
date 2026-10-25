@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCanvas } from "../scripts/build-canvas";
+import { appIcon, copyBrand } from "../scripts/icon";
 import { newWorkspace } from "../src/storage";
 import type { Snapshot } from "../src/types";
 import { INITIAL_VOICE, type VoiceState } from "../src/voice";
@@ -41,7 +42,7 @@ async function browserProbe(config: {
     "stopVoice",
     "pauseVoice",
   ]) {
-    ipcMain.handle(`codexos:${method}`, (event, ...args) => {
+    ipcMain.handle(`astra:${method}`, (event, ...args) => {
       const state = states.get(event.sender.id);
       assert.ok(state);
       calls.get(event.sender.id)?.push({ method, args });
@@ -54,12 +55,12 @@ async function browserProbe(config: {
           status: method === "pauseVoice" ? "standby" : "listening",
         } as VoiceState;
         voices.set(event.sender.id, voice);
-        event.sender.send("codexos:voice", voice);
+        event.sender.send("astra:voice", voice);
       }
       if (method === "remoteActive") return false;
       if (method === "selectWorkspace") {
         state.activeId = String(args[0]);
-        event.sender.send("codexos:snapshot", state);
+        event.sender.send("astra:snapshot", state);
       }
       if (method === "updateCanvas") {
         const canvas = state.workspaces.find(
@@ -275,7 +276,7 @@ async function browserProbe(config: {
         await screenshot("en-journal");
       }
       await evaluate(
-        "window.codexos.chooseFolder();window.codexos.deleteWorkspace(" +
+        "window.astra.chooseFolder();window.astra.deleteWorkspace(" +
           JSON.stringify(workspace.id) +
           ")",
       );
@@ -476,6 +477,8 @@ test.skipIf(process.platform !== "darwin")(
           throw new AggregateError(result.logs, `Could not build ${entry}`);
       }
       await buildCanvas(PROJECT, directory);
+      copyBrand(PROJECT, directory);
+      await Bun.write(join(directory, "icon.png"), appIcon().png);
       await Bun.write(
         join(directory, "styles.css"),
         Bun.file(join(PROJECT, "src/styles.css")),

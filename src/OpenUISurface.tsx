@@ -60,7 +60,7 @@ export function OpenUISurface({
       const serialized = JSON.stringify(state);
       if (serialized === lastSaved.current) return;
       lastSaved.current = serialized;
-      const save = window.codexos.updateOpenUI(id, generation.current, state);
+      const save = window.astra.updateOpenUI(id, generation.current, state);
       pending.current = save;
       save.catch((error) => {
         lastSaved.current = "";
@@ -135,9 +135,14 @@ export function OpenUISurface({
       )}
       <OpenUICanvasContext value={renderCanvas}>
         <AppleScriptContext
-          value={(script, args) =>
-            window.codexos.runAppleScript(id, { script, args })
-          }
+          value={(script, args, language) => {
+            const run = {
+              applescript: window.astra.runAppleScript,
+              powershell: window.astra.runPowerShell,
+              shell: window.astra.runShellScript,
+            }[language ?? "applescript"];
+            return run(id, { script, args });
+          }}
         >
           <Renderer
             response={ui.source}
@@ -149,7 +154,7 @@ export function OpenUISurface({
             onError={reportErrors}
             onAction={(event) => {
               if (event.type === "open_url")
-                window.codexos
+                window.astra
                   .openExternal(String(event.params.url))
                   .catch(onError);
               else if (event.type === "continue_conversation")

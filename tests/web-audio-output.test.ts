@@ -3,13 +3,17 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const PROBE_TIMEOUT_MS = 8000;
+const PROBE_TIMEOUT_MS = 16_000;
 const TEST_TIMEOUT_MS = 25_000;
 const SLOW_UPLOAD_MS = 1400;
 
-for (const uploadDelay of [0, SLOW_UPLOAD_MS]) {
+for (const { uploadDelay, negotiationDelay } of [
+  { uploadDelay: 0, negotiationDelay: 0 },
+  { uploadDelay: SLOW_UPLOAD_MS, negotiationDelay: 0 },
+  { uploadDelay: 0, negotiationDelay: 3000 },
+]) {
   test.skipIf(process.platform !== "darwin")(
-    `a real audio stream stays connected during a ${uploadDelay}ms Mac upload delay`,
+    `real audio stays current after ${negotiationDelay}ms negotiation and ${uploadDelay}ms upload delay`,
     async () => {
       const project = join(import.meta.dir, "..");
       const directory = mkdtempSync(join(tmpdir(), "astra-output-test-"));
@@ -45,17 +49,20 @@ for (const uploadDelay of [0, SLOW_UPLOAD_MS]) {
               const changed=()=>{if(remote.iceGatheringState==='complete'){clearTimeout(timer);remote.removeEventListener('icegatheringstatechange',changed);resolve()}};
               remote.addEventListener('icegatheringstatechange',changed);changed();
             });
+            await new Promise(resolve=>setTimeout(resolve,${negotiationDelay}));
             await audio.command({kind:'audio',action:'answer',captureId,callId,sdp:remote.localDescription.sdp});
             const deadline = performance.now() + ${PROBE_TIMEOUT_MS};
-            let status;
+            let status, peakBufferedMs = 0, peakRate = 1;
             do {
               status = await audio.diagnostics();
-              if(status.inbound?.energy > 0 && status.output?.readyState >= 2 && !status.output.paused) break;
+              peakBufferedMs = Math.max(peakBufferedMs,status.replay?.bufferedMs??0);
+              peakRate = Math.max(peakRate,status.replay?.playbackRate??1);
+              if(status.inbound?.energy > 0 && status.output?.readyState >= 2 && !status.output.paused && status.replay && status.replay.bufferedMs < 250 && status.replay.playbackRate===1) break;
               await new Promise(resolve=>setTimeout(resolve,50));
             } while(performance.now()<deadline);
             if (${uploadDelay}>0) await new Promise(resolve=>setTimeout(resolve,${uploadDelay}*2));
             status = await audio.diagnostics();
-            return {status,errors,blocked,uploads};
+            return {status,errors,blocked,uploads,peakBufferedMs,peakRate};
           } finally {
             audio.stop();remote.close();tone.stop();await source.close();
           }
@@ -131,9 +138,8 @@ for (const uploadDelay of [0, SLOW_UPLOAD_MS]) {
         if (!line)
           throw new Error("The audio output probe returned no result.");
         console.log(line);
-        const { status, errors, blocked, uploads } = JSON.parse(
-          line.slice("AUDIO_OUTPUT_PROBE ".length),
-        );
+        const { status, errors, blocked, uploads, peakBufferedMs, peakRate } =
+          JSON.parse(line.slice("AUDIO_OUTPUT_PROBE ".length));
         expect(errors).toEqual([]);
         expect(blocked).toEqual([]);
         expect(status.context).toBe("running");
@@ -144,6 +150,12 @@ for (const uploadDelay of [0, SLOW_UPLOAD_MS]) {
         expect(status.output.readyState).toBeGreaterThanOrEqual(2);
         expect(status.inbound.bytes).toBeGreaterThan(0);
         expect(status.inbound.energy).toBeGreaterThan(0);
+        expect(status.replay.bufferedMs).toBeLessThan(250);
+        expect(status.replay.playbackRate).toBe(1);
+        if (negotiationDelay > 0) {
+          expect(peakBufferedMs).toBeGreaterThan(negotiationDelay / 2);
+          expect(peakRate).toBeGreaterThan(1);
+        }
         expect(uploads.every((bytes: number) => bytes <= 64_000)).toBe(true);
         expect(status.localInput.queuedMs).toBeLessThanOrEqual(1000);
         if (uploadDelay > 0)

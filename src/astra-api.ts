@@ -1,16 +1,13 @@
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, rmSync } from "node:fs";
 import { connect, createServer } from "node:net";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { astraConfig } from "./config";
 
 const MAX_FRAME_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 const PROBE_TIMEOUT_MS = 500;
-export function astraSocketPath(
-  directory = process.env.CODEXOS_DATA_DIR ??
-    join(homedir(), "Library/Application Support/CodexOS"),
-) {
+export function astraSocketPath(directory = astraConfig().dataDirectory) {
   return process.platform === "win32"
     ? `\\\\.\\pipe\\astra-${createHash("sha256").update(directory).digest("hex").slice(0, 16)}`
     : join(directory, "astra.sock");
@@ -20,8 +17,8 @@ export async function startAstraApi(
   path: string,
   execute: (request: unknown) => Promise<unknown>,
 ) {
-  if (process.platform !== "win32" && existsSync(path)) {
-    if (!lstatSync(path).isSocket())
+  if (process.platform === "win32" || existsSync(path)) {
+    if (process.platform !== "win32" && !lstatSync(path).isSocket())
       throw new Error("Astra's API socket path is occupied by a regular file.");
     const active = await new Promise<boolean>((resolve, reject) => {
       const probe = connect(path);
@@ -40,7 +37,7 @@ export async function startAstraApi(
       );
     });
     if (active) throw new Error("Astra's API is already running.");
-    rmSync(path, { force: true });
+    if (process.platform !== "win32") rmSync(path, { force: true });
   }
   const server = createServer((socket) => {
     let buffer = Buffer.alloc(0);

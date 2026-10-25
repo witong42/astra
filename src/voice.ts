@@ -1,12 +1,29 @@
 import type { CodexBackend } from "./backend";
 import type { RpcMessage } from "./rpc";
-import type { Snapshot } from "./types";
+import type { AudioStatus, Snapshot } from "./types";
 
 const IDLE_TIMEOUT_MS = 60_000;
 const CONNECTION_TIMEOUT_MS = 30_000;
 const WAKE_COMMAND_TIMEOUT_MS = 12_000;
+const SHORT_COMMAND_DELAY_MS = 750;
+const SHORT_COMMAND_VOICE_LEVEL = 0.02;
+const INPUT_ACTIVITY_MAX_AGE_MS = 1000;
 const HOME_OBSERVATION_LIMIT = 16;
 const HOME_OBSERVATION_TEXT_LIMIT = 160;
+const PAUSE_COMMANDS = new Set([
+  "pause",
+  "mets pause",
+  "mets en pause",
+  "mets toi en pause",
+  "mettez vous en pause",
+  "peux tu te mettre en pause",
+  "tu peux te mettre en pause",
+  "pause yourself",
+  "pause the conversation",
+  "pause this conversation",
+  "can you pause",
+  "could you pause",
+]);
 export type VoiceState = {
   active: boolean;
   status:
@@ -45,7 +62,7 @@ export type SpeechEvent =
       language?: "en" | "fr";
     }
   | { method: "voice/speaking" | "voice/finished"; speechId: number }
-  | { method: "voice/wake" | "voice/home" }
+  | { method: "voice/wake" | "voice/home" | "voice/address" }
   | { method: "voice/shortcut"; text: string; language: "en" | "fr" }
   | { method: "voice/level"; level: number }
   | { method: "voice/error"; message: string };
@@ -62,7 +79,9 @@ export type Speech = {
   stop: () => void;
 };
 export type LiveMedia = {
-  offer: () => Promise<string>;
+  replaysWakeAudio?: boolean;
+  diagnostics?: () => Promise<AudioStatus>;
+  offer: (replay?: boolean) => Promise<string>;
   answer: (sdp: string) => Promise<void>;
   muteOutput: (muted: boolean) => Promise<void>;
   stop: () => void;
@@ -83,8 +102,23 @@ type Agent = Pick<
   | "interrupt"
   | "snapshot"
   | "send"
+  | "appAction"
 >;
-function isHomeShortcut(text: string) {
+function isPauseCommand(text: string) {
+  const request = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(
+      /^(?:(?:astra|ok|okay|oui|bon|please|s il te plait|s il vous plait) )+/,
+      "",
+    )
+    .replace(/(?: (?:please|merci|s il te plait|s il vous plait))+$/, "");
+  return PAUSE_COMMANDS.has(request);
+}
+export function isHomeShortcut(text: string) {
   const words = text
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
@@ -93,26 +127,8 @@ function isHomeShortcut(text: string) {
   if (words[0] === "astra") words.shift();
   return words.length > 0 && words.every((word) => word === "home");
 }
-const PAUSE_REQUESTS = new Set([
-  "pause",
-  "mets pause",
-  "met pause",
-  "mets en pause",
-  "mets toi en pause",
-  "can you pause",
-  "could you pause",
-]);
-function isPauseRequest(text: string) {
-  const request = text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim()
-    .replace(/^astra\s+/, "")
-    .replace(/^please\s+/, "")
-    .replace(/\s+(?:please|s il te plait|s il vous plait)$/, "");
-  return PAUSE_REQUESTS.has(request);
+export function isAstraAddress(text: string) {
+  return /^astra[\s.!?,]*$/i.test(text.trim());
 }
 export class VoiceSession {
   private input: VoiceInput | null = null;
@@ -126,11 +142,19 @@ export class VoiceSession {
   private wake: Pick<Speech, "start" | "stop"> | null = null;
   private homeListener: Pick<Speech, "start" | "stop"> | null = null;
   private localHomePending = false;
+  private lastHomeAt = 0;
+  private lastAddressAt = 0;
+  private wakeAddressPending = false;
+  private localCaption = "";
   private media: LiveMedia | null = null;
   private epoch = 0;
   private opening: Promise<void> | null = null;
   private closing = Promise.resolve();
   private idle: ReturnType<typeof setTimeout> | undefined;
+  private shortCommand: ReturnType<typeof setTimeout> | undefined;
+  private inputSpeaking = false;
+  private inputActivityAt = 0;
+  private localCommandRejected = false;
   private pendingSdp: {
     resolve: (sdp: string) => void;
     reject: (error: Error) => void;
@@ -160,6 +184,9 @@ export class VoiceSession {
 
   snapshot() {
     return structuredClone(this.state);
+  }
+  async audioDiagnostics() {
+    return (await this.media?.diagnostics?.()) ?? null;
   }
   shortcutDiagnostics() {
     return {
@@ -203,6 +230,11 @@ export class VoiceSession {
     }
   }
   private closeCall() {
+    clearTimeout(this.shortCommand);
+    this.inputSpeaking = false;
+    this.inputActivityAt = 0;
+    this.localCommandRejected = false;
+    this.wakeAddressPending = false;
     const homeListener = this.homeListener;
     this.homeListener = null;
     homeListener?.stop();
@@ -242,16 +274,22 @@ export class VoiceSession {
     const wake = (this.input?.speech ?? this.createWake)((event) => {
       if (this.wake !== wake || !this.state.active) return;
       if (event.method === "voice/error") this.fail(event.message);
-      else if (event.method === "voice/shortcut")
+      else if (event.method === "voice/level")
+        this.observeInputLevel(event.level);
+      else if (event.method === "voice/shortcut") {
+        this.localCaption = event.text;
+        if (event.text && !isAstraAddress(event.text))
+          this.wakeAddressPending = false;
         this.observeHome(
           event.text ? "recognition" : "reset",
           event.text,
           event.language,
         );
-      else if (event.method === "voice/home") {
+      } else if (event.method === "voice/home") {
         this.observeHome("detected");
         void this.home();
       } else if (event.method === "voice/wake") {
+        this.wakeAddressPending = isAstraAddress(this.localCaption);
         this.wakeCommand = "";
         let resolve = () => {};
         const promise = new Promise<void>((done) => {
@@ -332,12 +370,14 @@ export class VoiceSession {
       if (this.media !== media || epoch !== this.epoch) return;
       if (event.method === "voice/error") this.fail(event.message);
       else if (event.method === "voice/level") {
+        this.observeInputLevel(event.level);
         this.state.level = Math.max(0, Math.min(1, event.level));
         this.changed();
       }
     });
     this.media = media;
-    const offer = await media.offer();
+    const replay = Boolean(this.wakeFinished && media.replaysWakeAudio);
+    const offer = await media.offer(replay);
     if (epoch !== this.epoch) return;
     const sdp = new Promise<string>((resolve, reject) => {
       const timer = setTimeout(
@@ -358,7 +398,7 @@ export class VoiceSession {
     if (epoch !== this.epoch) return;
     const wakeFinished = this.wakeFinished;
     if (wakeFinished) {
-      await wakeFinished.promise;
+      if (!replay) await wakeFinished.promise;
       clearTimeout(wakeFinished.timer);
       if (this.wakeFinished === wakeFinished) this.wakeFinished = null;
     }
@@ -376,8 +416,10 @@ export class VoiceSession {
     this.armIdle();
     this.changed();
     void this.listenForHome(epoch);
+    this.scheduleShortCommand();
     const command = this.wakeCommand;
     this.wakeCommand = "";
+    if (replay) return;
     if (isHomeShortcut(command)) await this.home();
     else if (command && this.state.workspaceId) {
       this.state.task = command;
@@ -399,10 +441,28 @@ export class VoiceSession {
       )
         return;
       if (event.method === "voice/home") {
+        if (
+          this.localHomePending &&
+          Date.now() - this.lastHomeAt < SHORT_COMMAND_DELAY_MS
+        )
+          return;
         this.observeHome("detected");
         this.localHomePending = true;
         void this.home();
+      } else if (event.method === "voice/address") {
+        if (this.state.status === "listening")
+          void this.acknowledgeAddress().catch((error) => this.fail(error));
+      } else if (event.method === "voice/level") {
+        this.observeInputLevel(event.level);
       } else if (event.method === "voice/shortcut") {
+        if (
+          event.text &&
+          !isAstraAddress(event.text) &&
+          !isHomeShortcut(event.text)
+        )
+          this.localCommandRejected = true;
+        if (event.text && !isAstraAddress(event.text))
+          this.wakeAddressPending = false;
         this.observeHome(
           event.text ? "recognition" : "reset",
           event.text,
@@ -487,6 +547,8 @@ export class VoiceSession {
   }
 
   private async home() {
+    clearTimeout(this.shortCommand);
+    this.lastHomeAt = Date.now();
     const epoch = this.epoch;
     this.outputMuted = Boolean(this.media);
     this.state.task = "Home";
@@ -506,6 +568,85 @@ export class VoiceSession {
       this.observeHome("failed", this.state.error);
     }
     this.changed();
+  }
+
+  private observeInputLevel(level: number) {
+    const wasSpeaking = this.inputSpeaking;
+    this.inputActivityAt = Date.now();
+    this.inputSpeaking = level >= SHORT_COMMAND_VOICE_LEVEL;
+    if (this.inputSpeaking && !wasSpeaking) {
+      this.localCommandRejected = false;
+    }
+    if (this.inputSpeaking) clearTimeout(this.shortCommand);
+    else if (wasSpeaking) this.scheduleShortCommand();
+  }
+
+  private async acknowledgeAddress() {
+    if (Date.now() - this.lastAddressAt < SHORT_COMMAND_DELAY_MS) return;
+    const epoch = this.epoch;
+    clearTimeout(this.shortCommand);
+    this.lastAddressAt = Date.now();
+    this.wakeAddressPending = false;
+    this.state.transcript = "";
+    this.userStreaming = false;
+    this.state.task = "Astra";
+    this.changed();
+    try {
+      if (this.outputMuted) {
+        this.outputMuted = false;
+        await this.media?.muteOutput(false);
+      }
+      if (epoch !== this.epoch || !this.state.active) return;
+      await this.agent.speakRealtime(
+        this.state.language === "fr" ? "Oui, je t’écoute." : "Yes, I’m here.",
+      );
+    } catch (error) {
+      if (epoch === this.epoch) throw error;
+    }
+  }
+
+  private shortCommandText() {
+    return (
+      this.state.transcript.trim() || (this.wakeAddressPending ? "Astra" : "")
+    );
+  }
+
+  private scheduleShortCommand() {
+    clearTimeout(this.shortCommand);
+    const text = this.shortCommandText();
+    const home = isHomeShortcut(text);
+    const address = isAstraAddress(text);
+    if (
+      (!home && !address) ||
+      (home && this.localHomePending) ||
+      this.inputSpeaking
+    )
+      return;
+    const epoch = this.epoch;
+    this.shortCommand = setTimeout(() => {
+      if (
+        epoch !== this.epoch ||
+        !this.state.active ||
+        (!home && this.state.status !== "listening") ||
+        this.inputSpeaking ||
+        this.localCommandRejected ||
+        this.inputActivityAt === 0 ||
+        Date.now() - this.inputActivityAt > INPUT_ACTIVITY_MAX_AGE_MS ||
+        this.shortCommandText() !== text
+      )
+        return;
+      this.state.transcript = "";
+      this.userStreaming = false;
+      this.state.task = text;
+      if (home) {
+        this.localHomePending = true;
+        this.observeHome("detected", text);
+        void this.home();
+      } else {
+        void this.acknowledgeAddress().catch((error) => this.fail(error));
+      }
+    }, SHORT_COMMAND_DELAY_MS);
+    this.shortCommand.unref?.();
   }
 
   private realtime(message: RpcMessage) {
@@ -537,6 +678,8 @@ export class VoiceSession {
     ) {
       if (params.role === "user") {
         if (!this.userStreaming) {
+          if (Date.now() - this.lastHomeAt >= SHORT_COMMAND_DELAY_MS)
+            this.localHomePending = false;
           this.state.transcript = "";
           this.state.reply = "";
           this.replyPrefix = "";
@@ -544,7 +687,12 @@ export class VoiceSession {
           this.assistantStreaming = false;
         }
         this.state.transcript += params.delta;
+        if (!isAstraAddress(this.state.transcript))
+          this.wakeAddressPending = false;
         this.state.status = "listening";
+        if (this.localHomePending && !isHomeShortcut(this.state.transcript))
+          this.localHomePending = false;
+        this.scheduleShortCommand();
         if (
           this.outputMuted &&
           this.state.transcript.trim() &&
@@ -554,6 +702,9 @@ export class VoiceSession {
           void this.media?.muteOutput(false).catch((error) => this.fail(error));
         }
       } else if (params.role === "assistant" && !this.outputMuted) {
+        this.wakeAddressPending = false;
+        if (!isHomeShortcut(this.state.transcript))
+          clearTimeout(this.shortCommand);
         if (!this.assistantStreaming) {
           this.replyPrefix = this.state.reply
             ? `${this.state.reply.trimEnd()} `
@@ -571,15 +722,16 @@ export class VoiceSession {
       typeof params.text === "string"
     ) {
       if (params.role === "user") {
-        if (isPauseRequest(params.text)) {
-          void this.pause().catch((error) =>
-            console.error("Voice pause failed:", error),
-          );
-          return;
-        }
+        clearTimeout(this.shortCommand);
         this.state.task = params.text;
         this.state.transcript = "";
         this.userStreaming = false;
+        if (isPauseCommand(params.text)) {
+          void this.agent
+            .appAction({ action: "pause" })
+            .catch((error) => this.fail(error));
+          return;
+        }
         if (isHomeShortcut(params.text) && !this.localHomePending)
           void this.home();
         this.localHomePending = false;

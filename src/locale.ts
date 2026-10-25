@@ -51,7 +51,7 @@ const fr = {
     "Supprimer définitivement cette mini-app, sa conversation, sa vue, ses versions et son historique Codex ? Cette action est irréversible. Les fichiers du projet et les sauvegardes externes seront conservés.",
   deleteTitle: "Supprimer la mini-app ?",
   chooseFolder: "Choisir un dossier",
-  chooseFolderPath: "Chemin absolu d’un dossier existant sur le Mac :",
+  chooseFolderPath: "Chemin absolu d’un dossier existant sur l’ordinateur :",
   model: "Modèle",
   reasoning: "Raisonnement",
   modelSpeed: "Vitesse du modèle",
@@ -148,29 +148,31 @@ const fr = {
   restoreVersion: (generation: number) => `Restaurer la version ${generation}`,
   renderFailed:
     "Cette vue n’a pas pu s’afficher. Demande à Astra de la simplifier ou de la remplacer.",
-  privateConnection: "Connexion privée au Mac…",
+  privateConnection: "Connexion privée à l’ordinateur…",
   reload: "Recharger",
   enableSound: "Activer le son",
   macDisconnected:
-    "Connexion au Mac interrompue. Active Tailscale, ferme les autres onglets Astra, garde le Mac allumé puis recharge.",
-  unreadableMac: "Le Mac a envoyé une réponse illisible. Recharge Astra.",
-  reconnectVoice: "Reconnecte le téléphone au Mac avant d’activer la voix.",
-  macOffline: "Mac déconnecté",
+    "Connexion à l’ordinateur interrompue. Active Tailscale, ferme les autres onglets Astra, garde l’ordinateur allumé puis recharge.",
+  unreadableMac: "L’ordinateur a envoyé une réponse illisible. Recharge Astra.",
+  reconnectVoice:
+    "Reconnecte le téléphone à l’ordinateur avant d’activer la voix.",
+  macOffline: "Ordinateur déconnecté",
   connectionInterrupted:
-    "La connexion privée au Mac est interrompue. Les actions n’ont pas été renvoyées automatiquement.",
-  reconnectPhone: "Active Tailscale et recharge Astra pour retrouver le Mac.",
+    "La connexion privée à l’ordinateur est interrompue. Les actions n’ont pas été renvoyées automatiquement.",
+  reconnectPhone:
+    "Active Tailscale et recharge Astra pour retrouver l’ordinateur.",
   phoneOpening: "L’interface du téléphone est encore en cours d’ouverture.",
   actionUnconfirmed:
-    "Le Mac n’a pas confirmé cette action. Vérifie son état avant de réessayer.",
+    "L’ordinateur n’a pas confirmé cette action. Vérifie son état avant de réessayer.",
   phoneDisconnected:
-    "Le téléphone est déconnecté du Mac. Active Tailscale puis recharge Astra.",
+    "Le téléphone est déconnecté de l’ordinateur. Active Tailscale puis recharge Astra.",
   micHttps:
     "Le microphone nécessite un navigateur récent et une connexion HTTPS.",
   micStopped: "Microphone arrêté.",
   micEnded:
     "Le téléphone a arrêté le microphone. Rouvre Astra puis active la voix.",
   slowVoice:
-    "La connexion au Mac est trop lente pour la voix. Relance la voix avec une meilleure connexion.",
+    "La connexion à l’ordinateur est trop lente pour la voix. Relance la voix avec une meilleure connexion.",
   audioSuspended:
     "Le navigateur a suspendu l’audio. Garde Astra au premier plan puis réactive la voix.",
   micInactive: "Le microphone du téléphone n’est plus actif. Relance la voix.",
@@ -243,7 +245,7 @@ const en: typeof fr = {
     "Permanently delete this mini-app, its conversation, canvas, saved versions and Codex thread history? This cannot be undone. Project files and external backups will be kept.",
   deleteTitle: "Delete mini-app?",
   chooseFolder: "Choose a folder",
-  chooseFolderPath: "Absolute path to an existing folder on the Mac:",
+  chooseFolderPath: "Absolute path to an existing folder on the computer:",
   model: "Model",
   reasoning: "Reasoning effort",
   modelSpeed: "Model speed",
@@ -340,27 +342,28 @@ const en: typeof fr = {
   restoreVersion: (generation) => `Restore version ${generation}`,
   renderFailed:
     "This view could not render. Ask Astra to simplify or replace it.",
-  privateConnection: "Private connection to your Mac…",
+  privateConnection: "Private connection to your computer…",
   reload: "Reload",
   enableSound: "Enable sound",
   macDisconnected:
-    "The connection to your Mac was interrupted. Enable Tailscale, close other Astra tabs, keep your Mac awake and reload.",
-  unreadableMac: "Your Mac sent an unreadable response. Reload Astra.",
-  reconnectVoice: "Reconnect your phone to the Mac before enabling voice.",
-  macOffline: "Mac disconnected",
+    "The connection to your computer was interrupted. Enable Tailscale, close other Astra tabs, keep your computer awake and reload.",
+  unreadableMac: "Your computer sent an unreadable response. Reload Astra.",
+  reconnectVoice: "Reconnect your phone to the computer before enabling voice.",
+  macOffline: "Computer disconnected",
   connectionInterrupted:
-    "The private connection to your Mac was interrupted. Actions have not been retried automatically.",
-  reconnectPhone: "Enable Tailscale and reload Astra to reconnect to your Mac.",
+    "The private connection to your computer was interrupted. Actions have not been retried automatically.",
+  reconnectPhone:
+    "Enable Tailscale and reload Astra to reconnect to your computer.",
   phoneOpening: "The phone interface is still opening.",
   actionUnconfirmed:
-    "Your Mac did not confirm this action. Check its state before trying again.",
+    "Your computer did not confirm this action. Check its state before trying again.",
   phoneDisconnected:
-    "Your phone is disconnected from the Mac. Enable Tailscale and reload Astra.",
+    "Your phone is disconnected from the computer. Enable Tailscale and reload Astra.",
   micHttps: "The microphone requires a recent browser and an HTTPS connection.",
   micStopped: "Microphone stopped.",
   micEnded: "Your phone stopped the microphone. Reopen Astra and enable voice.",
   slowVoice:
-    "The connection to your Mac is too slow for voice. Restart voice with a better connection.",
+    "The connection to your computer is too slow for voice. Restart voice with a better connection.",
   audioSuspended:
     "Your browser suspended audio. Keep Astra in the foreground and enable voice again.",
   micInactive: "Your phone microphone is no longer active. Restart voice.",

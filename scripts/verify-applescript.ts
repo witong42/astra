@@ -8,7 +8,7 @@ import { loadState, saveState } from "../src/storage";
 import { desktopClient, showWorkspace } from "./desktop-client";
 
 const root = join(import.meta.dir, "..");
-const profile = mkdtempSync(join(tmpdir(), "codexos-applescript-check-"));
+const profile = mkdtempSync(join(tmpdir(), "astra-applescript-check-"));
 const file = join(profile, "workspace.json");
 const state = loadState(file, root);
 const workspace = state.workspaces[0];
@@ -33,8 +33,8 @@ const electron = Bun.spawn(
     cwd: root,
     env: {
       ...process.env,
-      CODEXOS_DATA_DIR: profile,
-      CODEXOS_TEST_HIDDEN: "1",
+      ASTRA_DATA_DIR: profile,
+      ASTRA_TEST_HIDDEN: "1",
     },
     stdout: "ignore",
     stderr: "inherit",
@@ -134,6 +134,24 @@ try {
   await app.evaluate(
     'Array.from(document.querySelectorAll(".openui-button")).find(b=>b.textContent==="OpenUI native action").click()',
   );
+  await Bun.sleep(200);
+  assert.equal(
+    await app.evaluate(
+      'document.querySelector(".openui-surface pre")?.textContent ?? ""',
+    ),
+    "",
+    "Synthetic OpenUI clicks must not execute native scripts",
+  );
+  const button = await app.evaluate<{ x: number; y: number }>(
+    '(()=>{const r=document.querySelector("[data-astra-native]").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()',
+  );
+  for (const type of ["mousePressed", "mouseReleased"])
+    await app.call("Input.dispatchMouseEvent", {
+      type,
+      ...button,
+      button: "left",
+      clickCount: 1,
+    });
   assert.equal(
     await waitFor(
       () =>
@@ -144,9 +162,9 @@ try {
     ),
     "42",
   );
-  await app.evaluate("window.codexosFlush()");
+  await app.evaluate("window.astraFlush()");
   const observed = await app.evaluate<{ messages: number; busy: boolean }>(
-    `window.codexos.snapshot().then(s=>({messages:s.workspaces.find(w=>w.id===s.activeId).messages.length,busy:s.sessions[s.activeId]?.busy??false}))`,
+    `window.astra.snapshot().then(s=>({messages:s.workspaces.find(w=>w.id===s.activeId).messages.length,busy:s.sessions[s.activeId]?.busy??false}))`,
   );
   assert.equal(
     observed.messages,
@@ -157,7 +175,7 @@ try {
   assert.equal(await canvas.evaluate("typeof window.require"), "undefined");
   assert.equal(
     await app.evaluate(
-      'window.codexos.runAppleScript("00000000-0000-4000-8000-000000000000",{script:"return 1",args:[]}).then(()=>false,()=>true)',
+      'window.astra.runAppleScript("00000000-0000-4000-8000-000000000000",{script:"return 1",args:[]}).then(()=>false,()=>true)',
     ),
     true,
   );

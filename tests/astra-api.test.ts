@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +31,47 @@ async function withApi(
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+test(
+  "the packaged CLI runs in Electron's Node runtime without installing Bun",
+  () =>
+    withApi(async (directory) => {
+      const root = join(import.meta.dir, "..");
+      const built = await Bun.build({
+        entrypoints: [join(root, "src/astra-cli.ts")],
+        target: "node",
+        format: "cjs",
+      });
+      if (!built.success) throw new AggregateError(built.logs);
+      const script = join(directory, "astra.cjs");
+      writeFileSync(script, await built.outputs[0].text());
+      const executable = join(
+        root,
+        "node_modules/electron/dist",
+        readFileSync(
+          join(root, "node_modules/electron/path.txt"),
+          "utf8",
+        ).trim(),
+      );
+      const child = Bun.spawn([executable, script, "status"], {
+        env: {
+          ...process.env,
+          ASTRA_DATA_DIR: directory,
+          ELECTRON_RUN_AS_NODE: "1",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+      expect(JSON.parse(stdout)).toEqual({ confirmed: { action: "status" } });
+    }),
+  30_000,
+);
 
 test("local Astra API confirms actions, returns errors and protects its socket", () =>
   withApi(async (_, path, calls) => {
@@ -74,7 +121,7 @@ test("the astra CLI resolves app names, passes values as data and reports failur
       const process = Bun.spawn(
         ["bun", join(import.meta.dir, "../src/astra-cli.ts"), ...args],
         {
-          env: { ...Bun.env, CODEXOS_DATA_DIR: directory },
+          env: { ...Bun.env, ASTRA_DATA_DIR: directory },
           stdout: "pipe",
           stderr: "pipe",
         },

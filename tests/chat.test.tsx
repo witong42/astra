@@ -6,7 +6,7 @@ import { newWorkspace } from "../src/storage";
 import type { Snapshot } from "../src/types";
 
 function snapshot(): Snapshot {
-  const workspace = newWorkspace("/tmp/codexos-test");
+  const workspace = newWorkspace("/tmp/astra-test");
   return {
     sessions: {
       [workspace.id]: {

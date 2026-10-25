@@ -29,6 +29,7 @@ try {
     `(()=>{const probe=document.createElement('div');probe.className='astra-hover-probe';probe.style.cssText='position:fixed;left:-10000px;top:0;--hover:#eeefe9';probe.inert=true;probe.innerHTML=${JSON.stringify(markup)};document.body.append(probe)})()`,
   );
   const resting = await appearance();
+  assert.equal(resting.background, "rgb(255, 255, 255)");
   await client.call("DOM.enable");
   await client.call("CSS.enable");
   const document = await client.call("DOM.getDocument", { depth: 0 });
@@ -46,7 +47,7 @@ try {
   assert.equal(
     hovered.background,
     resting.background,
-    "Hover must preserve the dark circular core.",
+    "Hover must preserve the white circular core.",
   );
   assert.equal(hovered.radius, "50%");
   assert.equal(hovered.canvasClip, "circle(50%)");
@@ -63,7 +64,7 @@ try {
   assert.equal(client.errors.length, 0);
   const result = {
     circularHover: true,
-    darkCorePreserved: true,
+    whiteCorePreserved: true,
     haloUnclipped: true,
     rendererErrors: client.errors.length,
   };

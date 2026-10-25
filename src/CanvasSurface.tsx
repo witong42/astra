@@ -3,6 +3,7 @@ import { CANVAS_CONTROL_PREFIX, type SurfaceControl } from "./app-control";
 import type { CanvasAck, CanvasState } from "./canvas";
 import { useLocale } from "./LocaleProvider";
 import type { CanvasInputs } from "./openui";
+import type { Bridge } from "./types";
 
 export type CanvasHandle = {
   flush: () => Promise<void>;
@@ -82,8 +83,18 @@ export function CanvasSurface({
         }
         return;
       }
+      const runners: Record<string, Bridge["runAppleScript"]> = {
+        "canvas:applescript": window.astra.runAppleScript,
+        "canvas:powershell": window.astra.runPowerShell,
+        "canvas:shell": window.astra.runShellScript,
+      };
+      const run =
+        typeof message?.type === "string" &&
+        Object.hasOwn(runners, message.type)
+          ? runners[message.type]
+          : undefined;
       if (
-        message?.type !== "canvas:applescript" ||
+        !run ||
         typeof message.requestId !== "string" ||
         message.requestId.length > 100
       )
@@ -96,7 +107,7 @@ export function CanvasSurface({
         });
         return;
       }
-      window.codexos.runAppleScript(id, message.request).then(
+      run(id, message.request).then(
         (stdout) => port.postMessage({ requestId, stdout }),
         (error) =>
           port.postMessage({
@@ -133,7 +144,7 @@ export function CanvasSurface({
         const save =
           serialized === lastSaved.current
             ? saving.current
-            : window.codexos.updateCanvas(id, ack);
+            : window.astra.updateCanvas(id, ack);
         lastSaved.current = serialized;
         saving.current = save;
         const pending = waiting.get(message.requestId);
@@ -155,7 +166,7 @@ export function CanvasSurface({
             }
           });
       } else if (message?.type === "canvas:open-link") {
-        window.codexos.openExternal(message.url).catch(onError);
+        window.astra.openExternal(message.url).catch(onError);
       } else if (message?.type === "canvas:error") {
         onError(message.error);
         const pending = waiting.get(message.requestId);

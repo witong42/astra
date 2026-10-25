@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,11 +9,27 @@ import type { Snapshot } from "../src/types";
 import { desktopClient, showWorkspace } from "./desktop-client";
 
 const root = join(import.meta.dir, "..");
-const profile = mkdtempSync(join(tmpdir(), "codexos-canvas-size-check-"));
+const profile = mkdtempSync(join(tmpdir(), "astra-canvas-size-check-"));
 const wire = join(profile, "requests.jsonl");
 const fake = join(profile, "fake-codex");
 const timeoutMs = 10_000;
 const baseline = process.argv.includes("--baseline");
+if (baseline) {
+  const identifier = execFileSync(
+    "/usr/bin/plutil",
+    [
+      "-extract",
+      "CFBundleIdentifier",
+      "raw",
+      "/Applications/Astra.app/Contents/Info.plist",
+    ],
+    { encoding: "utf8" },
+  ).trim();
+  if (identifier !== "io.github.witong42.astra")
+    throw new Error(
+      "The installed baseline predates ASTRA_DATA_DIR isolation. Use an Astra namespace build so this check cannot open your personal profile.",
+    );
+}
 const state = loadState(join(profile, "workspace.json"), root);
 const workspace = state.workspaces[0];
 assert.ok(workspace.canvas);
@@ -52,16 +69,16 @@ chmodSync(fake, 0o700);
 const electron = Bun.spawn(
   [
     join(root, "node_modules/.bin/electron"),
-    baseline ? "/Applications/CodexOS.app/Contents/Resources/app" : root,
+    baseline ? "/Applications/Astra.app/Contents/Resources/app" : root,
     "--remote-debugging-port=9337",
   ],
   {
     cwd: root,
     env: {
       ...process.env,
-      CODEXOS_DATA_DIR: profile,
-      CODEXOS_CODEX_PATH: fake,
-      CODEXOS_TEST_HIDDEN: "1",
+      ASTRA_DATA_DIR: profile,
+      ASTRA_CODEX_PATH: fake,
+      ASTRA_TEST_HIDDEN: "1",
     },
     stdout: "ignore",
     stderr: "ignore",
@@ -110,7 +127,7 @@ try {
   assert.ok(app);
   const client = app;
   await waitFor(
-    () => client.evaluate<Snapshot>("window.codexos.snapshot()"),
+    () => client.evaluate<Snapshot>("window.astra.snapshot()"),
     (snapshot) => snapshot.status === "ready",
     "test backend",
   );
@@ -129,7 +146,7 @@ try {
   );
   assert.ok(canvas);
   const surface = canvas;
-  await app.evaluate("window.codexosFlush()");
+  await app.evaluate("window.astraFlush()");
   await canvas.evaluate(
     `document.getElementById('payload').textContent='x'.repeat(${MAX_CANVAS_BYTES + 100})`,
   );
@@ -171,7 +188,7 @@ try {
     "repair of a canvas that grew beyond its save limit",
   );
   await waitFor(
-    () => client.evaluate<Snapshot>("window.codexos.snapshot()"),
+    () => client.evaluate<Snapshot>("window.astra.snapshot()"),
     (snapshot) =>
       !snapshot.sessions[workspace.id]?.busy &&
       snapshot.workspaces[0].canvas?.pending.length === 0,
@@ -180,8 +197,8 @@ try {
   await canvas.evaluate(
     "document.getElementById('substrate').append(Object.assign(document.createElement('div'),{id:'large-saved',textContent:'é'.repeat(650000)}))",
   );
-  await app.evaluate("window.codexosFlush()");
-  const saved = await app.evaluate<Snapshot>("window.codexos.snapshot()");
+  await app.evaluate("window.astraFlush()");
+  const saved = await app.evaluate<Snapshot>("window.astra.snapshot()");
   const document = saved.workspaces[0].canvas;
   assert.ok(document);
   assert.ok(Buffer.byteLength(document.html) > 512 * 1024);
@@ -197,7 +214,7 @@ try {
     .filter((request) => request.method === "turn/start")
     .at(-1);
   assert.ok(last.params.input[0].text.includes('"truncated":true'));
-  await app.evaluate("window.codexosFlush()");
+  await app.evaluate("window.astraFlush()");
   await app.evaluate("document.querySelector('.home-button').click()");
   await waitFor(
     () => client.evaluate("!!document.querySelector('.home-screen')"),
@@ -226,7 +243,7 @@ try {
         "document.getElementById('substrate').innerHTML='<p>QA complete</p>'",
       )
       .catch(() => {});
-  await app?.evaluate("window.codexosFlush()").catch(() => {});
+  await app?.evaluate("window.astraFlush()").catch(() => {});
   canvas?.close();
   app?.close();
   electron.kill("SIGKILL");

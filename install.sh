@@ -2,16 +2,19 @@
 set -euo pipefail
 umask 077
 
-REPOSITORY="https://github.com/witong42/Astra"
-RELEASE_API="https://api.github.com/repos/witong42/Astra/releases/latest"
+REPOSITORY="https://github.com/witong42/astra"
+RELEASE_API="https://api.github.com/repos/witong42/astra/releases/latest"
 ASSET="Astra-macos-arm64.zip"
-BUNDLE_ID="local.codexos.desktop"
+BUNDLE_ID="io.github.witong42.astra"
+LEGACY_BUNDLE_ID="local.astra.desktop"
 temporary=""
 staging=""
 previous=""
 destination=""
+current_id=""
 
 fail() { printf 'Astra: %s\n' "$*" >&2; exit 1; }
+is_astra_bundle() { [[ "$1" == "$BUNDLE_ID" || "$1" == "$LEGACY_BUNDLE_ID" ]]; }
 cleanup() {
   if [[ -n "$previous" && -d "$previous" && ! -e "$destination" ]]; then
     mv "$previous" "$destination"
@@ -99,7 +102,7 @@ fi
 destination="$install_directory/Astra.app"
 if [[ -e "$destination" ]]; then
   current_id=$(plutil -extract CFBundleIdentifier raw -o - "$destination/Contents/Info.plist" 2>/dev/null) || fail "An unrecognized Astra.app already exists at $destination. Keep it safe and choose another installation directory."
-  [[ "$current_id" == "$BUNDLE_ID" ]] || fail "An unrelated application already exists at $destination."
+  is_astra_bundle "$current_id" || fail "An unrelated application already exists at $destination."
 fi
 
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/astra-download.XXXXXX")
@@ -121,7 +124,10 @@ ditto -xk "$temporary/$ASSET" "$temporary/unpacked" || fail "The application arc
 application="$temporary/unpacked/Astra.app"
 [[ -d "$application" && ! -L "$application" ]] || fail "The archive did not contain an Astra application."
 downloaded_id=$(plutil -extract CFBundleIdentifier raw -o - "$application/Contents/Info.plist") || fail "The application identity could not be read."
-[[ "$downloaded_id" == "$BUNDLE_ID" ]] || fail "The downloaded application has the wrong identity."
+is_astra_bundle "$downloaded_id" || fail "The downloaded application has the wrong identity."
+if [[ "$current_id" == "$BUNDLE_ID" && "$downloaded_id" == "$LEGACY_BUNDLE_ID" ]]; then
+  fail "The latest public release still uses Astra's previous identity. Keep your current app and retry after the next release."
+fi
 codesign --verify --deep --strict "$application" || fail "Application signature verification failed. No installed application was changed."
 
 mkdir -p "$install_directory"
@@ -135,7 +141,7 @@ fi
 mv "$staging/Astra.app" "$destination" || fail "Installation failed; restoring the previous application."
 printf '\nAstra %s is installed at %s\n' "$version" "$destination"
 printf 'Use your existing Codex CLI and ChatGPT sign-in. Your saved apps and Codex configuration were not changed.\n'
-printf 'On first launch, follow the normal macOS app, microphone and speech-recognition prompts.\n'
+printf 'On first launch, follow the normal macOS app and microphone prompts.\n'
 if [[ "${ASTRA_NO_OPEN:-0}" != "1" ]]; then
   if ! open "$destination"; then
     printf 'Astra is installed. Open %s manually to complete first launch.\n' "$destination" >&2

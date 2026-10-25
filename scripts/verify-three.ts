@@ -7,12 +7,12 @@ const THREE_MODULE =
 const client = await desktopClient();
 await showWorkspace(client, true);
 let frame: Awaited<ReturnType<typeof desktopClient>> | undefined;
-const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
+const snapshot = () => client.evaluate<Snapshot>("window.astra.snapshot()");
 try {
   const initial = await snapshot();
   assert.equal(initial.status, "ready");
   await client.evaluate(
-    "window.codexosFlush().then(()=>window.codexos.newWorkspace())",
+    "window.astraFlush().then(()=>window.astra.newWorkspace())",
   );
   await Bun.sleep(200);
   const origin = await client.evaluate("performance.timeOrigin");
@@ -66,7 +66,7 @@ try {
   await frame.evaluate(
     `{const slider=document.querySelector('input[type=range]');slider.value='2';slider.dispatchEvent(new Event('input',{bubbles:true}));slider.dispatchEvent(new Event('change',{bubbles:true}));}`,
   );
-  await client.evaluate("window.codexosFlush()");
+  await client.evaluate("window.astraFlush()");
   const after = await snapshot();
   assert.equal(
     before.workspaces.find((w) => w.id === before.activeId)?.messages.length,

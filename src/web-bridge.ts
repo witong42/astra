@@ -37,8 +37,12 @@ export class WebBridge {
       this.resolveReady = resolve;
     });
     this.audio = new WebAudio(
-      (captureId, pcm) =>
-        this.call("voiceAudio", [{ captureId, pcm }], AUDIO_UPLOAD_TIMEOUT_MS),
+      (captureId, pcm, startSample) =>
+        this.call(
+          "voiceAudio",
+          [{ captureId, pcm, startSample }],
+          AUDIO_UPLOAD_TIMEOUT_MS,
+        ),
       (level) => {
         if (this.voice.active) this.publishVoice({ ...this.voice, level });
       },
@@ -147,6 +151,10 @@ export class WebBridge {
       pauseVoice: () => call("pauseVoice"),
       runAppleScript: (id, request) =>
         call<string>("runAppleScript", id, request),
+      runPowerShell: (id, request) =>
+        call<string>("runPowerShell", id, request),
+      runShellScript: (id, request) =>
+        call<string>("runShellScript", id, request),
       send: (text, id) => call("send", text, id),
       sendAssistant: (text) => call("sendAssistant", text),
       interrupt: (id) => call("interrupt", id),
@@ -239,7 +247,7 @@ export class WebBridge {
         if (command.kind === "audio")
           result = await this.audio.command(command);
         else if (command.kind === "capture") this.audio.stop(command.captureId);
-        else if (command.kind === "flush") await window.codexosFlush?.();
+        else if (command.kind === "flush") await window.astraFlush?.();
         else {
           if (!window.astraControl) throw new Error(getCopy().phoneOpening);
           result = await window.astraControl(command.request);

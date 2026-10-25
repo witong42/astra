@@ -6,7 +6,7 @@ import { loadState, newWorkspace, saveState } from "../src/storage";
 import type { Snapshot } from "../src/types";
 import { desktopClient, showWorkspace } from "./desktop-client";
 
-const PROFILE = "/tmp/codexos-openui-check";
+const PROFILE = "/tmp/astra-openui-check";
 const THREE_MODULE =
   "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js";
 const SEED_NAME = "Orbit Lab";
@@ -32,7 +32,7 @@ const planet=new THREE.Mesh(new THREE.SphereGeometry(.27,20,12),new THREE.MeshSt
 const ring=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(Array.from({length:128},(_,i)=>new THREE.Vector3(Math.cos(i*Math.PI/64)*2.4,0,Math.sin(i*Math.PI/64)*2.4))),new THREE.LineBasicMaterial({color:0x40545a}));scene.add(ring);
 const probe=window.orbitProbe={frames:0,angle:0,speed:1,paused:false};
 function inputs(){const v=window.canvasInputs??{};probe.speed=Number(v.speed??1);probe.paused=v.paused===true;host.dataset.speed=String(probe.speed);host.dataset.paused=String(probe.paused);}
-inputs();addEventListener('codexos:inputs',inputs);
+inputs();addEventListener('astra:inputs',inputs);
 new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(!w||!h)return;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(host);
 let previous=performance.now();function tick(now){const dt=Math.min((now-previous)/1000,.1);previous=now;if(!probe.paused)probe.angle+=dt*probe.speed;planet.position.set(Math.cos(probe.angle)*2.4,0,Math.sin(probe.angle)*2.4);renderer.render(scene,camera);probe.frames++;requestAnimationFrame(tick);}requestAnimationFrame(tick);
 </script></main>`;
@@ -43,7 +43,7 @@ if (process.argv.includes("--prepare")) {
   const state = loadState(
     join(
       process.env.HOME ?? "",
-      "Library/Application Support/CodexOS/workspace.json",
+      "Library/Application Support/Astra/workspace.json",
     ),
     ROOT,
   );
@@ -73,7 +73,7 @@ if (process.argv.includes("--prepare")) {
 const client = await desktopClient();
 await showWorkspace(client, true);
 let frame: Awaited<ReturnType<typeof desktopClient>> | undefined;
-const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
+const snapshot = () => client.evaluate<Snapshot>("window.astra.snapshot()");
 const evaluateCanvas = <T = unknown>(expression: string) => {
   assert.ok(frame, "Connect to the workspace canvas before inspecting it");
   return frame.evaluate<T>(expression);
@@ -189,7 +189,7 @@ try {
   );
   await client.call("Input.insertText", { text: "Keep this observation." });
   await Bun.sleep(100);
-  await client.evaluate("window.codexosFlush()");
+  await client.evaluate("window.astraFlush()");
   let state = await snapshot();
   assert.equal(
     state.workspaces.find((workspace) => workspace.id === seed.id)?.canvas
@@ -207,7 +207,7 @@ try {
     messagesBefore,
   );
   assert.equal(await frame.evaluate("performance.timeOrigin"), timeOrigin);
-  assert.equal(await frame.evaluate("typeof window.codexos"), "undefined");
+  assert.equal(await frame.evaluate("typeof window.astra"), "undefined");
   assert.equal(
     await frame.evaluate(
       "(()=>{try{return !!parent.document}catch{return false}})()",
@@ -217,13 +217,13 @@ try {
   const other = state.workspaces.find((workspace) => workspace.id !== seed.id);
   assert.ok(other);
   await client.evaluate(
-    `window.codexosFlush().then(()=>window.codexos.selectWorkspace(${JSON.stringify(other.id)}))`,
+    `window.astraFlush().then(()=>window.astra.selectWorkspace(${JSON.stringify(other.id)}))`,
   );
   frame.close();
   frame = undefined;
   await Bun.sleep(100);
   await client.evaluate(
-    `window.codexos.selectWorkspace(${JSON.stringify(seed.id)})`,
+    `window.astra.selectWorkspace(${JSON.stringify(seed.id)})`,
   );
   await Bun.sleep(200);
   frame = await waitForCanvas(seed.id);
@@ -259,7 +259,7 @@ try {
   );
   await client.screenshot("test-results/openui-hybrid-narrow.png");
   await client.call("Emulation.clearDeviceMetricsOverride");
-  await client.evaluate("window.codexosFlush()");
+  await client.evaluate("window.astraFlush()");
   await client.call("Page.reload");
   frame.close();
   frame = undefined;
@@ -297,11 +297,11 @@ try {
   console.log("HYBRID_VERIFIED", JSON.stringify(result));
   if (process.argv.includes("--generate")) {
     await client.evaluate(
-      "window.codexosFlush().then(()=>window.codexos.newWorkspace())",
+      "window.astraFlush().then(()=>window.astra.newWorkspace())",
     );
     await Bun.sleep(200);
-    const prompt = `Create a hybrid orbit dashboard: an OpenUI heading, an OpenUI Slider named speed bound to $speed starting at 1 with range 0 to 3 and step 0.1, an OpenUI Toggle named paused bound to $paused starting false, an OpenUI Input named notes bound to $notes, and one LiveCanvas with inputs {speed: $speed, paused: $paused}. Inside LiveCanvas make a compact Three.js scene: one sun and one orbiting planet, procedural geometry only, using ${THREE_MODULE}. Controls must drive the running scene locally and retain values when reopening. Use window.canvasInputs and codexos:inputs. Do not fetch or inspect files, use tools, rebuild or restart. Keep scene JS about 2000 characters. Generate OpenUI plus small Substrate operations.`;
-    await client.evaluate(`window.codexos.send(${JSON.stringify(prompt)})`);
+    const prompt = `Create a hybrid orbit dashboard: an OpenUI heading, an OpenUI Slider named speed bound to $speed starting at 1 with range 0 to 3 and step 0.1, an OpenUI Toggle named paused bound to $paused starting false, an OpenUI Input named notes bound to $notes, and one LiveCanvas with inputs {speed: $speed, paused: $paused}. Inside LiveCanvas make a compact Three.js scene: one sun and one orbiting planet, procedural geometry only, using ${THREE_MODULE}. Controls must drive the running scene locally and retain values when reopening. Use window.canvasInputs and astra:inputs. Do not fetch or inspect files, use tools, rebuild or restart. Keep scene JS about 2000 characters. Generate OpenUI plus small Substrate operations.`;
+    await client.evaluate(`window.astra.send(${JSON.stringify(prompt)})`);
     const completed = await wait(
       snapshot,
       (state) => state.status === "ready" && Boolean(state.metrics?.total),
@@ -315,7 +315,7 @@ try {
     );
     assert.ok(generated?.canvas?.openui);
     assert.ok(generated.canvas.html.includes("three"));
-    await client.evaluate("window.codexosFlush()");
+    await client.evaluate("window.astraFlush()");
     frame = await waitForCanvas(generated.id);
     await wait(
       () =>
@@ -374,10 +374,10 @@ try {
       await frame.evaluate("performance.timeOrigin"),
       generatedOrigin,
     );
-    await client.evaluate("window.codexosFlush()");
+    await client.evaluate("window.astraFlush()");
     const edit =
       'Keep this hybrid layout, its existing $variable and component statement names, scene code and saved field values. Only change the heading to "Orbit, your way" and add a Metric labelled "Current speed" that reads $speed. Emit the complete updated OpenUI program only; no Substrate operations, tools, files or rebuilds.';
-    await client.evaluate(`window.codexos.send(${JSON.stringify(edit)})`);
+    await client.evaluate(`window.astra.send(${JSON.stringify(edit)})`);
     const edited = await wait(
       snapshot,
       (state) => state.status === "ready" && Boolean(state.metrics?.total),
@@ -408,9 +408,9 @@ try {
         windowsVirtualKeyCode: 39,
       });
     await Bun.sleep(100);
-    await client.evaluate("window.codexosFlush()");
+    await client.evaluate("window.astraFlush()");
     const historyIndex = editedCanvas.history.length - 1;
-    await client.evaluate(`window.codexos.restoreCanvas(${historyIndex})`);
+    await client.evaluate(`window.astra.restoreCanvas(${historyIndex})`);
     await wait(
       () =>
         client.evaluate("document.querySelector('input[name=speed]')?.value"),
@@ -428,7 +428,7 @@ try {
         windowsVirtualKeyCode: 39,
       });
     await Bun.sleep(100);
-    await client.evaluate("window.codexosFlush()");
+    await client.evaluate("window.astraFlush()");
     const afterRestore = await snapshot();
     assert.equal(
       afterRestore.workspaces.find((workspace) => workspace.id === generated.id)

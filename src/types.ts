@@ -83,6 +83,7 @@ export type Snapshot = SavedState & {
 export type AudioStatus = {
   lastError?: { message: string; at: number };
   localInput?: { queuedMs: number; discardedMs: number };
+  replay?: { bufferedMs: number; playbackRate: number } | null;
   active: boolean;
   context: string;
   connection: string;
@@ -105,6 +106,14 @@ export type Bridge = {
   pauseVoice: () => Promise<void>;
   interruptVoice: () => Promise<void>;
   runAppleScript: (
+    workspaceId: string,
+    request: AppleScriptRequest,
+  ) => Promise<string>;
+  runPowerShell: (
+    workspaceId: string,
+    request: AppleScriptRequest,
+  ) => Promise<string>;
+  runShellScript: (
     workspaceId: string,
     request: AppleScriptRequest,
   ) => Promise<string>;
@@ -147,7 +156,7 @@ export type Bridge = {
 declare global {
   interface Window {
     astraControl?: import("./app-control").AppController;
-    codexos: Bridge;
-    codexosFlush: () => Promise<void>;
+    astra: Bridge;
+    astraFlush: () => Promise<void>;
   }
 }

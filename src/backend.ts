@@ -3,7 +3,7 @@ import {
   execFileSync,
   spawn,
 } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -12,6 +12,7 @@ import {
   APP_TOOL,
   ASTRA_CONTROL_INSTRUCTIONS,
   ASTRA_INSTRUCTIONS,
+  ASTRA_VOICE_INSTRUCTIONS,
   listApps,
   runAppTool,
 } from "./app-tools";
@@ -24,6 +25,7 @@ import {
   restoreCanvas,
 } from "./canvas";
 import { CANVAS_INSTRUCTIONS } from "./canvas-prompt";
+import { astraConfig, codexEnvironment } from "./config";
 import {
   appJournalEntry,
   initialJournal,
@@ -74,19 +76,21 @@ const questionsSchema = z.array(
 );
 
 export function findCodex(homeDirectory = homedir()) {
+  const name = process.platform === "win32" ? "codex.exe" : "codex";
   const candidates = [
-    process.env.CODEXOS_CODEX_PATH,
-    join(homeDirectory, ".local/bin/codex"),
-    join(homeDirectory, ".bun/bin/codex"),
-    "/opt/homebrew/bin/codex",
-    "/usr/local/bin/codex",
+    astraConfig(process.env, homeDirectory).codexPath,
+    ...codexEnvironment(process.env, homeDirectory)
+      .PATH.split(process.platform === "win32" ? ";" : ":")
+      .filter(Boolean)
+      .map((directory) => join(directory.replace(/^"|"$/g, ""), name)),
   ];
   const path = candidates.find(
-    (candidate) => candidate && existsSync(candidate),
+    (candidate) =>
+      candidate && existsSync(candidate) && statSync(candidate).isFile(),
   );
   if (!path)
     throw new Error(
-      "Codex CLI was not found. Install Codex or set CODEXOS_CODEX_PATH to its executable.",
+      "Codex CLI was not found. Install Codex or set ASTRA_CODEX_PATH to its executable.",
     );
   return path;
 }
@@ -310,7 +314,7 @@ export class CodexBackend {
     const executable = findCodex();
     this.state.backendVersion = execFileSync(executable, ["--version"], {
       encoding: "utf8",
-      timeout: 10_000,
+      timeout: 30_000,
     }).trim();
     const child = spawn(
       executable,
@@ -327,11 +331,7 @@ export class CodexBackend {
       ],
       {
         cwd: this.workspace.cwd,
-        env: {
-          ...process.env,
-          CODEX_HOME: join(homedir(), ".codex"),
-          PATH: `${join(homedir(), ".local/bin")}:${join(homedir(), ".bun/bin")}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ""}`,
-        },
+        env: codexEnvironment(),
         stdio: ["pipe", "pipe", "pipe"],
       },
     );
@@ -372,7 +372,7 @@ export class CodexBackend {
         this.disconnected(new Error("Codex stopped. Reconnect to continue."));
     });
     await rpc.request("initialize", {
-      clientInfo: { name: "codexos", title: "Astra", version: APP_VERSION },
+      clientInfo: { name: "astra", title: "Astra", version: APP_VERSION },
       capabilities: { experimentalApi: true },
     });
     rpc.write({ method: "initialized", params: {} });
@@ -465,10 +465,19 @@ export class CodexBackend {
   }
 
   private async openWorkspace(workspace: Workspace, rpc: RpcPeer) {
-    const developerInstructions =
+    const instructions =
       workspace.id === this.state.assistant?.id
         ? `${CANVAS_INSTRUCTIONS}\n${ASTRA_INSTRUCTIONS}`
         : `${CANVAS_INSTRUCTIONS}\n${ASTRA_CONTROL_INSTRUCTIONS}`;
+    const nativeInstructions = {
+      darwin: "macOS. Use AppleScript for native actions.",
+      win32: "Windows. Use PowerShell for native actions.",
+      linux: "Linux. Use POSIX shell scripts for native actions.",
+    };
+    const desktop =
+      nativeInstructions[process.platform as keyof typeof nativeInstructions] ??
+      `${process.platform}. Native actions are unavailable.`;
+    const developerInstructions = `Current desktop operating system: ${desktop} Native actions for other operating systems are unavailable.\n${instructions}`;
     const settings = {
       approvalPolicy: APPROVAL_POLICY,
       sandbox: SANDBOX_MODE,
@@ -547,7 +556,7 @@ export class CodexBackend {
       includeStartupContext: false,
       clientManagedHandoffs: false,
       backendReasoningStatus: true,
-      prompt: `${ASTRA_INSTRUCTIONS}\nYou are the live voice of Astra. Talk naturally in French and English. The standalone spoken command "Home" is handled directly by Astra: remain silent and do not delegate it. The standalone spoken requests "pause", "mets pause" and "mets en pause" are also handled directly: remain silent and do not delegate them. Requests to explain, diagnose or fix pausing are not pause commands: use the backend for those and keep the conversation active. Use your backend for other Mac actions, file tasks, or mini-app requests. Never claim to have acted until the backend confirms it. Stop speaking when interrupted. Keep responses concise.\nAvailable mini-apps (data): ${JSON.stringify(listApps(this))}`,
+      prompt: `${ASTRA_VOICE_INSTRUCTIONS}\nAvailable mini-apps (data): ${JSON.stringify(listApps(this))}`,
     });
   }
 
@@ -597,7 +606,7 @@ export class CodexBackend {
     return [
       {
         type: "text",
-        text: `${text}\n\n<codexos_current_surface_data>\n${context}\n</codexos_current_surface_data>`,
+        text: `${text}\n\n<astra_current_surface_data>\n${context}\n</astra_current_surface_data>`,
       },
     ];
   }

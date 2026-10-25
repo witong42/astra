@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { astraConfig } from "../src/config";
 import type { Snapshot, Workspace } from "../src/types";
 import { desktopClient, showWorkspace } from "./desktop-client";
 
@@ -10,7 +12,7 @@ const TIMEOUT_MS = 60_000;
 const client = await desktopClient();
 await showWorkspace(client, true);
 let canvas: Awaited<ReturnType<typeof desktopClient>> | undefined;
-const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
+const snapshot = () => client.evaluate<Snapshot>("window.astra.snapshot()");
 const workspace = (state: Snapshot): Workspace => {
   const current = state.workspaces.find((entry) => entry.id === state.activeId);
   assert.ok(current);
@@ -51,7 +53,7 @@ const submit = async (text: string) => {
 };
 try {
   await waitUntil((state) => state.status === "ready");
-  await client.evaluate("window.codexos.newWorkspace()");
+  await client.evaluate("window.astra.newWorkspace()");
   await waitUntil((state) => workspace(state).messages.length === 0);
   await Bun.sleep(200);
   const pageOrigin = await client.evaluate("performance.timeOrigin");
@@ -77,7 +79,7 @@ try {
   const canvasOrigin = await canvas.evaluate("performance.timeOrigin");
   assert.deepEqual(
     await canvas.evaluate(
-      `(() => {let parentBlocked=false;try{parent.document.body}catch{parentBlocked=true}return {parentBlocked,bridge:typeof window.codexos,node:typeof process}})()`,
+      `(() => {let parentBlocked=false;try{parent.document.body}catch{parentBlocked=true}return {parentBlocked,bridge:typeof window.astra,node:typeof process}})()`,
     ),
     { parentBlocked: true, bridge: "undefined", node: "undefined" },
   );
@@ -171,10 +173,9 @@ try {
   await waitUntil(
     (state) => workspace(state).canvas?.html.includes("Count 3") === true,
   );
-  await client.evaluate("window.codexosFlush()");
+  await client.evaluate("window.astraFlush()");
   await Bun.sleep(400);
-  const path =
-    "/Users/william-mbp/Library/Application Support/CodexOS/workspace.json";
+  const path = join(astraConfig().dataDirectory, "workspace.json");
   const saved = JSON.parse(readFileSync(path, "utf8"));
   assert.ok(workspace(saved).canvas?.html.includes(LOCAL_NOTE));
   assert.ok(workspace(saved).canvas?.html.includes("Count 3"));

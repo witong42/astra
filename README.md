@@ -16,13 +16,13 @@ curl -fsSL https://getastra.halcytron.chatgpt.site/install.sh | bash
 
 **macOS:** Apple Silicon, macOS 14 or later. First launch requires the usual macOS permissions. Early builds are locally signed and are not Apple notarized.
 
-**Linux:** Debian/Ubuntu on x64 or ARM64, with APT.
+**Linux:** Debian 13 or Ubuntu 24.04 and later, on x64 or ARM64, with APT.
 
-[Download manually](https://github.com/witong42/Astra/releases) · [Read the installer](install.sh)
+[Download manually](https://github.com/witong42/astra/releases) · [Read the installer](install.sh)
 
-For a manual macOS installation, open the **macOS `.dmg`** from [Releases](https://github.com/witong42/Astra/releases) and drag **Astra** into **Applications**.
+For a manual macOS installation, open the **macOS `.dmg`** from [Releases](https://github.com/witong42/astra/releases) and drag **Astra** into **Applications**.
 
-For a manual Linux installation, download the **x64 or ARM64 `.deb`** matching your system from [Releases](https://github.com/witong42/Astra/releases) and install it with your package manager.
+For a manual Linux installation, download the **x64 or ARM64 `.deb`** matching your system from [Releases](https://github.com/witong42/astra/releases) and install it with your package manager.
 
 ### Windows
 
@@ -34,7 +34,7 @@ irm https://getastra.halcytron.chatgpt.site/install.ps1 | iex
 
 [Read the PowerShell installer](install.ps1).
 
-Download the **Windows x64 ZIP** from [Releases](https://github.com/witong42/Astra/releases), extract the complete archive, then run **`Install.cmd`**. Open Astra from the Start menu after installation.
+Download the **Windows x64 ZIP** from [Releases](https://github.com/witong42/astra/releases), extract the complete archive, then run **`Install.cmd`**. Open Astra from the Start menu after installation.
 
 Early Windows builds are not code-signed.
 
@@ -75,12 +75,12 @@ Install [Bun](https://bun.sh/docs/installation) and Codex CLI, then sign in with
 brew install autoconf automake libtool
 ```
 
-On Windows, use x64 Bun and Docker Desktop with Linux containers for the native voice build. Linux source builds require `autoconf`, `automake`, `g++`, `make`, `libtool`, `gfortran`, `pkg-config`, `libopenblas-pthread-dev` and `liblapacke-dev`, with the pthread OpenBLAS pkg-config entry selected. These are build dependencies; the `.deb` includes the voice runtime.
+On Windows, source checks require the [Visual C++ v14 runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/). Use x64 Bun and Docker Desktop with Linux containers for the native voice build. Linux source builds require `autoconf`, `automake`, `g++`, `make`, `libtool`, `gfortran`, `pkg-config`, `libopenblas-pthread-dev` and `liblapacke-dev`, with the pthread OpenBLAS pkg-config entry selected. These are build dependencies; the `.deb` includes the voice runtime.
 
 Then, on any supported platform:
 
 ```sh
-git clone https://github.com/witong42/Astra.git
+git clone https://github.com/witong42/astra.git
 cd Astra
 bun install --frozen-lockfile
 bun start

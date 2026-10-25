@@ -107,27 +107,27 @@ function App() {
         throw new Error(getCopy().reconnectBeforeSend);
       setErrors((previous) => ({ ...previous, [id]: null }));
       await captureWorkspace(id);
-      await window.codexos.send(text, id);
+      await window.astra.send(text, id);
     },
     [captureWorkspace],
   );
   useEffect(() => {
-    const unsubscribe = window.codexos.subscribeVoice(setVoice);
-    window.codexos.voiceSnapshot().then(setVoice).catch(onError);
+    const unsubscribe = window.astra.subscribeVoice(setVoice);
+    window.astra.voiceSnapshot().then(setVoice).catch(onError);
     return unsubscribe;
   }, [onError]);
   const toggleVoice = useCallback(() => {
     const action =
       voice.active && voice.status !== "standby"
-        ? window.codexos.pauseVoice()
-        : window.codexos.startVoice();
+        ? window.astra.pauseVoice()
+        : window.astra.startVoice();
     void action.catch(onError);
   }, [onError, voice.active, voice.status]);
   const pauseVoice = useCallback(() => {
-    void window.codexos.stopVoice().catch(onError);
+    void window.astra.stopVoice().catch(onError);
   }, [onError]);
   const interruptVoice = useCallback(() => {
-    void window.codexos.interruptVoice().catch(onError);
+    void window.astra.interruptVoice().catch(onError);
   }, [onError]);
   useEffect(() => {
     const interrupt = (event: KeyboardEvent) => {
@@ -145,20 +145,20 @@ function App() {
     return () => removeEventListener("keydown", interrupt);
   }, [home, voice.active, interruptVoice]);
   useEffect(() => {
-    const unsubscribe = window.codexos.subscribeRemoteActive?.(setRemoteActive);
-    void window.codexos.remoteActive?.().then(setRemoteActive).catch(onError);
+    const unsubscribe = window.astra.subscribeRemoteActive?.(setRemoteActive);
+    void window.astra.remoteActive?.().then(setRemoteActive).catch(onError);
     return unsubscribe;
   }, [onError]);
   useEffect(() => {
-    window.codexosFlush = async () => {
+    window.astraFlush = async () => {
       await Promise.all(
         [...surfaceHandles.current.values()].map((handle) =>
           handle.current?.flush(),
         ),
       );
     };
-    const unsubscribe = window.codexos.subscribe(setSnapshot);
-    window.codexos
+    const unsubscribe = window.astra.subscribe(setSnapshot);
+    window.astra
       .snapshot()
       .then(setSnapshot)
       .catch((error) => onWorkspaceError("", error));
@@ -205,7 +205,7 @@ function App() {
   const openWorkspace = (workspace: Workspace) => {
     void afterCapture(async () => {
       const currentId = snapshotRef.current?.activeId;
-      await window.codexos.selectWorkspace(workspace.id);
+      await window.astra.selectWorkspace(workspace.id);
       if (currentId === workspace.id) {
         setHome(false);
         setChatOpen(
@@ -217,14 +217,14 @@ function App() {
   };
   const newApp = () => {
     void afterCapture(async () => {
-      await window.codexos.newWorkspace();
+      await window.astra.newWorkspace();
     }).catch(onError);
   };
   const deleteApp = async (id: string) => {
     const active = snapshotRef.current?.activeId === id;
     if (active) deletedWorkspace.current = id;
     try {
-      if (!(await window.codexos.deleteWorkspace(id))) {
+      if (!(await window.astra.deleteWorkspace(id))) {
         deletedWorkspace.current = null;
         return;
       }
@@ -250,7 +250,7 @@ function App() {
         return {
           screen: home ? "home" : "app",
           activeApp: snapshotRef.current?.activeId ?? null,
-          audio: await window.codexos.audioStatus?.(),
+          audio: await window.astra.audioStatus?.(),
         };
       if (request.action === "home") {
         await returnHome();
@@ -261,7 +261,7 @@ function App() {
       }
       const id = request.id;
       await afterCapture(async () => {
-        await window.codexos.selectWorkspace(id);
+        await window.astra.selectWorkspace(id);
         setHome(false);
         setChatOpen(false);
       });
@@ -335,7 +335,7 @@ function App() {
             ? t.working
             : t.connected;
   const favorite = (entry: Workspace) =>
-    window.codexos.setFavorite(entry.id, !entry.favorite);
+    window.astra.setFavorite(entry.id, !entry.favorite);
   const conversationWorkspace = home ? snapshot.assistant : workspace;
   const conversationId = conversationWorkspace?.id ?? workspace.id;
   const conversationSession = snapshot.sessions[conversationId];
@@ -370,7 +370,7 @@ function App() {
             <button
               type="button"
               className="text-button"
-              onClick={() => window.codexos.reconnect().catch(onError)}
+              onClick={() => window.astra.reconnect().catch(onError)}
             >
               {t.reconnect}
             </button>
@@ -434,7 +434,7 @@ function App() {
             snapshot={snapshot}
             onOpen={openWorkspace}
             onFavorite={favorite}
-            onRename={window.codexos.renameWorkspace}
+            onRename={window.astra.renameWorkspace}
             onDelete={deleteApp}
             voice={voice}
             onToggleVoice={toggleVoice}
@@ -591,7 +591,7 @@ function App() {
                 <WorkspaceMenu
                   workspace={workspace}
                   busy={busy}
-                  onRename={window.codexos.renameWorkspace}
+                  onRename={window.astra.renameWorkspace}
                   onDelete={deleteApp}
                   onFavorite={
                     hasSurface ? () => favorite(workspace) : undefined
@@ -609,7 +609,7 @@ function App() {
                     onChange={(event) => {
                       const index = Number(event.currentTarget.value);
                       void afterCapture(() =>
-                        window.codexos.restoreCanvas(index, workspace.id),
+                        window.astra.restoreCanvas(index, workspace.id),
                       ).catch(onError);
                     }}
                   >
@@ -636,9 +636,9 @@ function App() {
                   type="button"
                   title={workspace.cwd}
                   onClick={() =>
-                    void afterCapture(() =>
-                      window.codexos.chooseFolder(),
-                    ).catch(onError)
+                    void afterCapture(() => window.astra.chooseFolder()).catch(
+                      onError,
+                    )
                   }
                 >
                   <FolderSimpleIcon />
@@ -667,7 +667,7 @@ function App() {
               onSend={async (text) => {
                 if (home) {
                   await captureWorkspace(workspace.id);
-                  await window.codexos.sendAssistant(text);
+                  await window.astra.sendAssistant(text);
                 } else await onSend(text, workspace.id);
               }}
               workspaceId={conversationId}

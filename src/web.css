@@ -8,7 +8,7 @@
   padding: 24px;
   text-align: center;
   color: #e6e5f2;
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 .remote-opening strong {
   font-size: 28px;

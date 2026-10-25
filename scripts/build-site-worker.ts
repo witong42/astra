@@ -9,6 +9,10 @@ const FILES = [
   ["styles.css", "text/css; charset=utf-8"],
   ["web.css", "text/css; charset=utf-8"],
   ["icon.png", "image/png"],
+  ["astra-logo.svg", "image/svg+xml"],
+  ["brand.css", "text/css; charset=utf-8"],
+  ["outfit.ttf", "font/ttf"],
+  ["OFL-Outfit.txt", "text/plain; charset=utf-8"],
 ] as const;
 
 export async function buildSiteWorker(assetDirectory: string, outdir: string) {
@@ -18,7 +22,7 @@ export async function buildSiteWorker(assetDirectory: string, outdir: string) {
     if (!(await file.exists()))
       throw new Error(`Missing Astra web asset: ${name}`);
     assets[`/${name}`] =
-      contentType === "image/png"
+      contentType === "image/png" || contentType === "font/ttf"
         ? {
             body: Buffer.from(await file.arrayBuffer()).toString("base64"),
             contentType,

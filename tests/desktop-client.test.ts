@@ -16,13 +16,17 @@ const PROBE_TIMEOUT_MS = 5000;
 const POLL_INTERVAL_MS = 50;
 const TEST_TIMEOUT_MS = 15_000;
 
-test("desktop checks connect to their checkout in any directory", async () => {
+test.each([
+  new URL("../dist/index.html", import.meta.url).href,
+  "file:///C:/Users/Voice%20Test/AppData/Local/Programs/Astra/0.4.0/resources/app/dist/index.html",
+  "file:///tmp/release/Astra.app/Contents/Resources/app/dist/index.html",
+])("desktop checks connect to checkout or Windows package: %s", async (url) => {
   const socketUrl = "ws://127.0.0.1:9337/devtools/page/astra";
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json([
       {
         id: "astra",
-        url: new URL("../dist/index.html", import.meta.url).href,
+        url,
         webSocketDebuggerUrl: socketUrl,
       },
     ]),

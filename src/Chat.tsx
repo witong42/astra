@@ -45,7 +45,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
                   );
                   target?.scrollIntoView({ block: "nearest" });
                   target?.focus();
-                } else window.codexos.openExternal(href).catch(onError);
+                } else window.astra.openExternal(href).catch(onError);
               } catch (error) {
                 onError(error);
               }
@@ -62,7 +62,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
             href={src}
             onClick={(event) => {
               event.preventDefault();
-              window.codexos.openExternal(src).catch(onError);
+              window.astra.openExternal(src).catch(onError);
             }}
           >
             {alt || "Image"}
@@ -142,7 +142,7 @@ export function ApprovalPanel({
           <button
             type="button"
             onClick={() =>
-              window.codexos
+              window.astra
                 .answer(false, undefined, workspaceId, approval.id)
                 .catch(onError)
             }
@@ -154,7 +154,7 @@ export function ApprovalPanel({
           type="button"
           className="primary"
           onClick={() =>
-            window.codexos
+            window.astra
               .answer(true, answers, workspaceId, approval.id)
               .catch(onError)
           }
@@ -235,7 +235,7 @@ export function Composer({
                 aria-label={t.stopAstra}
                 title={t.stopSession}
                 onClick={() =>
-                  window.codexos.interrupt(workspaceId).catch(onError)
+                  window.astra.interrupt(workspaceId).catch(onError)
                 }
               >
                 <StopIcon size={12} weight="fill" />

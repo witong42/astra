@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export async function buildCanvas(root: string, outdir: string) {
+  const brand = readFileSync(join(root, "assets/brand.css"), "utf8").replace(
+    "./outfit.ttf",
+    `data:font/ttf;base64,${readFileSync(join(root, "assets/outfit.ttf")).toString("base64")}`,
+  );
   const result = await Bun.build({
     entrypoints: [join(root, "src/canvas-runtime.ts")],
     target: "browser",
@@ -16,9 +20,8 @@ export async function buildCanvas(root: string, outdir: string) {
   );
   await Bun.write(
     join(outdir, "canvas.html"),
-    readFileSync(join(root, "src/canvas.html"), "utf8").replace(
-      "<!--CANVAS_RUNTIME-->",
-      `<script>${runtime}</script>`,
-    ),
+    readFileSync(join(root, "src/canvas.html"), "utf8")
+      .replace("<!--BRAND_STYLE-->", `<style>${brand}</style>`)
+      .replace("<!--CANVAS_RUNTIME-->", `<script>${runtime}</script>`),
   );
 }

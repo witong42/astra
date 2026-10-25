@@ -13,7 +13,7 @@ import { loadState, newWorkspace, saveState } from "../src/storage";
 
 const directories: string[] = [];
 function file() {
-  const directory = mkdtempSync(join(tmpdir(), "codexos-storage-test-"));
+  const directory = mkdtempSync(join(tmpdir(), "astra-storage-test-"));
   directories.push(directory);
   return join(directory, "workspace.json");
 }
@@ -55,7 +55,8 @@ describe("saved workspaces", () => {
     };
     saveState(path, state);
     expect(loadState(path, "/elsewhere")).toEqual(state);
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
   test("does not overwrite a damaged existing workspace", () => {
@@ -66,7 +67,7 @@ describe("saved workspaces", () => {
   });
 });
 
-test("loads previous CodexOS workspaces without discarding their original view or edits", () => {
+test("loads previous Astra workspaces without discarding their original view or edits", () => {
   const path = file();
   const state = loadState(path, "/tmp");
   const previous = JSON.parse(JSON.stringify(state));

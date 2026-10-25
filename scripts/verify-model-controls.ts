@@ -4,7 +4,7 @@ import { desktopClient, showWorkspace } from "./desktop-client";
 
 const client = await desktopClient();
 await showWorkspace(client, true);
-const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
+const snapshot = () => client.evaluate<Snapshot>("window.astra.snapshot()");
 try {
   const before = await snapshot();
   assert.equal(before.status, "ready");

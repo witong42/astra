@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
+import { BRAND_FILES } from "../scripts/icon";
 import { copy, siteLanguage } from "../website/copy";
 
 test("the public site's language choice accepts French and falls back to English", () => {
@@ -135,6 +136,7 @@ test("the public build excludes uncurated assets and stale output", () => {
   try {
     for (const directory of [
       "scripts",
+      "assets",
       "website",
       ".github/assets",
       "dist/website",
@@ -144,6 +146,15 @@ test("the public build excludes uncurated assets and stale output", () => {
       new URL("../scripts/build-marketing.ts", import.meta.url),
       join(fixture, "scripts/build-marketing.ts"),
     );
+    copyFileSync(
+      new URL("../scripts/icon.ts", import.meta.url),
+      join(fixture, "scripts/icon.ts"),
+    );
+    for (const file of BRAND_FILES)
+      copyFileSync(
+        new URL(`../assets/${file}`, import.meta.url),
+        join(fixture, "assets", file),
+      );
     for (const file of readdirSync(
       new URL("../.github/assets", import.meta.url),
     ))
@@ -179,6 +190,10 @@ test("the public build excludes uncurated assets and stale output", () => {
     });
     const output = join(fixture, "dist/website");
     expect(existsSync(join(output, "assets/astra-demo-en.mp4"))).toBe(true);
+    for (const file of BRAND_FILES)
+      expect(readFileSync(join(output, file))).toEqual(
+        readFileSync(join(fixture, "assets", file)),
+      );
     expect(existsSync(join(output, "install.sh"))).toBe(true);
     expect(readFileSync(join(output, "install.ps1"), "utf8")).toBe(
       "& { 'fixture' }\n",
@@ -192,19 +207,19 @@ test("the public build excludes uncurated assets and stale output", () => {
     expect(html).toContain('href="./changelog.md"');
     expect(readFileSync(join(output, "changelog.md"), "utf8")).toBe(changelog);
     expect(html).toContain(
-      "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-windows-x64.zip",
+      "https://github.com/witong42/astra/releases/download/v99.1.2/Astra-99.1.2-windows-x64.zip",
     );
     expect(html).not.toContain("__ASTRA_WINDOWS_DOWNLOAD_URL__");
     expect(html).toContain(
-      "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-macos-arm64.dmg",
+      "https://github.com/witong42/astra/releases/download/v99.1.2/Astra-99.1.2-macos-arm64.dmg",
     );
     expect(html).not.toContain("__ASTRA_MAC_DOWNLOAD_URL__");
     expect(html).toContain(
-      "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-linux-arm64.deb",
+      "https://github.com/witong42/astra/releases/download/v99.1.2/Astra-99.1.2-linux-arm64.deb",
     );
     expect(html).not.toContain("__ASTRA_LINUX_DOWNLOAD_URL__");
     expect(html).toContain(
-      "https://github.com/witong42/Astra/releases/download/v99.1.2/Astra-99.1.2-linux-x64.deb",
+      "https://github.com/witong42/astra/releases/download/v99.1.2/Astra-99.1.2-linux-x64.deb",
     );
     expect(html).not.toContain("__ASTRA_LINUX_X64_DOWNLOAD_URL__");
   } finally {

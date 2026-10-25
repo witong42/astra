@@ -207,7 +207,7 @@ export class CanvasStream {
         }
         this.fence = null;
       } else {
-        this.fence = /^```codexos-name\s*$/.test(trimmed)
+        this.fence = /^```(?:astra|codexos)-name\s*$/.test(trimmed)
           ? "name"
           : /^```openui\s*$/.test(trimmed)
             ? "openui"

@@ -55,7 +55,7 @@ resume.onclick = () => {
     updateBanner();
   });
 };
-window.codexos = remote.bridge;
+window.astra = remote.bridge;
 await remote.ready;
 document.documentElement.dataset.platform = "web";
 await import("./renderer");

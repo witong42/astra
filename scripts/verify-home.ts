@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import { astraConfig } from "../src/config";
 import { initialJournal } from "../src/journal";
 import { loadState, newWorkspace, saveState } from "../src/storage";
 import type { Snapshot } from "../src/types";
 import { desktopClient } from "./desktop-client";
 
-const PROFILE = process.env.CODEXOS_DATA_DIR ?? "/tmp/codexos-home-check";
+const PROFILE = process.env.ASTRA_DATA_DIR ?? "/tmp/astra-home-check";
 const ROOT = join(import.meta.dir, "..");
 const MARKDOWN =
   '# Your weekly plan\n\n**Keep it focused.** Choose three priorities and leave room to think.\n\n1. Finish the orbit lab\n2. Plan the next release\n\n- [x] Create the canvas\n- [ ] Review the details\n\n| Project | Status |\n| --- | --- |\n| Orbit lab | Ready |\n| Planner | In progress |\n\n```ts\nconst priority = "Make one useful thing";\nconst veryLongLine = "' +
@@ -13,10 +14,7 @@ const MARKDOWN =
   '";\n```\n\nRead the [source](https://example.com/docs).\n\n<script>window.markdownExecuted = true</script>\n\n[Unsafe](javascript:alert%281%29)';
 if (process.argv.includes("--prepare")) {
   const state = loadState(
-    join(
-      process.env.HOME ?? "",
-      "Library/Application Support/CodexOS/workspace.json",
-    ),
+    join(astraConfig().dataDirectory, "workspace.json"),
     ROOT,
   );
   const planner = newWorkspace(ROOT);
@@ -83,7 +81,7 @@ if (process.argv.includes("--prepare")) {
 
 const client = await desktopClient();
 let frame: Awaited<ReturnType<typeof desktopClient>> | undefined;
-const snapshot = () => client.evaluate<Snapshot>("window.codexos.snapshot()");
+const snapshot = () => client.evaluate<Snapshot>("window.astra.snapshot()");
 async function wait<T>(
   read: () => Promise<T>,
   check: (value: T) => boolean,
@@ -200,7 +198,7 @@ try {
   await frame.evaluate(
     "document.getElementById('home-counter').click(); const notes=document.getElementById('home-notes');notes.value='Keep this app state';notes.dispatchEvent(new Event('input',{bubbles:true}));",
   );
-  await client.evaluate("window.codexosFlush()");
+  await client.evaluate("window.astraFlush()");
   await click("#chat-toggle");
   await wait(
     () => client.evaluate("document.activeElement?.getAttribute('aria-label')"),
@@ -285,7 +283,7 @@ try {
     (workspace) => workspace.favorite,
   ))
     await client.evaluate(
-      `window.codexos.setFavorite(${JSON.stringify(workspace.id)},false)`,
+      `window.astra.setFavorite(${JSON.stringify(workspace.id)},false)`,
     );
   await wait(
     () => client.evaluate("document.querySelectorAll('.app-tile').length"),
@@ -293,14 +291,14 @@ try {
     "all apps remain visible without favorites",
   );
   await client.evaluate(
-    `window.codexos.setFavorite(${JSON.stringify(planner.id)},true)`,
+    `window.astra.setFavorite(${JSON.stringify(planner.id)},true)`,
   );
   await wait(
     () => client.evaluate("document.querySelectorAll('.app-tile').length"),
     (count) => count === 4,
     "favorite added",
   );
-  await client.evaluate("window.codexosFlush()");
+  await client.evaluate("window.astraFlush()");
   await Bun.sleep(350);
   const saved = loadState(join(PROFILE, "workspace.json"), ROOT);
   assert.equal(

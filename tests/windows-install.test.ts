@@ -146,9 +146,9 @@ test.skipIf(!WINDOWS)(
         "extracted\\Astra-win32-x64",
       );
       expect(item.requests()).toEqual([
-        "https://api.github.com/repos/witong42/Astra/releases/latest",
-        `https://github.com/witong42/Astra/releases/download/v${VERSION}/${ARCHIVE}`,
-        `https://github.com/witong42/Astra/releases/download/v${VERSION}/${ARCHIVE}.sha256`,
+        "https://api.github.com/repos/witong42/astra/releases/latest",
+        `https://github.com/witong42/astra/releases/download/v${VERSION}/${ARCHIVE}`,
+        `https://github.com/witong42/astra/releases/download/v${VERSION}/${ARCHIVE}.sha256`,
       ]);
       item.verifyPreserved();
     } finally {

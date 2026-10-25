@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { copyDesktopBuild } from "../scripts/package-files";
 import { packageMacArchives } from "../scripts/package-macos";
 
 const temporary: string[] = [];
@@ -22,15 +23,57 @@ afterEach(() => {
     rmSync(directory, { recursive: true });
 });
 
+test("desktop packages omit stale phone and marketing builds while retaining their voice runtime", () => {
+  const root = mkdtempSync(join(tmpdir(), "astra-desktop-files-"));
+  temporary.push(root);
+  const source = join(root, "dist");
+  const destination = join(root, "package/dist");
+  mkdirSync(join(source, "voice"), { recursive: true });
+  writeFileSync(join(source, "main.cjs"), "desktop main");
+  writeFileSync(join(source, "voice/runtime.json"), "desktop voice");
+  for (const directory of ["client", "server", "website"]) {
+    mkdirSync(join(source, directory));
+    writeFileSync(join(source, directory, "private.txt"), "private web build");
+  }
+  copyDesktopBuild(source, destination);
+  expect(readFileSync(join(destination, "main.cjs"), "utf8")).toBe(
+    "desktop main",
+  );
+  expect(readFileSync(join(destination, "voice/runtime.json"), "utf8")).toBe(
+    "desktop voice",
+  );
+  for (const directory of ["client", "server", "website"])
+    expect(existsSync(join(destination, directory))).toBe(false);
+});
+
 test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
   "packaging preserves older releases and signs the selected version with its native permissions",
   () => {
-    const root = mkdtempSync(join(tmpdir(), "codexos package-test-"));
+    const root = mkdtempSync(join(tmpdir(), "astra package-test-"));
     temporary.push(root);
     const electron = join(root, "node_modules/electron/dist/Electron.app");
     mkdirSync(join(electron, "Contents/MacOS"), { recursive: true });
     mkdirSync(join(root, "scripts"));
     mkdirSync(join(root, "dist"));
+    for (const name of [
+      "koffi",
+      `@koromix/koffi-${process.platform}-${process.arch}`,
+    ]) {
+      mkdirSync(join(root, "node_modules", name), { recursive: true });
+      writeFileSync(
+        join(root, "node_modules", name, "package.json"),
+        JSON.stringify({ name, version: "3.3.4" }),
+      );
+    }
+    mkdirSync(join(root, "dist/voice/licenses"), { recursive: true });
+    writeFileSync(
+      join(root, "dist/voice/runtime.json"),
+      '{"version":"0.3.50"}',
+    );
+    writeFileSync(
+      join(root, "dist/voice/licenses/Vosk.txt"),
+      "Apache-2.0 fixture",
+    );
     for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.md"])
       writeFileSync(join(root, file), `Astra fixture ${file}`);
     for (const file of ["LICENSE", "LICENSES.chromium.html"])
@@ -53,6 +96,7 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleIconFile</key><string>electron.icns</string>
 <key>NSMicrophoneUsageDescription</key><string>Electron default microphone description</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Legacy Apple speech permission</string>
 </dict></plist>`,
     );
     writeFileSync(join(root, "dist/icon.icns"), "fixture");
@@ -73,6 +117,10 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
     writeFileSync(join(previous, "preserve"), "previous release");
     const packageScript = join(root, "scripts/package.ts");
     cpSync(join(import.meta.dir, "../scripts/package.ts"), packageScript);
+    cpSync(
+      join(import.meta.dir, "../scripts/package-files.ts"),
+      join(root, "scripts/package-files.ts"),
+    );
     const archivesScript = join(import.meta.dir, "../scripts/package-macos.ts");
     cpSync(archivesScript, join(root, "scripts/package-macos.ts"));
     execFileSync(process.execPath, [packageScript], { cwd: root });
@@ -92,6 +140,7 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
       }),
     );
     expect(metadata.CFBundleShortVersionString).toBe("9.8.7");
+    expect(metadata.CFBundleIdentifier).toBe("io.github.witong42.astra");
     expect(metadata.CFBundleVersion).toBe("42");
     expect(readFileSync(join(previous, "preserve"), "utf8")).toBe(
       "previous release",
@@ -120,13 +169,31 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
       );
       expect(value).toContain("Astra");
     }
+    expect(metadata.NSSpeechRecognitionUsageDescription).toBeUndefined();
+    expect(metadata.LSMinimumSystemVersion).toBe("14.0");
     expect(
-      execFileSync(
-        "/usr/libexec/PlistBuddy",
-        ["-c", "Print :NSSpeechRecognitionUsageDescription", plist],
-        { encoding: "utf8" },
+      readFileSync(
+        join(app, "Contents/Resources/app/dist/voice/licenses/Vosk.txt"),
+        "utf8",
       ),
-    ).toContain("French and English");
+    ).toBe("Apache-2.0 fixture");
+    for (const name of [
+      "koffi",
+      `@koromix/koffi-${process.platform}-${process.arch}`,
+    ])
+      expect(
+        JSON.parse(
+          readFileSync(
+            join(
+              app,
+              "Contents/Resources/app/node_modules",
+              name,
+              "package.json",
+            ),
+            "utf8",
+          ),
+        ).version,
+      ).toBe("3.3.4");
     expect(
       readFileSync(join(app, "Contents/Resources/app/dist/main.cjs"), "utf8"),
     ).toBe("// fixture");
@@ -203,6 +270,10 @@ test("packaging rejects missing or invalid release identity before creating outp
     writeFileSync(join(root, "package.json"), JSON.stringify(identity));
     const script = join(root, "scripts/package.ts");
     cpSync(join(import.meta.dir, "../scripts/package.ts"), script);
+    cpSync(
+      join(import.meta.dir, "../scripts/package-files.ts"),
+      join(root, "scripts/package-files.ts"),
+    );
     const result = Bun.spawnSync([process.execPath, script], { cwd: root });
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("valid version and astraBuild");

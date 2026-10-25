@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { buildSiteWorker } from "../scripts/build-site-worker";
 import { type SiteAssets, siteResponse } from "../src/site-worker";
 
 const WEB_BUILD_TIMEOUT_MS = 30_000;
@@ -104,6 +105,43 @@ test("HTML response headers prevent injected scripts while preserving canvas and
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-transform");
     expect(await response.text()).toContain("<main");
+  }
+});
+
+test("the deployed phone worker embeds the offline typeface without corrupting binary data", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "astra-brand-worker-"));
+  const assetDirectory = join(directory, "assets");
+  const font = new Uint8Array([0, 1, 0, 0, 255, 254, 128]);
+  try {
+    for (const file of [
+      "index.html",
+      "canvas.html",
+      "web.js",
+      "audio-worklet.js",
+      "styles.css",
+      "web.css",
+      "icon.png",
+      "astra-logo.svg",
+      "brand.css",
+      "OFL-Outfit.txt",
+    ])
+      await Bun.write(join(assetDirectory, file), "fixture");
+    await Bun.write(join(assetDirectory, "outfit.ttf"), font);
+    await buildSiteWorker(assetDirectory, join(directory, "worker"));
+    const worker = (await import(join(directory, "worker/index.js"))).default;
+    const response = worker.fetch(
+      new Request("https://astra.example/outfit.ttf"),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("font/ttf");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(font);
+    expect(
+      worker
+        .fetch(new Request("https://astra.example/astra-logo.svg"))
+        .headers.get("content-type"),
+    ).toBe("image/svg+xml");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

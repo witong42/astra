@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildCanvas } from "./build-canvas";
 import { buildSiteWorker } from "./build-site-worker";
-import { appIcon } from "./icon";
+import { appIcon, copyBrand } from "./icon";
 
 const root = join(import.meta.dir, "..");
 const outdir = join(root, "dist/client");
@@ -12,7 +12,7 @@ const { version, astraBuild } = JSON.parse(
 const remote = process.env.ASTRA_REMOTE_URL;
 if (!remote)
   throw new Error(
-    "Set ASTRA_REMOTE_URL to your Mac's HTTPS origin before building the phone client. See README.md#phone-access.",
+    "Set ASTRA_REMOTE_URL to your desktop's HTTPS origin before building the phone client. See README.md#phone-access.",
   );
 const url = new URL(remote);
 const loopback =
@@ -59,6 +59,7 @@ const html = readFileSync(join(root, "src/index.html"), "utf8")
 await Bun.write(join(outdir, "index.html"), html);
 for (const file of ["styles.css", "web.css"])
   copyFileSync(join(root, "src", file), join(outdir, file));
+copyBrand(root, outdir);
 await Bun.write(join(outdir, "icon.png"), appIcon().png);
 await buildSiteWorker(outdir, join(root, "dist/server"));
 console.log(`Built Astra web for ${remote}.`);
