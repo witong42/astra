@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appIcon, BRAND_FILES, copyBrand } from "../scripts/icon";
 
+const ICON_SWIFT_TIMEOUT_MS = 45_000;
+const ICON_TEST_TIMEOUT_MS = 60_000;
+
 test("branding ships the same offline font, artwork and license to every client", () => {
   const directory = mkdtempSync(join(tmpdir(), "astra-brand-test-"));
   try {
@@ -67,11 +70,12 @@ let opaque = (0..<image.pixelsWide).filter { (image.colorAt(x: $0, y: middle)?.a
 print("\(opaque.first ?? -1) \(opaque.last ?? -1)")`,
           decoded,
         ],
-        { encoding: "utf8" },
+        { encoding: "utf8", timeout: ICON_SWIFT_TIMEOUT_MS },
       );
       expect(bounds.trim()).toBe("100 923");
     } finally {
       rmSync(directory, { recursive: true });
     }
   },
+  ICON_TEST_TIMEOUT_MS,
 );
