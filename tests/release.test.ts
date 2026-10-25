@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 import {
   assertReleaseAssets,
   releaseArchives,
@@ -15,6 +16,45 @@ afterEach(() => {
   for (const directory of temporary.splice(0))
     rmSync(directory, { recursive: true, force: true });
 });
+
+test.each([
+  ["push", "refs/tags/v0.6.0", true],
+  ["workflow_dispatch", "refs/tags/v0.6.0", false],
+  ["workflow_dispatch", "refs/heads/main", false],
+  ["pull_request", "refs/pull/1/merge", false],
+  ["push", "refs/heads/main", false],
+] as const)(
+  "publication is restricted to an actual tag push (%s %s)",
+  (event, ref, expected) => {
+    const workflow = Bun.YAML.parse(
+      readFileSync(
+        new URL("../.github/workflows/check.yml", import.meta.url),
+        "utf8",
+      ),
+    ) as {
+      jobs: Record<
+        string,
+        { if: string; steps: { env?: Record<string, string> }[] }
+      >;
+    };
+    const context = {
+      github: { event_name: event, ref },
+      startsWith: (value: string, prefix: string) => value.startsWith(prefix),
+    };
+    for (const name of ["draft", "publish"])
+      expect(runInNewContext(workflow.jobs[name].if, context)).toBe(expected);
+    const flag = workflow.jobs.packages.steps.find(
+      (step) => step.env?.PUBLISH_RELEASE,
+    )?.env?.PUBLISH_RELEASE;
+    expect(typeof flag).toBe("string");
+    expect(
+      runInNewContext(
+        flag?.replace(/^\$\{\{\s*|\s*\}\}$/g, "") ?? "undefined",
+        context,
+      ),
+    ).toBe(expected);
+  },
+);
 
 test("release identity matches a stable tag and a positive build", () => {
   expect(
