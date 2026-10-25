@@ -189,28 +189,59 @@ $writer.Dispose(); $png.Dispose(); $graphics.Dispose(); $bitmap.Dispose(); $sour
 }
 
 export function windowsInstaller(version: string) {
-  return `param([switch]$NoLaunch)
+  return String.raw`param([switch]$NoLaunch,[string]$Destination)
 $ErrorActionPreference='Stop'
-$installRoot=Join-Path $env:LOCALAPPDATA 'Programs\\Astra'
-$destination=Join-Path $installRoot '${version}'
-if ((Get-Process Astra -ErrorAction SilentlyContinue | Where-Object {$_.Path -like "$installRoot\\*"})) {throw 'Quit Astra before installing this version.'}
+$installRoot=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs\Astra'))
+if (!$Destination) {$Destination=Join-Path $installRoot '${version}'}
+$destination=[IO.Path]::GetFullPath($Destination)
+if ([IO.Path]::GetDirectoryName($destination) -ne $installRoot -or [IO.Path]::GetFileName($destination) -notmatch '^[0-9]+.[0-9]+.[0-9]+$') {throw 'The update destination must be an installed Astra version directory.'}
+if ((Get-Process Astra -ErrorAction SilentlyContinue | Where-Object {$_.Path -like "$installRoot\*"})) {throw 'Quit Astra before installing this version.'}
 $manifest=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'app-manifest.json') -Raw | ConvertFrom-Json
-function Test-AppFiles($directory) {
-  foreach ($file in $manifest.files) {
-    $path=Join-Path $directory $file.path
-    if (!(Test-Path -LiteralPath $path) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.sha256) {throw "Astra file verification failed: $($file.path). Extract the complete release again."}
+if ($manifest.version -ne '${version}' -or !$manifest.files.Count) {throw 'The Astra package has the wrong version or an empty file manifest.'}
+function Test-AppFiles($directory,$inventory) {
+  $root=[IO.Path]::GetFullPath($directory).TrimEnd('') + ''
+  foreach ($file in $inventory.files) {
+    $path=[IO.Path]::GetFullPath((Join-Path $directory $file.path))
+    if (!$path.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) -or !(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.sha256) {throw "Astra file verification failed: $($file.path). Extract the complete release again."}
   }
 }
-Test-AppFiles $PSScriptRoot
-New-Item -ItemType Directory -Path $destination -Force | Out-Null
-Get-ChildItem -LiteralPath $PSScriptRoot | Copy-Item -Destination $destination -Recurse -Force
-Test-AppFiles $destination
-$bin=Join-Path $env:USERPROFILE '.local\\bin'
+Test-AppFiles $PSScriptRoot $manifest
+if (Test-Path -LiteralPath $destination) {
+  if ((Get-Item -LiteralPath $destination).Attributes -band [IO.FileAttributes]::ReparsePoint -or !(Test-Path -LiteralPath (Join-Path $destination 'app-manifest.json'))) {throw 'The update destination is not a verified Astra installation.'}
+  $current=Get-Content -LiteralPath (Join-Path $destination 'app-manifest.json') -Raw | ConvertFrom-Json
+  if (!($current.files | Where-Object {$_.path -eq 'Astra.exe'})) {throw 'The update destination is not an Astra installation.'}
+  Test-AppFiles $destination $current
+}
+New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+$staging=Join-Path $installRoot ('.astra-install-' + [Guid]::NewGuid().ToString('N'))
+$previous=$null
+try {
+  New-Item -ItemType Directory -Path $staging | Out-Null
+  Get-ChildItem -LiteralPath $PSScriptRoot | Copy-Item -Destination $staging -Recurse -Force
+  Test-AppFiles $staging $manifest
+  if (Test-Path -LiteralPath $destination) {
+    $previous=$destination + '.previous-' + [Guid]::NewGuid().ToString('N')
+    Move-Item -LiteralPath $destination -Destination $previous
+  }
+  try {
+    Move-Item -LiteralPath $staging -Destination $destination
+    $staging=$null
+    Test-AppFiles $destination $manifest
+  } catch {
+    if (Test-Path -LiteralPath $destination) {Remove-Item -LiteralPath $destination -Recurse -Force}
+    if ($previous) {Move-Item -LiteralPath $previous -Destination $destination; $previous=$null}
+    throw
+  }
+} finally {
+  if ($staging -and (Test-Path -LiteralPath $staging)) {Remove-Item -LiteralPath $staging -Recurse -Force}
+}
+$folder=[IO.Path]::GetFileName($destination)
+$bin=Join-Path $env:USERPROFILE '.local\bin'
 New-Item -ItemType Directory -Path $bin -Force | Out-Null
-$cli='@echo off' + "\r\n" + 'setlocal' + "\r\n" + 'set ELECTRON_RUN_AS_NODE=1' + "\r\n" + '"%LOCALAPPDATA%\\Programs\\Astra\\${version}\\Astra.exe" "%LOCALAPPDATA%\\Programs\\Astra\\${version}\\resources\\app\\dist\\astra.cjs" %*' + "\r\n" + 'exit /b %errorlevel%' + "\r\n"
+$cli='@echo off' +  [Environment]::NewLine + 'setlocal' +  [Environment]::NewLine + 'set ELECTRON_RUN_AS_NODE=1' +  [Environment]::NewLine + '"%LOCALAPPDATA%\Programs\Astra\' + $folder + '\Astra.exe" "%LOCALAPPDATA%\Programs\Astra\' + $folder + '\resources\app\dist\astra.cjs" %*' +  [Environment]::NewLine + 'exit /b %errorlevel%' +  [Environment]::NewLine
 [IO.File]::WriteAllText((Join-Path $bin 'astra.cmd'),$cli,[Text.Encoding]::ASCII)
 $shell=New-Object -ComObject WScript.Shell
-$start=Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs'
+$start=Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
 New-Item -ItemType Directory -Path $start -Force | Out-Null
 $shortcut=$shell.CreateShortcut((Join-Path $start 'Astra.lnk'))
 $shortcut.TargetPath=Join-Path $destination 'Astra.exe'

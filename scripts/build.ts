@@ -50,6 +50,8 @@ for (const result of [main, renderer, cli])
 chmodSync(join(outdir, "astra.cjs"), 0o755);
 for (const file of ["index.html", "styles.css", "audio-host.html"])
   copyFileSync(join(root, "src", file), join(outdir, file));
+for (const file of ["install.sh", "install.ps1"])
+  copyFileSync(join(root, file), join(outdir, file));
 copyBrand(root, outdir);
 console.log("Built Astra desktop and renderer.");
 const icon = appIcon();

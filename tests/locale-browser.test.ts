@@ -33,6 +33,9 @@ async function browserProbe(config: {
     "snapshot",
     "voiceSnapshot",
     "remoteActive",
+    "updateSnapshot",
+    "checkForUpdates",
+    "installUpdate",
     "selectWorkspace",
     "updateCanvas",
     "updateOpenUI",
@@ -48,6 +51,12 @@ async function browserProbe(config: {
       calls.get(event.sender.id)?.push({ method, args });
       if (method === "snapshot") return state;
       if (method === "voiceSnapshot") return voices.get(event.sender.id);
+      if (method === "updateSnapshot") return { status: "idle" };
+      if (method === "checkForUpdates") {
+        const update = { status: "ready", version: "9.8.7", percent: 100 };
+        event.sender.send("astra:update", update);
+        return update;
+      }
       if (method === "pauseVoice" || method === "startVoice") {
         const voice = {
           ...config.voice,
@@ -388,6 +397,55 @@ async function browserProbe(config: {
       ),
       "Que veux-tu créer ?",
     );
+    if (device === "mac") {
+      await control({ action: "home" });
+      if (
+        !(await evaluate(
+          "document.querySelector('#chat-toggle').getAttribute('aria-expanded')==='true'",
+        ))
+      )
+        await click("#chat-toggle");
+      await click("button.app-release");
+      await waitFor(
+        "document.querySelector('.update-button')?.textContent==='Redémarrer pour mettre à jour'",
+      );
+      assert.equal(
+        await evaluate("document.querySelector('.update-button').disabled"),
+        true,
+      );
+      await click(".update-button");
+      assert.equal(
+        calls
+          .get(window.webContents.id)
+          ?.filter((call) => call.method === "installUpdate").length,
+        0,
+      );
+      const paused = {
+        ...config.voice,
+        active: true,
+        status: "standby",
+      } as VoiceState;
+      voices.set(window.webContents.id, paused);
+      window.webContents.send("astra:voice", paused);
+      await waitFor(
+        "document.querySelector('.update-button').disabled===false",
+      );
+      await click('.language-switch button[lang="en"]');
+      await waitFor(
+        "document.querySelector('.update-button')?.textContent==='Restart to update'",
+      );
+      await screenshot("en-update");
+      await click(".update-button");
+      await waitFor(
+        "document.querySelector('.update-button').disabled===false",
+      );
+      assert.equal(
+        calls
+          .get(window.webContents.id)
+          ?.filter((call) => call.method === "installUpdate").length,
+        1,
+      );
+    }
   }
   assert.deepEqual(errors, []);
   clearTimeout(timeout);
@@ -402,6 +460,7 @@ async function browserProbe(config: {
       rename: true,
       persistence: true,
       independentDevices: true,
+      updates: true,
       voiceRestarts: 0,
       errors: 0,
     }),

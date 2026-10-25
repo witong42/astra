@@ -2159,6 +2159,13 @@ td {
   font-size: 10px;
   color: var(--muted);
 }
+button.app-release {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: right;
+  cursor: pointer;
+}
 .journal-drawer .composer {
   border-color: #ffffff16;
   background: #151f29;

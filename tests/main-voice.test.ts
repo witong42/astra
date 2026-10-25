@@ -50,6 +50,9 @@ function fixture() {
     changingVoice: 0,
     desktopVoiceWasActive: true,
     quitting: false,
+    installingUpdate: false,
+    PASSIVE_METHODS: new Set(["snapshot"]),
+    methods: new Map<string, (...args: unknown[]) => unknown>(),
     trayStatus: "",
     window: null,
     remote: null,
@@ -80,7 +83,7 @@ function fixture() {
     Menu: { buildFromTemplate: (value: typeof menu) => value },
   };
   const actions = runInNewContext(
-    `${controller}\n({ startVoiceInput, setRemoteActive, updateVoice, connecting: ${connectHandler}, disconnected: ${disconnectHandler} })`,
+    `${controller}\n({ startVoiceInput, setRemoteActive, updateVoice, invokeRemote, connecting: ${connectHandler}, disconnected: ${disconnectHandler} })`,
     context,
   ) as {
     startVoiceInput: (
@@ -91,6 +94,11 @@ function fixture() {
     updateVoice: (state: typeof voice) => void;
     disconnected: (clientId: string) => void;
     connecting: () => Promise<void>;
+    invokeRemote: (
+      method: string,
+      args: unknown[],
+      clientId: string,
+    ) => Promise<unknown>;
   };
   return {
     actions,
@@ -121,6 +129,42 @@ test("desktop voice starts cannot release a microphone owned by the phone", asyn
   });
   expect(f.context.phoneInput).toBe(f.input);
   expect(f.context.voiceTransfer).toBe(0);
+});
+
+test("a phone cannot take ownership while an update is preparing to restart Astra", async () => {
+  const f = fixture();
+  f.context.installingUpdate = true;
+  await expect(f.actions.connecting()).rejects.toThrow("updating");
+  expect(f.context.remoteActive).toBe(false);
+  expect(f.state().stops).toBe(0);
+});
+
+test("a pending phone connection cannot acquire ownership after update preparation starts", async () => {
+  const f = fixture();
+  let resume!: () => void;
+  f.context.flushRenderer = () =>
+    new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+  const connecting = f.actions.connecting();
+  f.context.installingUpdate = true;
+  resume();
+  await expect(connecting).rejects.toThrow("updating");
+  expect(f.context.remoteActive).toBe(false);
+  expect(f.state().stops).toBe(0);
+});
+
+test("remote actions cannot start a response during update preparation", async () => {
+  const f = fixture();
+  f.context.installingUpdate = true;
+  f.context.methods.set("send", () => "unexpected remote send");
+  await expect(f.actions.invokeRemote("send", [], "phone")).rejects.toThrow(
+    "updating",
+  );
+  f.context.methods.set("snapshot", () => "saved snapshot");
+  expect(await f.actions.invokeRemote("snapshot", [], "phone")).toBe(
+    "saved snapshot",
+  );
 });
 
 test("desktop voice remains available after the phone releases ownership", async () => {

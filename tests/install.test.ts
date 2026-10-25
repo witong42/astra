@@ -29,7 +29,7 @@ function fixture(identifier = BUNDLE_ID) {
   copyFileSync("/usr/bin/true", join(application, "Contents/MacOS/Astra"));
   writeFileSync(
     join(application, "Contents/Info.plist"),
-    `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${identifier}</string><key>CFBundleExecutable</key><string>Astra</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string></dict></plist>`,
+    `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${identifier}</string><key>CFBundleExecutable</key><string>Astra</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>0.3.2</string><key>CFBundleVersion</key><string>1</string></dict></plist>`,
   );
   execFileSync("codesign", ["--force", "--sign", "-", application]);
   execFileSync("ditto", [
@@ -121,7 +121,7 @@ else if(name==='curl'){
 record();if(args.includes('--write-out'))console.log(env.ASTRA_TEST_RELEASE_URL??'https://github.com/witong42/astra/releases/tag/v${LINUX_VERSION}');
 else{const output=args[args.indexOf('-o')+1];const file=args.at(-1).split('/').at(-1);copyFileSync(join(env.ASTRA_TEST_RELEASE,file),output);}
 }
-else if(name==='sudo'){record();const child=Bun.spawnSync(args,{env,stdout:'inherit',stderr:'inherit'});process.exit(child.exitCode);}
+else if(name==='sudo'||name==='pkexec'){record();const child=Bun.spawnSync(args,{env,stdout:'inherit',stderr:'inherit'});process.exit(child.exitCode);}
 else if(name==='apt-get'){record();process.exit(Number(env.ASTRA_TEST_APT_EXIT??'0'));}
 `;
   for (const command of [
@@ -133,6 +133,7 @@ else if(name==='apt-get'){record();process.exit(Number(env.ASTRA_TEST_APT_EXIT??
     "sha256sum",
     "curl",
     "sudo",
+    "pkexec",
     "apt-get",
   ])
     writeFileSync(join(bin, command), script, { mode: 0o700 });
@@ -160,6 +161,35 @@ else if(name==='apt-get'){record();process.exit(Number(env.ASTRA_TEST_APT_EXIT??
       : [];
   return { directory, bin, release, profile, run, commands, linuxArchive };
 }
+
+for (const architecture of ["arm64", "x64"] as const)
+  test.skipIf(process.platform === "win32")(
+    `Linux ${architecture} in-app updates reuse the downloaded package and request graphical authorization`,
+    () => {
+      const f = linuxFixture(architecture);
+      try {
+        const result = f.run({
+          ASTRA_UPDATE_ARCHIVE: join(f.release, f.linuxArchive),
+          ASTRA_UPDATE_VERSION: `v${LINUX_VERSION}`,
+          ASTRA_UPDATE_GUI: "1",
+        });
+        expect({
+          code: result.exitCode,
+          error: result.stderr.toString(),
+        }).toEqual({ code: 0, error: "" });
+        expect(f.commands().map((entry) => entry.name)).toEqual([
+          "pkexec",
+          "apt-get",
+        ]);
+        expect(readFileSync(join(f.profile, "workspace.json"), "utf8")).toBe(
+          '{"preserved":true}',
+        );
+      } finally {
+        rmSync(f.directory, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
 
 for (const architecture of ["arm64", "x64"] as const)
   test.skipIf(process.platform === "win32")(
@@ -293,6 +323,39 @@ test.skipIf(process.platform === "win32")(
       } finally {
         rmSync(f.directory, { recursive: true, force: true });
       }
+    }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test.skipIf(process.platform !== "darwin")(
+  "an in-app update installs its already verified release offline and retains the previous bundle",
+  () => {
+    const f = fixture();
+    try {
+      expect(f.run().exitCode).toBe(0);
+      rmSync(join(f.release, "release.json"));
+      const result = f.run({
+        ASTRA_UPDATE_ARCHIVE: join(f.release, APP_ARCHIVE),
+        ASTRA_UPDATE_VERSION: "v0.3.2",
+      });
+      expect({
+        code: result.exitCode,
+        error: result.stderr.toString(),
+      }).toEqual({ code: 0, error: "" });
+      for (const app of [
+        join(f.destination, "Astra.app"),
+        join(f.release, "previous.app"),
+      ])
+        execFileSync("codesign", ["--verify", "--deep", "--strict", app]);
+      const mismatch = f.run({
+        ASTRA_UPDATE_ARCHIVE: join(f.release, APP_ARCHIVE),
+        ASTRA_UPDATE_VERSION: "v0.6.0",
+      });
+      expect(mismatch.exitCode).not.toBe(0);
+      expect(mismatch.stderr.toString()).toContain("version");
+    } finally {
+      rmSync(f.directory, { recursive: true, force: true });
     }
   },
   TEST_TIMEOUT_MS,

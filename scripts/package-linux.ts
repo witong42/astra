@@ -30,6 +30,8 @@ const DESKTOP_FILES = [
   "styles.css",
   "canvas.html",
   "audio-host.html",
+  "install.sh",
+  "install.ps1",
   "icon.png",
   "dock.png",
   ...BRAND_FILES,
@@ -170,7 +172,7 @@ Section: utils
 Priority: optional
 Maintainer: Astra contributors
 Homepage: https://github.com/witong42/astra
-Depends: ${nativeDependencies}, libgtk-3-0t64, xdg-utils
+Depends: ${nativeDependencies}, libgtk-3-0t64, xdg-utils, pkexec
 Installed-Size: ${Math.ceil(directoryBytes(join(staging, "usr")) / 1024)}
 Description: Personal desktop assistant with offline wake recognition
  Astra turns conversations into mini-apps and provides native Linux shell actions.

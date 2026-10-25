@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import type { Server } from "node:net";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -37,6 +37,8 @@ import { RendererAudio } from "./renderer-audio";
 import { runShellScript } from "./shell-script";
 import { DEFAULT_WORKSPACE_DIRECTORY, loadState, saveState } from "./storage";
 import type { SavedState, Snapshot } from "./types";
+import { launchUpdateInstaller, prepareUpdateInstall } from "./update-install";
+import { AppUpdates } from "./updates";
 import { APP_BUILD, APP_VERSION } from "./version";
 import { VoiceSession, type VoiceState } from "./voice";
 import { loadLocalModel, type VoskModel, voiceAssets } from "./vosk";
@@ -48,6 +50,12 @@ const SNAPSHOT_INTERVAL_MS = 40;
 const SAVE_INTERVAL_MS = 300;
 const FLUSH_TIMEOUT_MS = 5000;
 const HIDDEN_TEST_WINDOW = config.testHidden;
+const UPDATES_DIRECTORY = join(DATA_DIRECTORY, "updates");
+const UPDATE_START_DELAY_MS = 30_000;
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60_000;
+let updates: AppUpdates | null = null;
+let updateTimer: ReturnType<typeof setInterval> | null = null;
+let installingUpdate = false;
 let window: BrowserWindow | null = null;
 let backend: CodexBackend;
 let voice: VoiceSession;
@@ -85,6 +93,8 @@ const PASSIVE_METHODS = new Set([
   "snapshot",
   "voiceSnapshot",
   "remoteActive",
+  "updateSnapshot",
+  "checkForUpdates",
   ...PERSISTENCE_METHODS,
 ]);
 const controlInterface: AppController = (request) => {
@@ -164,6 +174,14 @@ function installHandlers() {
       )
         throw new Error("This request did not come from the Astra window.");
       if (remoteActive && PERSISTENCE_METHODS.has(name)) return;
+      if (
+        installingUpdate &&
+        !PASSIVE_METHODS.has(name) &&
+        name !== "installUpdate"
+      )
+        throw new Error(
+          "Astra is preparing an update. Retry after it restarts.",
+        );
       if (!PASSIVE_METHODS.has(name)) {
         assertDesktopOwnership();
         if (
@@ -177,6 +195,75 @@ function installHandlers() {
   };
   handle("voiceSnapshot", () => voice.snapshot());
   handle("remoteActive", () => remoteActive);
+  handle("updateSnapshot", () => updates?.snapshot() ?? { status: "idle" });
+  handle("checkForUpdates", async () => {
+    if (!app.isPackaged || HIDDEN_TEST_WINDOW || !updates)
+      throw new Error(
+        "Updates are available in the installed Astra app. Download it from getastra.halcytron.chatgpt.site.",
+      );
+    await updates.check();
+    return updates.snapshot();
+  });
+  handle("installUpdate", async () => {
+    if (installingUpdate) return;
+    if (!app.isPackaged || HIDDEN_TEST_WINDOW || !updates)
+      throw new Error("Updates are available in the installed Astra app.");
+    const activeVoice = voice.snapshot();
+    if (
+      remoteActive ||
+      Object.values(backend.snapshot().sessions).some(
+        (session) => session.busy,
+      ) ||
+      (activeVoice.active && activeVoice.status !== "standby")
+    )
+      throw new Error(
+        "Finish the current response and pause voice before restarting Astra to update.",
+      );
+    const prepared = updates.prepared();
+    const resumeStandby =
+      activeVoice.active && activeVoice.status === "standby";
+    installingUpdate = true;
+    updates.installing();
+    try {
+      stopVoiceInput();
+      const installation = await prepareUpdateInstall(prepared, {
+        cacheDirectory: UPDATES_DIRECTORY,
+        appPath: app.getAppPath(),
+        executable: app.getPath("exe"),
+        platform: process.platform,
+        parentPid: process.pid,
+      });
+      await controlQueue;
+      await flushRenderer(true);
+      if (
+        quitting ||
+        remoteActive ||
+        Object.values(backend.snapshot().sessions).some(
+          (session) => session.busy,
+        )
+      )
+        throw new Error(
+          "Astra became busy or is already quitting. Retry the update after restarting.",
+        );
+      if (saved) saveState(join(DATA_DIRECTORY, "workspace.json"), saved);
+      await launchUpdateInstaller(installation);
+      app.quit();
+    } catch (error) {
+      installingUpdate = false;
+      const failure = await updates.installationFailed(error);
+      if (!quitting && resumeStandby) {
+        try {
+          await startVoiceInput(true, null);
+        } catch (voiceError) {
+          throw new Error(
+            `${failure.message} Voice could not resume: ${voiceError}`,
+            { cause: failure },
+          );
+        }
+      }
+      throw failure;
+    }
+  });
   handle("startVoice", async (standby) => {
     await startVoiceInput(z.boolean().optional().parse(standby) ?? false, null);
   });
@@ -423,8 +510,8 @@ async function invokeRemote(
   args: unknown[],
   clientId: string,
 ) {
-  if (quitting && !PASSIVE_METHODS.has(method))
-    throw new Error("Astra is closing on the Mac.");
+  if ((quitting || installingUpdate) && !PASSIVE_METHODS.has(method))
+    throw new Error("Astra is closing or updating. Retry after it restarts.");
   if (method === "startVoice") {
     const { captureId, standby } = z
       .object({
@@ -638,6 +725,17 @@ app
       updateVoice,
       () => controlInterface({ action: "home" }),
     );
+    const updater = new AppUpdates({
+      version: APP_VERSION,
+      platform: process.platform,
+      architecture: process.arch,
+      cacheDirectory: UPDATES_DIRECTORY,
+      onChange: (state) => {
+        if (window && !window.isDestroyed())
+          window.webContents.send("astra:update", state);
+      },
+    });
+    updates = updater;
     app.setAboutPanelOptions({
       applicationName: "Astra",
       applicationVersion: APP_VERSION,
@@ -688,6 +786,36 @@ app
       ]),
     );
     await createWindow();
+    if (app.isPackaged && !HIDDEN_TEST_WINDOW) {
+      const failure = join(UPDATES_DIRECTORY, "last-error.log");
+      if (existsSync(failure)) {
+        let log = join(UPDATES_DIRECTORY, "last-install-error.log");
+        try {
+          renameSync(failure, log);
+        } catch (error) {
+          console.error("Could not archive the update failure log:", error);
+          log = failure;
+        }
+        dialog.showErrorBox(
+          "Astra update failed",
+          `The update could not be completed. Your saved apps were not changed. Installation log: ${log}`,
+        );
+      }
+      const check = () => {
+        if (!quitting)
+          void updater
+            .check()
+            .catch((error) =>
+              console.error("Astra update check failed:", error),
+            );
+      };
+      setTimeout(() => {
+        if (quitting) return;
+        check();
+        updateTimer = setInterval(check, UPDATE_CHECK_INTERVAL_MS);
+        updateTimer.unref();
+      }, UPDATE_START_DELAY_MS).unref();
+    }
     try {
       const config = readRemoteConfig(
         join(DATA_DIRECTORY, "remote-access.json"),
@@ -695,7 +823,15 @@ app
       if (config) {
         remote = await startRemoteServer(config, {
           connecting: async () => {
+            if (installingUpdate || quitting)
+              throw new Error(
+                "Astra is updating. Reconnect after it restarts.",
+              );
             await flushRenderer(true);
+            if (installingUpdate || quitting)
+              throw new Error(
+                "Astra is updating. Reconnect after it restarts.",
+              );
             desktopVoiceWasActive = voice.snapshot().active;
             stopVoiceInput();
             setRemoteActive(true);
@@ -728,7 +864,7 @@ app
       broadcast(backend.snapshot());
     }
     api = await startAstraApi(astraSocketPath(DATA_DIRECTORY), (request) => {
-      if (quitting)
+      if (quitting || installingUpdate)
         throw new Error("Astra is quitting. Retry after opening it again.");
       return backend.appAction(request);
     });
@@ -758,6 +894,7 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   event.preventDefault();
   quitting = true;
+  if (updateTimer) clearInterval(updateTimer);
   api?.close();
   if (voice) stopVoiceInput();
   tray?.destroy();
@@ -791,7 +928,14 @@ app.on("before-quit", (event) => {
       await backend?.stop();
       await (await localModel)?.close();
     })
-    .finally(() => app.quit());
+    .finally(async () => {
+      try {
+        await updates?.dispose();
+      } catch (error) {
+        console.error("Astra update cleanup failed:", error);
+      }
+      app.quit();
+    });
 });
 process.on("SIGTERM", () => app.quit());
 process.on("SIGINT", () => app.quit());

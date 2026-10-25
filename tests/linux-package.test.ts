@@ -41,6 +41,8 @@ test.skipIf(
         "index.html",
         "styles.css",
         "audio-host.html",
+        "install.sh",
+        "install.ps1",
         "icon.png",
         "dock.png",
         "brand.css",
@@ -135,6 +137,7 @@ test.skipIf(
       expect(info).toContain("Version: 9.8.7-42");
       expect(info).toContain("Depends:");
       expect(info).toContain("libc6");
+      expect(info).toContain("pkexec");
       const extracted = join(root, "extracted");
       execFileSync("dpkg-deb", ["--extract", archive, extracted]);
       expect(

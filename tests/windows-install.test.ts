@@ -37,7 +37,7 @@ function powershell(script: string, extra: Record<string, string> = {}) {
   );
 }
 
-function fixture(scenario = "success") {
+function fixture(scenario = "success", offline = false) {
   const directory = mkdtempSync(join(tmpdir(), "astra web install [fixture] "));
   const application = join(directory, "Astra-win32-x64");
   const profile = join(directory, "personal-profile.json");
@@ -48,13 +48,24 @@ function fixture(scenario = "success") {
   mkdirSync(temporary);
   writeFileSync(profile, "existing personal data");
   writeFileSync(join(application, "Astra.exe"), "fixture app");
-  writeFileSync(join(application, "app-manifest.json"), "{}");
+  writeFileSync(
+    join(application, "app-manifest.json"),
+    JSON.stringify({
+      version: scenario === "wrong package version" ? "0.0.0" : VERSION,
+    }),
+  );
   if (scenario !== "missing installer")
     writeFileSync(
       join(application, "Install.ps1"),
       "$ErrorActionPreference='Stop'\nif ($env:ASTRA_INSTALL_SCENARIO -eq 'installer failure') {exit 7}\n[IO.File]::WriteAllText($env:ASTRA_INSTALL_SENTINEL,$PSScriptRoot)\n",
     );
   const env = {
+    ...(offline
+      ? {
+          ASTRA_UPDATE_ARCHIVE: join(directory, ARCHIVE),
+          ASTRA_UPDATE_VERSION: `v${VERSION}`,
+        }
+      : {}),
     ASTRA_INSTALL_FIXTURE: directory,
     ASTRA_INSTALL_SOURCE: SOURCE,
     ASTRA_INSTALL_ARCHIVE: ARCHIVE,
@@ -136,6 +147,23 @@ try {
 }
 
 test.skipIf(!WINDOWS)(
+  "Windows in-app updates install the selected local archive without another network request",
+  () => {
+    const item = fixture("success", true);
+    try {
+      const result = item.run();
+      expect(result.status).toBe(0);
+      expect(existsSync(item.sentinel)).toBe(true);
+      expect(item.requests()).toEqual([]);
+      item.verifyPreserved();
+    } finally {
+      item.close();
+    }
+  },
+  TIMEOUT,
+);
+
+test.skipIf(!WINDOWS)(
   "PowerShell pipe verifies and installs a release without leaking caller state",
   () => {
     const item = fixture();
@@ -163,6 +191,7 @@ for (const [scenario, error] of [
   ["wrong checksum name", "checksum verification"],
   ["unsafe path", "unexpected path"],
   ["missing installer", "missing Install.ps1"],
+  ["wrong package version", "wrong release version"],
   ["invalid tag", "No stable Astra release"],
   ["running app", "Quit Astra"],
   ["installer failure", "exit 7"],

@@ -19,8 +19,15 @@
     New-Item -ItemType Directory -Path $temporary | Out-Null
     try {
         Write-Host 'Finding the latest Astra release...'
-        $release = Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/witong42/astra/releases/latest' -Headers @{ 'User-Agent' = 'Astra-Installer' } -TimeoutSec 60
-        $tag = [string]$release.tag_name
+        if ($env:ASTRA_UPDATE_ARCHIVE) {
+            $tag = $env:ASTRA_UPDATE_VERSION
+            if (![IO.Path]::IsPathRooted($env:ASTRA_UPDATE_ARCHIVE) -or !(Test-Path -LiteralPath $env:ASTRA_UPDATE_ARCHIVE -PathType Leaf)) {
+                throw 'The downloaded Astra update is missing. Download the update again.'
+            }
+        } else {
+            $release = Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/witong42/astra/releases/latest' -Headers @{ 'User-Agent' = 'Astra-Installer' } -TimeoutSec 60
+            $tag = [string]$release.tag_name
+        }
         if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
             throw "No stable Astra release was found. Download manually from $repository/releases."
         }
@@ -29,8 +36,13 @@
         $checksum = "$archive.sha256"
         $download = "$repository/releases/download/$tag/$archiveName"
         Write-Host "Downloading Astra $tag for Windows..."
-        Invoke-WebRequest -UseBasicParsing -Uri $download -OutFile $archive -TimeoutSec 600
-        Invoke-WebRequest -UseBasicParsing -Uri "$download.sha256" -OutFile $checksum -TimeoutSec 60
+        if ($env:ASTRA_UPDATE_ARCHIVE) {
+            Copy-Item -LiteralPath $env:ASTRA_UPDATE_ARCHIVE -Destination $archive
+            Copy-Item -LiteralPath "$($env:ASTRA_UPDATE_ARCHIVE).sha256" -Destination $checksum
+        } else {
+            Invoke-WebRequest -UseBasicParsing -Uri $download -OutFile $archive -TimeoutSec 600
+            Invoke-WebRequest -UseBasicParsing -Uri "$download.sha256" -OutFile $checksum -TimeoutSec 60
+        }
         $line = (Get-Content -LiteralPath $checksum -Raw).Trim()
         if ($line -notmatch '\A([a-fA-F0-9]{64})[ \t]+\*?([^\r\n]+)\z') {
             throw 'The release checksum is invalid. Nothing was installed.'
@@ -60,8 +72,15 @@
                 throw "The Astra archive is missing $file. Nothing was installed."
             }
         }
+        $identity = Get-Content -LiteralPath (Join-Path $application 'app-manifest.json') -Raw | ConvertFrom-Json
+        if ([string]$identity.version -cne $tag.Substring(1)) {
+            throw 'The downloaded Astra package has the wrong release version. Nothing was installed.'
+        }
         $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $application 'Install.ps1')
+        $installerArgs = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $application 'Install.ps1'))
+        if ($env:ASTRA_UPDATE_DESTINATION) { $installerArgs += @('-Destination', $env:ASTRA_UPDATE_DESTINATION) }
+        if ($env:ASTRA_NO_OPEN -eq '1') { $installerArgs += '-NoLaunch' }
+        & $powershell @installerArgs
         if ($LASTEXITCODE -ne 0) {
             throw "Astra's installer failed (exit $LASTEXITCODE). Close Astra and try again, or use $repository/releases."
         }

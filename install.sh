@@ -40,22 +40,37 @@ install_linux() {
   fi
   local installer=(apt-get)
   if [[ "$(id -u)" != "0" ]]; then
-    command -v sudo >/dev/null || fail "Linux installation requires sudo, or run this script as root."
-    installer=(sudo apt-get)
+    if [[ "${ASTRA_UPDATE_GUI:-0}" == "1" ]]; then
+      command -v pkexec >/dev/null || fail "In-app updates require pkexec. Install it with your package manager, or update Astra from a terminal."
+      installer=(pkexec apt-get)
+    else
+      command -v sudo >/dev/null || fail "Linux installation requires sudo, or run this script as root."
+      installer=(sudo apt-get)
+    fi
   fi
 
   temporary=$(mktemp -d "${TMPDIR:-/tmp}/astra-download.XXXXXX")
   printf 'Finding the latest Astra release…\n'
   local latest_url version release_url linux_asset file
-  latest_url=$(curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 60 --head -o /dev/null --write-out '%{url_effective}' "$REPOSITORY/releases/latest") || fail "Could not find a public release. Check $REPOSITORY/releases."
-  [[ "$latest_url" == "$REPOSITORY/releases/tag/"* ]] || fail "The latest release returned an unexpected URL."
-  version=${latest_url##*/}
+  if [[ -n "${ASTRA_UPDATE_ARCHIVE:-}" ]]; then
+    version="${ASTRA_UPDATE_VERSION:-}"
+    [[ "$ASTRA_UPDATE_ARCHIVE" == /* && -f "$ASTRA_UPDATE_ARCHIVE" && -f "$ASTRA_UPDATE_ARCHIVE.sha256" ]] || fail "The downloaded update archive or checksum is missing. Retry the update."
+  else
+    latest_url=$(curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 60 --head -o /dev/null --write-out '%{url_effective}' "$REPOSITORY/releases/latest") || fail "Could not find a public release. Check $REPOSITORY/releases."
+    [[ "$latest_url" == "$REPOSITORY/releases/tag/"* ]] || fail "The latest release returned an unexpected URL."
+    version=${latest_url##*/}
+  fi
   [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "The release returned an unexpected version."
   release_url="$REPOSITORY/releases/download/$version"
   linux_asset="Astra-${version#v}-linux-$architecture.deb"
   printf 'Downloading Astra %s for Linux %s…\n' "$version" "$architecture"
   for file in "$linux_asset" "$linux_asset.sha256"; do
-    curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 300 "$release_url/$file" -o "$temporary/$file" || fail "Download failed. No package installation was started."
+    if [[ -n "${ASTRA_UPDATE_ARCHIVE:-}" ]]; then
+      local suffix="${file#"$linux_asset"}"
+      cp "$ASTRA_UPDATE_ARCHIVE$suffix" "$temporary/$file" || fail "The downloaded update could not be staged."
+    else
+      curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 300 "$release_url/$file" -o "$temporary/$file" || fail "Download failed. No package installation was started."
+    fi
   done
   local expected_hash checksum_name actual_hash package_name package_arch package_version package_release package_build
   read -r expected_hash checksum_name < "$temporary/$linux_asset.sha256"
@@ -107,13 +122,23 @@ fi
 
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/astra-download.XXXXXX")
 printf 'Finding the latest Astra release…\n'
-curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 60 "$RELEASE_API" -o "$temporary/release.json" || fail "Could not find a public release. Check $REPOSITORY/releases."
-version=$(plutil -extract tag_name raw -o - "$temporary/release.json") || fail "The release response did not include a version."
+if [[ -n "${ASTRA_UPDATE_ARCHIVE:-}" ]]; then
+  version="${ASTRA_UPDATE_VERSION:-}"
+  [[ "$ASTRA_UPDATE_ARCHIVE" == /* && -f "$ASTRA_UPDATE_ARCHIVE" && -f "$ASTRA_UPDATE_ARCHIVE.sha256" ]] || fail "The downloaded update archive or checksum is missing. Retry the update."
+else
+  curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 60 "$RELEASE_API" -o "$temporary/release.json" || fail "Could not find a public release. Check $REPOSITORY/releases."
+  version=$(plutil -extract tag_name raw -o - "$temporary/release.json") || fail "The release response did not include a version."
+fi
 [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "The release returned an unexpected version."
 release_url="$REPOSITORY/releases/download/$version"
 printf 'Downloading Astra %s for Apple Silicon…\n' "$version"
 for file in "$ASSET" "$ASSET.sha256"; do
-  curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 300 "$release_url/$file" -o "$temporary/$file" || fail "Download failed. No installed application was changed."
+  if [[ -n "${ASTRA_UPDATE_ARCHIVE:-}" ]]; then
+    suffix="${file#"$ASSET"}"
+    cp "$ASTRA_UPDATE_ARCHIVE$suffix" "$temporary/$file" || fail "The downloaded update could not be staged."
+  else
+    curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 300 "$release_url/$file" -o "$temporary/$file" || fail "Download failed. No installed application was changed."
+  fi
 done
 read -r expected_hash checksum_name < "$temporary/$ASSET.sha256"
 [[ "$expected_hash" =~ ^[a-fA-F0-9]{64}$ && "$checksum_name" == "$ASSET" ]] || fail "The release checksum has an unexpected format."
@@ -125,10 +150,15 @@ application="$temporary/unpacked/Astra.app"
 [[ -d "$application" && ! -L "$application" ]] || fail "The archive did not contain an Astra application."
 downloaded_id=$(plutil -extract CFBundleIdentifier raw -o - "$application/Contents/Info.plist") || fail "The application identity could not be read."
 is_astra_bundle "$downloaded_id" || fail "The downloaded application has the wrong identity."
+downloaded_version=$(plutil -extract CFBundleShortVersionString raw -o - "$application/Contents/Info.plist") || fail "The application version could not be read."
+[[ "$downloaded_version" == "${version#v}" ]] || fail "The downloaded application has the wrong release version."
 if [[ "$current_id" == "$BUNDLE_ID" && "$downloaded_id" == "$LEGACY_BUNDLE_ID" ]]; then
   fail "The latest public release still uses Astra's previous identity. Keep your current app and retry after the next release."
 fi
 codesign --verify --deep --strict "$application" || fail "Application signature verification failed. No installed application was changed."
+if [[ -n "${ASTRA_UPDATE_ARCHIVE:-}" && -e "$(dirname "$ASTRA_UPDATE_ARCHIVE")/previous.app" ]]; then
+  fail "This update already has a rollback copy. Download the update again."
+fi
 
 mkdir -p "$install_directory"
 staging=$(mktemp -d "$install_directory/.astra-install.XXXXXX")
@@ -139,6 +169,14 @@ if [[ -d "$destination" ]]; then
   mv "$destination" "$previous"
 fi
 mv "$staging/Astra.app" "$destination" || fail "Installation failed; restoring the previous application."
+if [[ -n "${ASTRA_UPDATE_ARCHIVE:-}" && -n "$previous" ]]; then
+  if mv "$previous" "$(dirname "$ASTRA_UPDATE_ARCHIVE")/previous.app"; then
+    previous=""
+  else
+    staging=""
+    fail "The update was installed, but the prior bundle could not be moved to the update cache. Its staging directory was retained."
+  fi
+fi
 printf '\nAstra %s is installed at %s\n' "$version" "$destination"
 printf 'Use your existing Codex CLI and ChatGPT sign-in. Your saved apps and Codex configuration were not changed.\n'
 printf 'On first launch, follow the normal macOS app and microphone prompts.\n'

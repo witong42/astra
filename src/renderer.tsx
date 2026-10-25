@@ -23,6 +23,7 @@ import { getCopy, INTERFACE_LANGUAGES } from "./locale";
 import { Surface } from "./SurfaceView";
 import { hasWorkspaceSurface } from "./surface";
 import type { Snapshot, Workspace } from "./types";
+import type { UpdateState } from "./updates";
 import { APP_RELEASE } from "./version";
 import { INITIAL_VOICE, type VoiceState } from "./voice";
 import { WorkspaceMenu } from "./WorkspaceMenu";
@@ -43,6 +44,7 @@ function App() {
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [voice, setVoice] = useState<VoiceState>(INITIAL_VOICE);
+  const [update, setUpdate] = useState<UpdateState>({ status: "idle" });
   const [remoteActive, setRemoteActive] = useState(false);
   const [home, setHome] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
@@ -114,6 +116,11 @@ function App() {
   useEffect(() => {
     const unsubscribe = window.astra.subscribeVoice(setVoice);
     window.astra.voiceSnapshot().then(setVoice).catch(onError);
+    return unsubscribe;
+  }, [onError]);
+  useEffect(() => {
+    const unsubscribe = window.astra.subscribeUpdates?.(setUpdate);
+    void window.astra.updateSnapshot?.().then(setUpdate).catch(onError);
     return unsubscribe;
   }, [onError]);
   const toggleVoice = useCallback(() => {
@@ -355,6 +362,18 @@ function App() {
   const draftId = home ? "assistant" : workspace.id;
   const voiceWorking =
     voice.status === "speaking" || voice.status === "thinking";
+  const updateBlocked =
+    remoteActive ||
+    Object.values(snapshot.sessions).some((session) => session.busy) ||
+    (voice.active && voice.status !== "standby");
+  const updateLabel =
+    update.status === "checking"
+      ? t.updateChecking
+      : update.status === "downloading"
+        ? t.updateDownloading(update.percent ?? 0)
+        : update.status === "current"
+          ? t.updateCurrent
+          : APP_RELEASE;
   return (
     <div className={`desktop-app ${home ? "on-home" : "in-app"}`}>
       <header className="toolbar desktop-toolbar">
@@ -366,6 +385,21 @@ function App() {
           )}
         </div>
         <div className="toolbar-actions">
+          {update.status === "ready" && window.astra.installUpdate && (
+            <button
+              type="button"
+              className="text-button update-button"
+              disabled={updateBlocked}
+              title={
+                updateBlocked
+                  ? t.updateFinishFirst
+                  : t.updateAvailable(update.version ?? "")
+              }
+              onClick={() => void window.astra.installUpdate?.().catch(onError)}
+            >
+              {t.updateRestart}
+            </button>
+          )}
           {snapshot.status === "offline" && (
             <button
               type="button"
@@ -649,7 +683,28 @@ function App() {
             )}
             <p className="journal-compose-context">
               {home ? t.talkAstra : workspace.name}
-              <small className="app-release">{APP_RELEASE}</small>
+              {window.astra.checkForUpdates ? (
+                <button
+                  type="button"
+                  className="app-release"
+                  title={update.error ?? t.checkUpdates}
+                  disabled={
+                    update.status === "checking" ||
+                    update.status === "downloading" ||
+                    update.status === "installing"
+                  }
+                  onClick={() =>
+                    void window.astra
+                      .checkForUpdates?.()
+                      .then(setUpdate)
+                      .catch(onError)
+                  }
+                >
+                  {updateLabel}
+                </button>
+              ) : (
+                <small className="app-release">{APP_RELEASE}</small>
+              )}
             </p>
             <Composer
               key={draftId}

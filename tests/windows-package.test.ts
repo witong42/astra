@@ -29,6 +29,7 @@ test.skipIf(process.platform !== "win32")(
       writeFileSync(
         join(source, "app-manifest.json"),
         JSON.stringify({
+          version: "9.8.7",
           files: [
             {
               path: "Astra.exe",
@@ -41,7 +42,7 @@ test.skipIf(process.platform !== "win32")(
       );
       const installer = join(source, "Install.ps1");
       writeFileSync(installer, `\uFEFF${windowsInstaller("9.8.7")}`);
-      const run = () =>
+      const run = (destination?: string) =>
         execFileSync(
           "powershell.exe",
           [
@@ -52,6 +53,7 @@ test.skipIf(process.platform !== "win32")(
             "-File",
             installer,
             "-NoLaunch",
+            ...(destination ? ["-Destination", destination] : []),
           ],
           {
             encoding: "utf8",
@@ -76,10 +78,39 @@ test.skipIf(process.platform !== "win32")(
       expect(
         readFileSync(join(directory, "user/.local/bin/astra.cmd"), "utf8"),
       ).toContain("ELECTRON_RUN_AS_NODE=1");
-      writeFileSync(join(source, "Astra.exe"), "damaged update");
-      expect(run).toThrow("Astra file verification failed");
+      const installedDirectory = join(local, "Programs/Astra/9.8.7");
+      writeFileSync(
+        join(installedDirectory, "obsolete.txt"),
+        "stale version file",
+      );
+      writeFileSync(join(source, "Astra.exe"), "updated executable fixture");
+      writeFileSync(
+        join(source, "app-manifest.json"),
+        JSON.stringify({
+          version: "9.8.8",
+          files: [
+            {
+              path: "Astra.exe",
+              sha256: createHash("sha256")
+                .update("updated executable fixture")
+                .digest("hex"),
+            },
+          ],
+        }),
+      );
+      writeFileSync(installer, `\uFEFF${windowsInstaller("9.8.8")}`);
+      expect(run(installedDirectory)).toContain("Installed Astra 9.8.8");
       expect(readFileSync(installed, "utf8")).toBe(
-        "verified executable fixture",
+        "updated executable fixture",
+      );
+      expect(existsSync(join(installedDirectory, "obsolete.txt"))).toBe(false);
+      expect(() => run(local)).toThrow("update destination");
+      writeFileSync(join(source, "Astra.exe"), "damaged update");
+      expect(() => run(installedDirectory)).toThrow(
+        "Astra file verification failed",
+      );
+      expect(readFileSync(installed, "utf8")).toBe(
+        "updated executable fixture",
       );
       expect(readFileSync(profile, "utf8")).toBe(
         "saved apps and conversations",

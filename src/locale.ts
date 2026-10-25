@@ -5,6 +5,14 @@ export const LANGUAGE_CHANGED_EVENT = "astra:language";
 
 const fr = {
   interfaceLanguage: "Langue de l’interface",
+  checkUpdates: "Rechercher des mises à jour",
+  updateChecking: "Vérification…",
+  updateCurrent: "Astra est à jour",
+  updateDownloading: (percent: number) => `Téléchargement ${percent} %`,
+  updateAvailable: (version: string) => `Astra ${version} est disponible`,
+  updateRestart: "Redémarrer pour mettre à jour",
+  updateFinishFirst:
+    "Termine la réponse en cours et mets la voix en pause avant de mettre à jour.",
   languageSaveFailed:
     "Impossible de mémoriser la langue. Autorise le stockage local puis réessaie.",
   openJournal: "Ouvrir le journal",
@@ -199,6 +207,14 @@ const fr = {
 
 const en: typeof fr = {
   interfaceLanguage: "Interface language",
+  checkUpdates: "Check for updates",
+  updateChecking: "Checking…",
+  updateCurrent: "Astra is up to date",
+  updateDownloading: (percent) => `Downloading ${percent}%`,
+  updateAvailable: (version) => `Astra ${version} is available`,
+  updateRestart: "Restart to update",
+  updateFinishFirst:
+    "Finish the current response and pause voice before updating.",
   languageSaveFailed:
     "Could not save the interface language. Allow local storage and try again.",
   openJournal: "Open journal",

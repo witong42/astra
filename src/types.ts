@@ -2,6 +2,7 @@ import type { Spec } from "@json-render/core";
 import type { AppleScriptRequest } from "./applescript";
 import type { CanvasAck, CanvasState } from "./canvas";
 import type { JournalEntry } from "./journal";
+import type { UpdateState } from "./updates";
 import type { VoiceState } from "./voice";
 
 export type Message = { id: string; role: "user" | "assistant"; text: string };
@@ -96,6 +97,10 @@ export type AudioStatus = {
   inbound: { bytes: number; packets: number; energy: number | null } | null;
 };
 export type Bridge = {
+  updateSnapshot?: () => Promise<UpdateState>;
+  subscribeUpdates?: (listener: (state: UpdateState) => void) => () => void;
+  checkForUpdates?: () => Promise<UpdateState>;
+  installUpdate?: () => Promise<void>;
   audioStatus?: () => Promise<AudioStatus>;
   remoteActive?: () => Promise<boolean>;
   subscribeRemoteActive?: (listener: (active: boolean) => void) => () => void;

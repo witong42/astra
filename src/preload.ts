@@ -1,11 +1,21 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { readLanguage } from "./locale";
 import type { Bridge, Snapshot } from "./types";
+import type { UpdateState } from "./updates";
 import type { VoiceState } from "./voice";
 
 const invoke = (name: string, ...args: unknown[]) =>
   ipcRenderer.invoke(`astra:${name}`, ...args);
 const bridge: Bridge = {
+  updateSnapshot: () => invoke("updateSnapshot"),
+  checkForUpdates: () => invoke("checkForUpdates"),
+  installUpdate: () => invoke("installUpdate"),
+  subscribeUpdates: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: UpdateState) =>
+      callback(state);
+    ipcRenderer.on("astra:update", listener);
+    return () => ipcRenderer.removeListener("astra:update", listener);
+  },
   remoteActive: () => invoke("remoteActive"),
   subscribeRemoteActive: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, active: boolean) =>
